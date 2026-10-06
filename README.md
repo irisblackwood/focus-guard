@@ -209,18 +209,11 @@ npm run eval    # 对抗评测：61 条高危写法 + 34 条良性命令，有�
 npm run bench   # 报文体量基准
 npm run check   # test + eval
 npm run library -- --src <资料目录> --out .ai/library   # 积木图书馆构建（幂等）
-npm run chain -- <AUDIT.log路径> [--mermaid|--semantica] # 执法档案因果树 / Semantica LPG 图谱导出
+npm run chain -- <AUDIT.log路径> [--mermaid]            # 执法档案因果树渲染
 npm run sentinel -- --check "<命令>"                     # 本地哨兵单条预判
-npm run viking -- --lib .ai/library [--push]             # 积木图书馆同步 OpenViking
 ```
 
-### 外接三件套（3.0.2）
-
-| 系统 | 桥 | 说明 |
-|---|---|---|
-| **OpenViking**（火山引擎 Agent 上下文数据库） | `tools/viking-bridge.mjs` | 积木图书馆以 `viking://resources/focus-guard-library/` 落入 resources 作用域；默认导出 batch-write 载荷，`--push` 直推服务端（`OPENVIKING_URL`/`OPENVIKING_API_KEY`，默认端口 1933）。图书馆是唯一事实源，OpenViking 是语义检索投影。 |
-| **Semantica**（图原生记忆层） | `tools/audit-chain.mjs --semantica` | 执法档案因果链导出 LPG 图谱 JSON（`caused`/`spawned` 边），导入 Semantica Knowledge Explorer 做因果追溯与可视化。 |
-| **Needle 2**（Cactus Compute 45M 端侧模型） | `tools/needle2-sentinel.mjs` | 哨兵外判运行器：`FG_SENTINEL_CMD="node tools/needle2-sentinel.mjs"` + `NEEDLE2_BIN`/`NEEDLE2_MODEL` 指向本地推理运行时；未配置/失败静默回退内建启发式。 |
+> **外接三件套**（OpenViking 同步桥 / Semantica LPG 图谱导出 / Needle 2 外判运行器）在 [`external-bridges`](https://github.com/irisblackwood/focus-guard/tree/external-bridges) 分支（tag `v3.0.2-external`）：主分支保持无外接精简版，哨兵本体与 `FG_SENTINEL_CMD` 外判契约仍在主分支，外接适配层按需取用。
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵；
 - **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；

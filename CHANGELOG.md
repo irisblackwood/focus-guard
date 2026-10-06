@@ -5,6 +5,14 @@
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
+## 3.0.3 — 主分支精简版（外接层移出）
+
+依领导 2026-10-06 批示（"有外接版的变成子分支，主分支为无外接的"）执行：**主分支为无外接精简版**，外接三件套整体迁至 [`external-bridges`](https://github.com/irisblackwood/focus-guard/tree/external-bridges) 分支（tag `v3.0.2-external`，内容与 v3.0.2 发布树一致）。
+
+- **移出主分支**：`tools/viking-bridge.mjs`（OpenViking 同步桥）、`tools/needle2-sentinel.mjs`（Needle 2 外判运行器）、`audit-chain --semantica` 图谱导出及对应验收用例、README 外接三件套节与 `viking` 脚本。
+- **保留主分支**：哨兵本体（`tools/sentinel.mjs` + `FG_SENTINEL_CMD` 外判契约——契约在主分支，适配器在分支）、因果链渲染（文本树/Mermaid）、批示词尾置、全部协作治理与执法功能。
+- 版本链 3.0.2 → 3.0.3；验收 101 → 100（1 例随外接层迁分支）。
+
 ## 3.0.2 — 外接三件套版
 
 依领导 2026-10-06 批示（"先接入 OpenViking 和 Semantica、Needle 2"）增补；OpenViking 对接基于本地 `E:\OpenViking-0.4.23` 真实 API（`POST /api/v1/fs/mkdir`、`POST /api/v1/content/batch-write`，默认端口 1933，`X-API-Key` 认证）。

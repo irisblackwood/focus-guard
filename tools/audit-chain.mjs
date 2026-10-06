@@ -6,20 +6,20 @@
 //   node tools/audit-chain.mjs <AUDIT.log> [--chain <链id>] [--mermaid] [--tail <n>]
 //
 // 文本树（默认）：按链分组，ref 用 ← 指回父事件；--mermaid 输出 Mermaid graph 供 Markdown 直接渲染。
+// （Semantica LPG 图谱导出见 external-bridges 分支的 --semantica 扩展。）
 
 import { readFileSync, existsSync } from "node:fs";
 
 function parse(argv) {
-  const args = { file: "", chain: "", mermaid: false, semantica: false, tail: 0 };
+  const args = { file: "", chain: "", mermaid: false, tail: 0 };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--chain") args.chain = argv[++i];
     else if (argv[i] === "--mermaid") args.mermaid = true;
-    else if (argv[i] === "--semantica") args.semantica = true;
     else if (argv[i] === "--tail") args.tail = parseInt(argv[++i], 10) || 0;
     else args.file = argv[i];
   }
   if (!args.file || !existsSync(args.file)) {
-    console.error("用法：node tools/audit-chain.mjs <AUDIT.log> [--chain <链id>] [--mermaid] [--semantica] [--tail <n>]");
+    console.error("用法：node tools/audit-chain.mjs <AUDIT.log> [--chain <链id>] [--mermaid] [--tail <n>]");
     process.exit(1);
   }
   return args;
@@ -95,39 +95,6 @@ function mermaid(recs, chainFilter) {
   return lines.join("\n");
 }
 
-// ── Semantica 图谱导出（3.0.2）：LPG JSON，供 Semantica Knowledge Explorer 导入做因果追溯 ──
-function semanticaGraph(recs, chainFilter) {
-  const nodes = [];
-  const edges = [];
-  for (const r of recs) {
-    if (chainFilter && r.chain !== chainFilter) continue;
-    nodes.push({
-      id: r.seq,
-      labels: ["AuditEvent", r.action],
-      props: {
-        ts: r.ts,
-        chain: r.chain || "",
-        level: r.level ?? null,
-        action: r.action,
-        evidence: String(r.evidence || "").slice(0, 140),
-        session: r.session,
-      },
-    });
-    if (r.ref) edges.push({ src: r.ref, dst: r.seq, label: "caused", directed: true });
-  }
-  // 链间父子：子代理链首事件 ← 父链首事件（spawned）
-  const chains = new Set(recs.filter((r) => !chainFilter).map((r) => r.chain || "(无链)"));
-  for (const c of chains) {
-    const m = String(c).match(/^(.+)\/d\d+$/);
-    if (m && chains.has(m[1])) {
-      const childFirst = recs.find((r) => r.chain === c);
-      const parentFirst = recs.find((r) => r.chain === m[1]);
-      if (childFirst && parentFirst) edges.push({ src: parentFirst.seq, dst: childFirst.seq, label: "spawned", directed: true });
-    }
-  }
-  return { format: "lpg-v1", generator: "focus-guard audit-chain 3.0.2", node_count: nodes.length, edge_count: edges.length, nodes, edges };
-}
-
 const args = parse(process.argv.slice(2));
 const recs = load(args.file, args.tail);
 const modern = recs.filter((r) => r.seq);
@@ -135,8 +102,4 @@ if (!modern.length) {
   console.log("本 AUDIT.log 无因果链记录（3.0.0 前格式缺 seq/chain/ref），流水账原文即全部信息。");
   process.exit(0);
 }
-if (args.semantica) {
-  console.log(JSON.stringify(semanticaGraph(modern, args.chain), null, 2));
-} else {
-  console.log(args.mermaid ? mermaid(modern, args.chain) : textTree(modern, args.chain));
-}
+console.log(args.mermaid ? mermaid(modern, args.chain) : textTree(modern, args.chain));

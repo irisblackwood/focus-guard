@@ -1497,25 +1497,7 @@ describe("3.0.2 尾置批示与外接桥", () => {
     assert.equal(stateOf("tail-y").highRiskOk, true, "头置 y+补充 仍构成批示");
   });
 
-  test("audit-chain --semantica：因果链导出 LPG 图谱（caused/spawned 边）", async () => {
-    const { spawnSync } = await import("node:child_process");
-    const { fileURLToPath } = await import("node:url");
-    const log = join(tmpdir(), `focus-guard-sem-${RUN}.log`);
-    const recs = [
-      { ts: "2026-10-06T12:00:00Z", session: "s", seq: "s1", chain: "T1", ref: null, action: "reset-fired", trigger: "x", level: null, evidence: "kw=10", pardon: false },
-      { ts: "2026-10-06T12:01:00Z", session: "s", seq: "s2", chain: "T1", ref: null, action: "subagent-spawn", trigger: "x", level: null, evidence: "派单", pardon: false },
-      { ts: "2026-10-06T12:02:00Z", session: "s", seq: "s3", chain: "T1/d1", ref: "s2", action: "delegate-used", trigger: "x", level: null, evidence: "委托消耗", pardon: false },
-    ];
-    writeFileSync(log, recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
-    const tool = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "audit-chain.mjs");
-    const p = spawnSync("node", [tool, log, "--semantica"], { encoding: "utf8" });
-    const g = JSON.parse(p.stdout);
-    assert.equal(g.format, "lpg-v1");
-    assert.equal(g.nodes.length, 3);
-    assert.deepEqual(g.edges.filter((e) => e.label === "caused").map((e) => [e.src, e.dst]), [["s2", "s3"]]);
-    assert.ok(g.edges.some((e) => e.label === "spawned"), "父链→子代理链应有 spawned 边");
-    rmSync(log, { force: true });
-  });
+  // （viking-bridge / audit-chain --semantica 用例随外接层移至 external-bridges 分支）
 
   test("viking-bridge：INDEX 解析与 batch-write 载荷组装（纯函数）", async (t) => {
     let bridge = null;
