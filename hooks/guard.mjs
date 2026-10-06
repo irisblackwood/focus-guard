@@ -790,22 +790,24 @@ function queueNote(state, currentBrief) {
   if (q.length < 1) return "";
   return `另有 ${q.length} 条待批已合并出示：${q.map((x) => x.c).join("；")}。回复 y 放行全部待批（各一次）、n 全部阻断。`;
 }
-// 授权消费（单条与批量统一）：命中待批键即消费一次；批量键从 highRiskBatch 移除
+// 授权消费（单条与批量统一）：命中即消费一次，且两槽同时清除——否则批量 y 放行的命令
+// 会在单条槽消费后仍留在批量槽里，同一命令被无声放行两次（一次性语义被破坏）
 function consumeHighRisk(state, key) {
+  let hit = false;
   if (state.highRiskOk && state.highRiskKey === key) {
     state.highRiskOk = false;
     state.highRiskCmd = "";
     state.highRiskKey = "";
-    return true;
+    hit = true;
   }
   const batch = state.highRiskBatch || [];
   const i = batch.indexOf(key);
   if (i >= 0) {
     batch.splice(i, 1);
     state.highRiskBatch = batch;
-    return true;
+    hit = true;
   }
-  return false;
+  return hit;
 }
 
 function ladderNote(level) {
