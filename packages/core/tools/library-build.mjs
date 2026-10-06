@@ -107,15 +107,16 @@ function main() {
 
   const rows = [];
   const today = new Date().toISOString();
+  const normSep = (s) => String(s).replace(/\\/g, "/"); // 幂等配对与平台无关（分隔符归一）
   for (const f of sources) {
     let text;
     try { text = readFileSync(f, "utf8"); } catch { continue; }
     const srcLabel = args.name || basename(dirname(f)) || "src";
-    const rel = relative(process.cwd(), f) || f;
+    const rel = normSep(relative(process.cwd(), f) || f);
     for (const b of splitBlocks(text)) {
       const fp = sha(b.title + "\n" + b.body);
-      // 幂等：同源同指纹的积木已存在 → 复用旧 id 与文件（重建不换号）
-      const dup = index.rows.find((v) => v.sha === fp && v.src === rel);
+      // 幂等：同内容指纹的积木已存在 → 复用旧 id 与文件（重建不换号；按内容配对，与源路径写法无关）
+      const dup = index.rows.find((v) => v.sha === fp);
       if (dup) {
         kept++;
         rows.push(`| ${dup.id} | ${dup.file} | ${b.title} | ${fp} | ${rel} | 保留 |`);

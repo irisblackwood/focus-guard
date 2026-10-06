@@ -1240,7 +1240,8 @@ describe("极限场景（v2.4.1）", () => {
 });
 
 describe("工程自检（防版本与文档漂移）", () => {
-  const ROOT = (p) => fileURLToPath(new URL(p, import.meta.url));
+  // 测试位于 packages/core/tests/：ROOT 相对测试文件上溯三级到仓库根，调用方传 "../x" 形式时剥掉前缀
+  const ROOT = (p) => fileURLToPath(new URL("../../../" + p.replace(/^\.\.\//, ""), import.meta.url));
 
   test("版本一致性：五处清单 + ENGINE_VERSION + 引擎头注释完全相同", () => {
     const guard = readFileSync(GUARD, "utf8");
@@ -1279,8 +1280,8 @@ describe("工程自检（防版本与文档漂移）", () => {
   });
 
   test("文档-实现口径对齐：术语 / 43条处置 / 58条阶段 / 未机械化清单 / 安装判据", () => {
-    const rules = readFileSync(ROOT("../docs/RULES.md"), "utf8");
-    const skill = readFileSync(ROOT("../skills/focus-thinking/SKILL.md"), "utf8");
+    const rules = readFileSync(ROOT("packages/core/docs/RULES.md"), "utf8");
+    const skill = readFileSync(ROOT("packages/core/skills/focus-thinking/SKILL.md"), "utf8");
     const guard = readFileSync(GUARD, "utf8");
     // 术语统一：映射表不再要求【请示报告】，引擎只认【授权识别】
     assert.ok(!rules.includes("须输出【请示报告】"), "法条映射表仍残留旧术语【请示报告】");
@@ -1316,7 +1317,7 @@ describe("工程自检（防版本与文档漂移）", () => {
   });
 
   test("hooks.json 六条钩子与引擎实现一一对应（防注册名漂移）", () => {
-    const hooks = JSON.parse(readFileSync(ROOT("../hooks/hooks.json"), "utf8"));
+    const hooks = JSON.parse(readFileSync(ROOT("packages/core/hooks/hooks.json"), "utf8"));
     const guard = readFileSync(GUARD, "utf8");
     assert.deepEqual(Object.keys(hooks.hooks), [
       "SessionStart",
@@ -1345,7 +1346,7 @@ describe("工程自检（防版本与文档漂移）", () => {
     const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
     const injected = ctx.split("\n【")[0]; // 引擎在常驻注入后可能追加巡视/版本告警段
     assert.ok(injected.length > 200, "注入文本提取失败");
-    assert.ok(readFileSync(ROOT("../docs/RULES.md"), "utf8").includes(injected), "RULES 第四部分与真实注入文本不一致");
+    assert.ok(readFileSync(ROOT("packages/core/docs/RULES.md"), "utf8").includes(injected), "RULES 第四部分与真实注入文本不一致");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -1497,24 +1498,20 @@ describe("3.0.2 尾置批示与外接桥", () => {
     assert.equal(stateOf("tail-y").highRiskOk, true, "头置 y+补充 仍构成批示");
   });
 
-  // （viking-bridge / audit-chain --semantica 用例随外接层移至 external-bridges 分支）
+  // （viking-bridge / audit-chain-semantica 用例随外接层迁至 tests/bridges.test.mjs）
 
-  test("viking-bridge：INDEX 解析与 batch-write 载荷组装（纯函数）", async (t) => {
-    let bridge = null;
-    try {
-      bridge = await import("../tools/viking-bridge.mjs");
-    } catch {}
-    if (!bridge) return t.skip("viking-bridge.mjs 待高危审批落盘后启用（文件含签名字面量走审批单）");
-    const rows = bridge.parseIndex(
-      "| id | 积木 | 标题 | sha256 | 源 | 状态 |\n|---|---|---|---|---|---|\n| B001 | B001-x.md | 积木一 | abc123 | src.md | 新建 |\n| B002 | B002-y.md | 积木二 | def456 | src.md | retired |"
-    );
-    assert.equal(rows.length, 2);
-    assert.equal(rows[0].id, "B001");
-    const payload = bridge.toOperations(bridge.ROOT_URI, rows, (f) => (f === "B001-x.md" ? "内容A" : null));
-    assert.equal(payload.root_uri, "viking://resources/focus-guard-library");
-    assert.equal(payload.operations.length, 1, "retired/缺失积木不投影");
-    assert.equal(payload.operations[0].uri, "viking://resources/focus-guard-library/B001-x.md");
-    assert.equal(payload.operations[0].mode, "upsert");
+  test("范本性：核心源码零 bridges 反向依赖（删 bridges/ 目录主分支功能一分不减）", () => {
+    const coreFiles = [
+      GUARD,
+      join(dirname(GUARD), "..", "tools", "library-build.mjs"),
+      join(dirname(GUARD), "..", "tools", "audit-chain.mjs"),
+      join(dirname(GUARD), "..", "tools", "sentinel.mjs"),
+    ];
+    for (const f of coreFiles) {
+      const src = readFileSync(f, "utf8");
+      assert.ok(!src.includes("bridges/"), `${f} 不得引用 bridges/（主分支范本零反向依赖）`);
+      assert.ok(!src.includes("viking") || f === GUARD, `${f} 不得耦合具体外部系统名`);
+    }
   });
 
   test("本地哨兵：良性放行 / 混淆执壳判 block / 外发判 flag / 外判失败回退启发式", async (t) => {

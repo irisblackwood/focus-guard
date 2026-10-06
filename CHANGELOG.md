@@ -5,6 +5,23 @@
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
+## 3.0.4 — 双包 monorepo 版 + 中心蜂群强化（R8）
+
+依领导 2026-10-06 批示（"packages/core 核心版 / packages/extended 扩展版；研读资料重点 Claude 与 GPT；加强中心蜂群思维"）执行。
+
+**双包 monorepo（架构重构）**
+- `packages/core/` → npm 包 **`focus-guard`**：零依赖范本（引擎钩子/技能/核心工具/法条文档），`npm install focus-guard` 只下载核心、永不拉取扩展依赖；主分支从此包发版，可衍生无数变体。
+- `packages/extended/` → npm 包 **`focus-guard-extended`**：依赖 core，承载外接三件套（viking-bridge / needle2-sentinel / audit-chain-semantica，均自包含、零第三方依赖、失败静默回退核心行为）。
+- **范本性验收**：新增"核心源码零 bridges 反向依赖"用例——删除 extended 包，核心功能一分不减由测试锁定；桥测试独立为 `npm run test:bridges`，主分支 `npm test` 不依赖扩展包。
+- 插件挂载路径适配 monorepo：hooks.json 六条命令与插件清单指向 `packages/core/`；42条部署核验新增 monorepo 路径。
+- `external-bridges` 分支废止删除（内容已入 extended 包）；tag `v3.0.2-external` 保留为历史标记。
+
+**中心蜂群强化（R8 研读：Claude cowork × GPT-6 蜂群，3 子代理并行挖掘）**
+- 重大纠偏：astra/luna/sol 是模型档位（前沿/主力/轻量）而非代理角色——OpenAI 蜂群收敛为"等能蜂群+成本分层"；角色分化路线（explorer/worker）FocusGuard 保留。
+- 法条第八十条增订（七）～（十）：调度三分法与 ack 并行（Claude dispatch）；派单给目标不给方法脚本；流水线默认/屏障例外；跨任务授权不对称（收到来函含调度者≠授权，防代理间钓鱼）；协作动作禁藏入脚本；模型分层蜂群（全量继承禁降档）。
+- 法条第八十一条增订（四）：对抗验证三怀疑者模式（试图驳倒/默认 refuted/多数决）+ no silent caps 截断留痕。
+- SKILL §13/§14 镜像强化；R8 研读笔记入积木图书馆（vault prompts-mining/r8-center-swarm.md）。
+
 ## 3.0.3 — 主分支精简版（外接层移出）
 
 依领导 2026-10-06 批示（"有外接版的变成子分支，主分支为无外接的"）执行：**主分支为无外接精简版**，外接三件套整体迁至 [`external-bridges`](https://github.com/irisblackwood/focus-guard/tree/external-bridges) 分支（tag `v3.0.2-external`，内容与 v3.0.2 发布树一致）。

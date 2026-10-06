@@ -1,0 +1,42 @@
+{
+  "name": "focus-guard",
+  "version": "3.0.4",
+  "description": "FocusGuard 聚焦护栏核心包：给 AI 编码智能体（ZCode / DSH 双端原生硬拦截）装上的履职纪律与监察系统。日常零打扰、只查行为；六条钩子覆盖会话启动到收尾全程，含三预算池、L1-L6 梯度处罚、高危命令审批单、KPI 兑现、因果链留痕与积木图书馆。零依赖（Node.js ≥18），是所有人下载的范本包——外接集成见 focus-guard-extended。",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "files": [
+    "hooks",
+    "tools",
+    "skills",
+    "docs"
+  ],
+  "scripts": {
+    "test": "node --test tests/acceptance.test.mjs",
+    "eval": "node tests/threat-eval.mjs hooks/guard.mjs",
+    "bench": "node tests/token-bench.mjs hooks/guard.mjs",
+    "check": "npm run test && npm run eval"
+  },
+  "keywords": [
+    "dsh",
+    "zcode",
+    "agent-hooks",
+    "focus",
+    "guard",
+    "cordis"
+  ],
+  "homepage": "https://github.com/irisblackwood/focus-guard#readme",
+  "bugs": {
+    "url": "https://github.com/irisblackwood/focus-guard/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/irisblackwood/focus-guard.git",
+    "directory": "packages/core"
+  },
+  "author": {
+    "name": "irisblackwood",
+    "url": "https://github.com/irisblackwood"
+  }
+}

@@ -211,9 +211,19 @@ npm run check   # test + eval
 npm run library -- --src <资料目录> --out .ai/library   # 积木图书馆构建（幂等）
 npm run chain -- <AUDIT.log路径> [--mermaid]            # 执法档案因果树渲染
 npm run sentinel -- --check "<命令>"                     # 本地哨兵单条预判
+npm run test:bridges                                     # 扩展包桥测试（单独跑）
 ```
 
-> **外接三件套**（OpenViking 同步桥 / Semantica LPG 图谱导出 / Needle 2 外判运行器）在 [`external-bridges`](https://github.com/irisblackwood/focus-guard/tree/external-bridges) 分支（tag `v3.0.2-external`）：主分支保持无外接精简版，哨兵本体与 `FG_SENTINEL_CMD` 外判契约仍在主分支，外接适配层按需取用。
+### 双包架构（3.0.4）：范本 + 衍生
+
+本仓是 npm monorepo，**一个项目、两个包**：
+
+| 包 | 路径 | 定位 |
+|---|---|---|
+| **`focus-guard`** | `packages/core/` | **零依赖范本**——引擎钩子、技能、核心工具、法条文档。`npm install focus-guard` 只下载本包，不拉任何外接依赖。主分支即从此包发版，可衍生无数变体。 |
+| **`focus-guard-extended`** | `packages/extended/` | **扩展衍生包**——依赖 core（`"dependencies": {"focus-guard": "^3.0.4"}`），承载重型外接三件套：OpenViking 积木同步桥（`viking-bridge.mjs`）、Needle 2 外判运行器（`needle2-sentinel.mjs`）、Semantica LPG 图谱导出（`audit-chain-semantica.mjs`）。 |
+
+衍生纪律（详见 [packages/extended/bridges/README.md](packages/extended/bridges/README.md)）：桥只依赖主分支**契约**（审计 JSONL 格式、哨兵外判协议、积木 INDEX 格式），禁止 import 主分支源码，禁止被主分支引用（验收用例锁定零反向依赖）；桥故障一律静默回退核心默认行为。新增外接 = 在 extended 包加一个自包含文件 + 一条桥测试。
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵；
 - **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；

@@ -1,0 +1,32 @@
+{
+  "name": "focus-guard-extended",
+  "version": "3.0.4",
+  "description": "FocusGuard 扩展包：基于 focus-guard 核心包衍生的外接三件套——OpenViking 积木同步桥、Needle 2 本地模型外判运行器、Semantica LPG 因果图谱导出。每个桥自包含、零第三方依赖、失败静默回退核心默认行为；核心包不依赖本包。衍生新桥见 bridges/README.md 的契约清单。",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "focus-guard": "^3.0.4"
+  },
+  "scripts": {
+    "test": "node --test tests/bridges.test.mjs"
+  },
+  "keywords": [
+    "focus-guard",
+    "openviking",
+    "semantica",
+    "needle2",
+    "agent-bridges"
+  ],
+  "homepage": "https://github.com/irisblackwood/focus-guard#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/irisblackwood/focus-guard.git",
+    "directory": "packages/extended"
+  },
+  "author": {
+    "name": "irisblackwood",
+    "url": "https://github.com/irisblackwood"
+  }
+}
