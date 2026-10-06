@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// focus-guard 护栏脚本 v3.0.0 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
+// focus-guard 护栏脚本 v3.0.1 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
 // v3.0.0 增补：①因果链留痕（audit 带 seq/chain/ref，tools/audit-chain.mjs 渲染因果图）②KPI 兑现闭环
 //   （收尾结算等次→委托池奖惩，二十七~三十二条部分机械化）③静态知识图书馆隔离（.ai/library/ 积木区
 //   只读、便签只进 inbox/，读不占卷宗【三】）④本地哨兵（FG_SENTINEL=1 启用 tools/sentinel.mjs 离线预判，
 //   默认仅记档，strict 模式拦截）⑤解释器 eval 类命令不再判只读侦查（R5-3 解释器黑名单）⑥FG-D1~D4 修复。
+// v3.0.1 增补（七十五条(四)）：⑦高危批量审批——多条待批合并出示，y 放行全部待批（各一次）、n 全部阻断；
+//   ⑧批示词容错——y/同意/批准等批示词后接分隔符与简短补充指令（总长≤30字符）仍构成批示。
 // 一、空气层：不查词、不打扰（违禁词扫描已废除）
 // 二、触发层：行为违规即罚，梯度处罚 L1-L6；触发④=动态预算+进度检测；三预算池(侦查/执行/委托，20条)
 // 三、卷宗层(2.0)：.ai/CASE_FILE.md 四册（环境声明/依赖声明/侦查记录/额度台账）
@@ -37,7 +39,7 @@ const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 const REFILL = 10; // 自动续杯步长
 const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
 const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-const ENGINE_VERSION = "3.0.0"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
+const ENGINE_VERSION = "3.0.1"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
 // 2.0.1 热修：win32 shell 误判（PSModulePath 系统级恒存 → 误判 powershell → 平台禁令堵死 Git Bash 管道）
 // 2.0.2 DSH 版：csproj/sln 列入风险文件备案（C# 项目配置与 package.json 同级）
 // 2.2.0 正面指引版：git push 人类专属闸（二.3/五.3，本地 commit AI 可做、推送人类 UI 执行）
@@ -773,6 +775,39 @@ function penalize(state, sid, trigger, evidence) {
   return level;
 }
 
+// ===== 3.0.1（七十五条(四)）批量审批：多条待批合并出示、一次批示；批示词容错后缀 =====
+const HIGH_RISK_QUEUE_MAX = 10; // 待批队列上限（防状态无界）
+function pushHighRiskPending(state, key, cmdBrief) {
+  if (!key) return;
+  state.highRiskQueue = state.highRiskQueue || [];
+  if (state.highRiskQueue.some((x) => x.k === key)) return;
+  if (state.highRiskQueue.length >= HIGH_RISK_QUEUE_MAX) return;
+  state.highRiskQueue.push({ k: key, c: String(cmdBrief || "").slice(0, 80) });
+}
+// 待批队列注记：除当前命令外还有几条在队列里，提示可合并批示
+function queueNote(state, currentBrief) {
+  const q = (state.highRiskQueue || []).filter((x) => x.c !== currentBrief);
+  if (q.length < 1) return "";
+  return `另有 ${q.length} 条待批已合并出示：${q.map((x) => x.c).join("；")}。回复 y 放行全部待批（各一次）、n 全部阻断。`;
+}
+// 授权消费（单条与批量统一）：命中待批键即消费一次；批量键从 highRiskBatch 移除
+function consumeHighRisk(state, key) {
+  if (state.highRiskOk && state.highRiskKey === key) {
+    state.highRiskOk = false;
+    state.highRiskCmd = "";
+    state.highRiskKey = "";
+    return true;
+  }
+  const batch = state.highRiskBatch || [];
+  const i = batch.indexOf(key);
+  if (i >= 0) {
+    batch.splice(i, 1);
+    state.highRiskBatch = batch;
+    return true;
+  }
+  return false;
+}
+
 function ladderNote(level) {
   if (level >= 6) return "L6：已上报人类。";
   if (level >= 5) return "L5：只读模式直至批示。";
@@ -942,18 +977,28 @@ if (mode === "reset") {
   //            （整个产品的操作界面是中文，按"同意"却一直待批、按"不"却不阻断）；改为"整条短指令就是一个批示词
   //            +可有尾标点"的精确匹配，顺带避免"是不是应该…"这类句子被误判成 y。
   //            ②比对键改用全量哈希（见 cmdKey）：超过 300 字符的命令此前永远等不到 y/n 匹配。
-  const yReply = short.length <= MERCY_SHORT && /^(?:y|yes|是|好|行|ok|同意|批准|允许|可以|没问题|通过)[\s。！!，,]*$/i.test(short);
-  const nReply = short.length <= MERCY_SHORT && /^(?:n|no|不|不行|否|不要|拒绝|不许)[\s。！!，,]*$/i.test(short);
-  if (yReply && state.highRiskKey) {
+  const yReply = short.length <= MERCY_SHORT && /^(?:y|yes|是|好|行|ok|同意|批准|允许|可以|没问题|通过)(?:[\s。！!，,]*$|[\s]*[，,。：:！!][\s]*\S)/i.test(short);
+  const nReply = short.length <= MERCY_SHORT && /^(?:n|no|不|不行|否|不要|拒绝|不许)(?:[\s。！!，,]*$|[\s]*[，,。：:！!][\s]*\S)/i.test(short);
+  // 3.0.1（七十五条(四)）：y/n 放行全部待批（队列 + 当前），每条各消费一次；n 全部阻断。
+  // 批示词容错：批示词 + 分隔符 + 简短补充指令（总长 ≤30 字符）仍构成批示——"y，规则改一下…"不再被吞。
+  const pendingCount = (state.highRiskQueue || []).length + (state.highRiskKey ? 1 : 0);
+  if (yReply && pendingCount > 0) {
+    const keys = (state.highRiskQueue || []).map((x) => x.k);
+    if (state.highRiskKey && !keys.includes(state.highRiskKey)) keys.push(state.highRiskKey);
     state.highRiskOk = true;
-    audit(sid, "high-risk-approved", { level: null, evidence: `批示原文: ${short} | 待批: ${String(state.highRiskCmd).slice(0, 100)}`, pardon: true });
+    state.highRiskBatch = keys;
+    state.highRiskQueue = [];
+    audit(sid, "high-risk-approved", { level: null, evidence: `批示原文: ${short} | 放行 ${keys.length} 条待批（各一次）`, pardon: true });
   }
-  if (nReply && state.highRiskKey) {
+  if (nReply && pendingCount > 0) {
     state.rejectedCmds = state.rejectedCmds || {};
-    state.rejectedCmds[String(state.highRiskKey)] = 1;
-    audit(sid, "high-risk-rejected", { level: null, evidence: `批示原文: ${short} | 已彻底阻断: ${String(state.highRiskCmd).slice(0, 100)}` });
+    const keys = (state.highRiskQueue || []).map((x) => x.k);
+    if (state.highRiskKey && !keys.includes(state.highRiskKey)) keys.push(state.highRiskKey);
+    for (const k of keys) state.rejectedCmds[String(k)] = 1;
+    audit(sid, "high-risk-rejected", { level: null, evidence: `批示原文: ${short} | 已彻底阻断 ${keys.length} 条` });
     state.highRiskCmd = "";
     state.highRiskKey = "";
+    state.highRiskQueue = [];
   }
 
   // 43条 状态重置核验：上一回合残留 → 记档报告后清理（本事件随后统一重置）
@@ -981,7 +1026,7 @@ if (mode === "reset") {
     stopBlocked: false,
     mercy,
     goalPush, // 2.4.0：目标预授权仅记录，不构成执行级授权
-    highRiskOk: yReply && !!state.highRiskKey, // 2.4.0：执行级授权只认当回合人类短指令
+    highRiskOk: yReply && (pendingCount > 0), // 2.4.0：执行级授权只认当回合人类短指令（3.0.1 含待批队列）
     highRiskDeniedThisTurn: false,
     violations: stopOrdered ? Math.max(state.violations || 0, 3) : 0,
     forcedInvestigate: false,
@@ -1147,10 +1192,7 @@ if (mode === "pre") {
         process.stderr.write("[高危命令闸·已否决]该命令已被人类批示 n，彻底阻断。如需变体，重新走【高危申请】。");
         process.exit(2);
       }
-      if (state.highRiskOk && state.highRiskKey === cmdKey(cmdStr)) {
-        state.highRiskOk = false; // 放行本次（一次性）
-        state.highRiskCmd = "";
-        state.highRiskKey = "";
+      if (consumeHighRisk(state, cmdKey(cmdStr))) { // 3.0.1：单条/批量统一消费，放行本次（一次性）
         saveState(path, state);
         audit(sid, "high-risk-executed", { level: null, evidence: `2.4.0 已批高危命令执行 ${cmdStr.slice(0, 120)}` });
       } else if (state.highRiskDeniedThisTurn && scriptHits.length) {
@@ -1165,11 +1207,13 @@ if (mode === "pre") {
         state.highRiskCmd = cmdStr.slice(0, 300);
         state.highRiskKey = cmdKey(cmdStr);
         state.highRiskDeniedThisTurn = true;
+        pushHighRiskPending(state, state.highRiskKey, cmdStr.slice(0, 80));
         saveState(path, state);
         audit(sid, "high-risk-request", { level: null, evidence: `2.4.0 高危命令待批 ${cmdStr.slice(0, 120)}` });
         process.stderr.write(
           "[高危命令闸]命中高危特征库（删除/推送/清盘/发布/全局安装等），即使完全访问也须人类实时审批。" +
-            `输出一行审批单：${HIGH_RISK_FORM} 人类回复 y 放行本次、n 彻底阻断；严禁改写脚本绕行（按对抗审查 L4 记档）。`
+            `输出一行审批单：${HIGH_RISK_FORM} 人类回复 y 放行全部待批（各一次）、n 全部阻断；严禁改写脚本绕行（按对抗审查 L4 记档）。` +
+            queueNote(state, cmdStr.slice(0, 80))
         );
         process.exit(2);
       }
@@ -1180,10 +1224,7 @@ if (mode === "pre") {
     const body = String(ti.content ?? "") + String(ti.new_string ?? "");
     if (isDangerousCmd(body)) {
       const key = cmdKey("write:" + filePath); // 2.5.2：脚本写入路径也改用全量哈希比对
-      if (state.highRiskOk && state.highRiskKey === key) {
-        state.highRiskOk = false;
-        state.highRiskCmd = "";
-        state.highRiskKey = "";
+      if (consumeHighRisk(state, key)) { // 3.0.1：单条/批量统一消费
         saveState(path, state);
         audit(sid, "high-risk-executed", { level: null, evidence: `2.4.0 已批高危脚本写入 ${filePath}` });
       } else if (state.highRiskDeniedThisTurn) {
@@ -1198,10 +1239,12 @@ if (mode === "pre") {
         state.highRiskCmd = ("write:" + filePath).slice(0, 300);
         state.highRiskKey = key;
         state.highRiskDeniedThisTurn = true;
+        pushHighRiskPending(state, key, ("写入 " + filePath).slice(0, 80));
         saveState(path, state);
         audit(sid, "high-risk-request", { level: null, evidence: `2.4.0 高危脚本写入待批 ${filePath}` });
         process.stderr.write(
-          `[高危命令闸]脚本内容含高危命令，写入同样须审批。${HIGH_RISK_FORM}（命令填：写入 ${filePath}），人类回复 y 后原样重发写入即可。`
+          `[高危命令闸]脚本内容含高危命令，写入同样须审批。${HIGH_RISK_FORM}（命令填：写入 ${filePath}），人类回复 y 放行全部待批（各一次）、n 全部阻断。` +
+            queueNote(state, ("写入 " + filePath).slice(0, 80))
         );
         process.exit(2);
       }
