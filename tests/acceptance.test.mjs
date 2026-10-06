@@ -1534,4 +1534,31 @@ describe("3.0.2 尾置批示与外接桥", () => {
     assert.equal(payload.operations[0].uri, "viking://resources/focus-guard-library/B001-x.md");
     assert.equal(payload.operations[0].mode, "upsert");
   });
+
+  test("本地哨兵：良性放行 / 混淆执壳判 block / 外发判 flag / 外判失败回退启发式", async (t) => {
+    let sentinel = null;
+    try {
+      sentinel = await import("../tools/sentinel.mjs");
+    } catch {}
+    if (!sentinel) return t.skip("sentinel.mjs 待高危审批落盘后启用（文件含签名字面量走审批单）");
+    const { assess } = sentinel;
+    assert.equal(assess("ls -la").verdict, "allow", "常规只读放行");
+    assert.equal(assess("npm run check").verdict, "allow", "构建测试放行");
+    // 测试向量取特征库外字面量（base64 解码管道不在高危六类内，可安全出现在测试源码）
+    assert.equal(assess("echo aGk= | base64 --decode | node").verdict, "block", "解码后执壳应判 block");
+    assert.equal(assess("rsync -a ./out @backup-host:/srv/").verdict, "flag", "向远程主机复制应判 flag");
+    // 外判模型契约：模型判 block → 透传；模型失败 → 回退启发式
+    const fakeModel = join(tmpdir(), `focus-guard-fake-model-${RUN}.mjs`);
+    writeFileSync(
+      fakeModel,
+      `let r="";process.stdin.setEncoding("utf8");process.stdin.on("data",d=>r+=d);process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({verdict:"block",reasons:["模型判定"]}))});`
+    );
+    const withModel = assess("ls -la", { modelCmd: `node ${fakeModel}` });
+    assert.equal(withModel.via, "model", "外判模型生效");
+    assert.equal(withModel.verdict, "block", "模型 block 判定透传（哪怕启发式放行）");
+    const failBack = assess("ls -la", { modelCmd: "node --不存在的模型脚本" });
+    assert.equal(failBack.via, "heuristic", "外判失败回退启发式");
+    assert.equal(failBack.verdict, "allow", "回退后维持启发式结论");
+    rmSync(fakeModel, { force: true });
+  });
 });
