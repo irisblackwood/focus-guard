@@ -1381,3 +1381,101 @@ describe("工程自检（防版本与文档漂移）", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// ============================== 3.0.0 协作治理 ==============================
+
+describe("3.0.0 协作治理", () => {
+  test("因果链：AUDIT 每条带 seq/chain；委派派生 /dN 子链且 ref 指回派单事件", () => {
+    const run = makeRunner("chain-v3");
+    const dir = freshDir();
+    const r = run.in(dir);
+    r("reset", { prompt: "做个任务" });
+    r("pre", { tool_name: "Agent", tool_input: { prompt: "全库搜索 foo 的定义", description: "侦查" } });
+    const log = readFileSync(join(dir, ".focus-guard", "AUDIT.log"), "utf8");
+    const recs = log.trim().split("\n").map((l) => JSON.parse(l));
+    const taskRecs = recs.filter((x) => x.seq);
+    assert.ok(taskRecs.length >= 3, "本会话留痕应均含因果链字段");
+    const reset = taskRecs.find((x) => x.action === "reset-fired");
+    assert.ok(/^T[0-9a-z]+$/.test(reset.chain), "reset-fired 应起新任务链 T*");
+    const spawn = taskRecs.find((x) => x.action === "subagent-spawn");
+    const used = taskRecs.find((x) => x.action === "delegate-used");
+    assert.equal(spawn.chain, reset.chain, "派单事件挂主链");
+    assert.match(used.chain, /\/d1$/, "委托消耗应派生 /d1 子链");
+    assert.equal(used.ref, spawn.seq, "delegate-used 的 ref 应指回 subagent-spawn");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("KPI 兑现：不称职收尾 → 委托池 -5 + kpiCarry 累计 + kpi-settle 落档", () => {
+    const run = makeRunner("kpi-bad");
+    writeState("kpi-bad", { kpi: -15, delegateBudget: 20, turnCount: 0 });
+    run("stop", {});
+    const st = stateOf("kpi-bad");
+    assert.equal(st.delegateBudget, 15, "不称职应扣委托池 5");
+    assert.equal(st.kpiCarry, -15, "跨任务累计应落盘");
+    assert.ok(auditOf("kpi-bad").includes("kpi-settle"), "应收 kpi-settle 结算档");
+    assert.ok(auditOf("kpi-bad").includes("不称职"));
+  });
+
+  test("KPI 兑现：优秀收尾 → 委托池 +5；执行池额度不受引擎结算影响（批示至上）", () => {
+    const run = makeRunner("kpi-good");
+    writeState("kpi-good", { kpi: 18, delegateBudget: 10, taskBudget: 10, turnCount: 0 });
+    run("stop", {});
+    const st = stateOf("kpi-good");
+    assert.equal(st.delegateBudget, 15, "优秀应加委托池 5");
+    assert.equal(st.taskBudget, 10, "执行池不动");
+    assert.ok(auditOf("kpi-good").includes("优秀"));
+  });
+
+  test("静态图书馆：直写积木区被拒并提示 inbox；便签区放行", () => {
+    const run = makeRunner("library-v3");
+    const dir = freshDir();
+    const r = run.in(dir);
+    mkdirSync(join(dir, ".ai", "library"), { recursive: true });
+    const deny = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "library", "B001-x.md"), content: "x" } });
+    assert.equal(deny.rc, 2, "积木区直写应被拦截");
+    assert.ok(deny.out.includes("library/inbox"), "拦截报文应指向便签区");
+    r("post", { tool_name: "Read", tool_input: { file_path: "a.md" }, tool_response: { content: "evidence" } });
+    const allow = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "library", "inbox", "notes.md"), content: "[勘误] B001 ..." } });
+    assert.equal(allow.rc, 0, "inbox 便签区应放行");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("动静隔离：积木读不进卷宗【三】（指纹由 INDEX 固化，动态卷宗不记账）", () => {
+    const run = makeRunner("library-read");
+    const dir = freshDir();
+    const r = run.in(dir);
+    mkdirSync(join(dir, ".ai", "library"), { recursive: true });
+    writeFileSync(join(dir, ".ai", "library", "B001-x.md"), "block body");
+    r("reset", { prompt: "看看积木" });
+    r("post", { tool_name: "Read", tool_input: { file_path: join(dir, ".ai", "library", "B001-x.md") }, tool_response: { content: "block body" } });
+    const st = stateOf("library-read");
+    const leaked = Object.keys(st.caseCache || {}).filter((k) => k.replace(/\\/g, "/").includes(".ai/library"));
+    assert.deepEqual(leaked, [], "积木读不应写入卷宗【三】");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("FG-D1 修复：长批示（>500 字符）中的授权引文核验通过，不再误判越权", () => {
+    const run = makeRunner("fgd1-long");
+    const pad = "任务背景与上下文铺陈，用于把授权语句推到五百字符之外。".repeat(19); // 27 字 ×19 = 513 字符
+    const prompt = pad + "现批示：允许基于有限信息进行猜测，继续推进。";
+    assert.ok(prompt.length > 500, "前提：批示超 500 字符");
+    run("reset", { prompt });
+    run("stop", {
+      response: "【授权识别】我基于人类指令「允许基于有限信息进行猜测」执行。依据：【特赦条例】。",
+    });
+    const st = stateOf("fgd1-long");
+    assert.equal(st.fused, false, "核验应通过，不得熔断");
+    assert.ok(!auditOf("fgd1-long").includes("violation-usurp-pardon"), "不得记越权档案");
+  });
+
+  test("解释器黑名单：熔断期 python -c 不再按只读侦查放行（R5-3）", () => {
+    const run = makeRunner("interp-eval");
+    writeState("interp-eval", { fused: true });
+    const p = run("pre", { tool_name: "Bash", tool_input: { command: `python3 -c "print('benign')"` } });
+    assert.equal(p.rc, 2, "解释器 eval 在熔断期应被拒（此前被当只读侦查放行）");
+    // 非 eval 的只读命令在熔断期仍放行（对照）
+    writeState("interp-eval", { fused: true });
+    const ok = run("pre", { tool_name: "Bash", tool_input: { command: "ls -la" } });
+    assert.equal(ok.rc, 0, "真只读命令熔断期仍放行");
+  });
+});
