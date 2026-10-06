@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// focus-guard 护栏脚本 v2.5.3 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算
+// focus-guard 护栏脚本 v3.0.0 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
+// v3.0.0 增补：①因果链留痕（audit 带 seq/chain/ref，tools/audit-chain.mjs 渲染因果图）②KPI 兑现闭环
+//   （收尾结算等次→委托池奖惩，二十七~三十二条部分机械化）③静态知识图书馆隔离（.ai/library/ 积木区
+//   只读、便签只进 inbox/，读不占卷宗【三】）④本地哨兵（FG_SENTINEL=1 启用 tools/sentinel.mjs 离线预判，
+//   默认仅记档，strict 模式拦截）⑤解释器 eval 类命令不再判只读侦查（R5-3 解释器黑名单）⑥FG-D1~D4 修复。
 // 一、空气层：不查词、不打扰（违禁词扫描已废除）
 // 二、触发层：行为违规即罚，梯度处罚 L1-L6；触发④=动态预算+进度检测；三预算池(侦查/执行/委托，20条)
 // 三、卷宗层(2.0)：.ai/CASE_FILE.md 四册（环境声明/依赖声明/侦查记录/额度台账）
@@ -33,7 +37,7 @@ const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 const REFILL = 10; // 自动续杯步长
 const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
 const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-const ENGINE_VERSION = "2.5.3"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
+const ENGINE_VERSION = "3.0.0"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
 // 2.0.1 热修：win32 shell 误判（PSModulePath 系统级恒存 → 误判 powershell → 平台禁令堵死 Git Bash 管道）
 // 2.0.2 DSH 版：csproj/sln 列入风险文件备案（C# 项目配置与 package.json 同级）
 // 2.2.0 正面指引版：git push 人类专属闸（二.3/五.3，本地 commit AI 可做、推送人类 UI 执行）
@@ -78,6 +82,10 @@ const TTL_STABLE = 7 * 86400e3; // 自适应：30天未变 7天
 
 const FUSE_PHRASE = "【熔断】无法通过现有资料定位核心问题";
 const FUSE_HINT = "1【最小复现】步骤/实验 2【联网证据】链接+原文 3【卡点记录】写HANDOFF.md"; // 各一行
+// 3.0.0 静态知识图书馆（总纲 3.0.0 十五·二）：积木区只读、便签只进 inbox（R6 记忆更新隔离区的机械化）
+const LIBRARY_RE = /(^|[\\/])\.ai[\\/]library[\\/](?!inbox[\\/])/i;
+// 3.0.0 解释器黑名单（R5-3 采纳）：解释器 -c/--eval 一类等价任意代码执行，不再判只读侦查（熔断期不放行、不进侦查池）
+const INTERP_EVAL_RE = /\b(?:python3?|py|node|perl|ruby|php|lua|pwsh|powershell)\b[^&|;]*(?:-c|-e|--eval|--command)\b/i;
 // 2.4.0：标准审批单（一行，禁长篇解释）
 const HIGH_RISK_FORM =
   "【高危申请】命令：`<真实命令>` | 真实目的：<一句话> | 影响范围：<具体文件/表/系统> | 回滚方案：<可否回滚> | 允许执行？(y/n)";
@@ -228,7 +236,7 @@ const SESSION_RULES =
   "【处罚】L1打回→L2取证→L3熔断(只读放行)→L4记档→L5降权→L6上报；人类指令=批示。" +
   "【熔断出口】『" + FUSE_PHRASE + "』+三行降级方案。" +
   "【特赦】仅认短指令(绝境模式/允许猜测/【特赦】)；受权须先出【授权识别】(引原文+法条)，否则越权。" +
-  "【留痕】全程记<工作区>/.focus-guard/AUDIT.log。细则见focus-thinking技能与docs/RULES.md。";
+  "【留痕】全程记<工作区>/.focus-guard/AUDIT.log(因果链chain/seq)。细则见focus-thinking技能与docs/RULES.md。";
 
 function readStdinJson() {
   try {
@@ -269,10 +277,20 @@ function auditTarget(sid) {
   return auditFile;
 }
 
+// 3.0.0 因果链：auditCtx 随每次钩子调用初始化；seq=时间戳36进制.调用内序号（全局唯一），
+// chain=任务链（reset 起算，子代理委派派生 /dN 子链），ref=父事件 seq——流水账由此可渲染为因果图。
+let auditCtx = { chain: null, base: 0 };
+function auditChainInit(state) {
+  auditCtx = { chain: (state && state.taskChain) || null, base: 0 };
+}
 function audit(sid, trigger, opts = {}) {
+  const seq = Date.now().toString(36) + "." + ++auditCtx.base;
   const record = JSON.stringify({
     ts: new Date().toISOString(),
     session: sid,
+    seq,
+    chain: opts.chain !== undefined ? opts.chain : auditCtx.chain,
+    ref: opts.ref || null,
     action: opts.action || trigger,
     trigger: opts.trigger ?? trigger,
     level: opts.level ?? null,
@@ -284,10 +302,11 @@ function audit(sid, trigger, opts = {}) {
     try {
       mkdirSync(dirname(p), { recursive: true });
       appendFileSync(p, record);
-      return;
+      return seq;
     } catch {}
   }
   noteFail(sid, "AUDIT.log（工作区与临时目录均写入失败）");
+  return seq;
 }
 
 function noteFail(sid, what) {
@@ -579,8 +598,10 @@ function loadCaseRecords(p) {
 }
 
 function saveCaseRecords(projDir, records) {
+  let tmp = null;
   try {
     const p = ensureCaseFile(projDir);
+    tmp = p + "." + process.pid + ".tmp";
     let t = readFileSync(p, "utf8");
     const rows = Object.values(records)
       .sort((a, b) => (b.readAt || 0) - (a.readAt || 0))
@@ -594,17 +615,20 @@ function saveCaseRecords(projDir, records) {
       )
       .join("\n");
     t = t.replace(/(### 【三】[\s\S]*?\n)\| 文件名 \|[\s\S]*?(?=\n### |\n## |$)/, (_m, head) => head + table + "\n");
-    const tmp = p + "." + process.pid + ".tmp";
     writeFileSync(tmp, t);
     renameSync(tmp, p);
   } catch {
+    // FG-D3：rename 失败清理 .tmp 残片（对齐 saveState 防线，防 .ai/ 积累孤片）
+    try { if (tmp) rmSync(tmp, { force: true }); } catch {}
     noteFail(sid, "卷宗【三】侦查记录");
   }
 }
 
 function saveLedger(projDir, state) {
+  let tmp = null;
   try {
     const p = ensureCaseFile(projDir);
+    tmp = p + "." + process.pid + ".tmp";
     let t = readFileSync(p, "utf8");
     const eff = state.effectiveCalls || 0;
     const inv = state.invCalls || 0;
@@ -612,10 +636,11 @@ function saveLedger(projDir, state) {
     const row = `| ${new Date().toISOString().slice(0, 16)} | ${state.taskInitial ?? state.taskBudget ?? BUDGET_DEFAULT} | ${used} | ${Math.max(0, (state.taskBudget || BUDGET_DEFAULT) - used)} | ${eff} | ${state.ineffCalls || 0} | ${new Date().toISOString()} | KPI ${state.kpi || 0} |`;
     const table = ["| 任务 | 初始额度 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 更新时间 | KPI |", "|---|---|---|---|---|---|---|---|", row].join("\n");
     t = t.replace(/### 【四】[\s\S]*?(?=\n### |\n## |$)/, () => "### 【四】工作额度台账\n\n" + table + "\n");
-    const tmp = p + "." + process.pid + ".tmp";
     writeFileSync(tmp, t);
     renameSync(tmp, p);
   } catch {
+    // FG-D3：同上
+    try { if (tmp) rmSync(tmp, { force: true }); } catch {}
     noteFail(sid, "卷宗【四】额度台账");
   }
 }
@@ -702,7 +727,9 @@ function isInvestigation(tool, ti) {
   if (/mcp__.*(web|search)/i.test(tool)) return true;
   if (tool === "Bash") {
     const cmd = String(ti.command || "");
-    return !isMutatingBashCmd(cmd) && !FILE_REDIRECT_RE.test(cmd);
+    // 3.0.0 解释器黑名单（R5-3）：`python -c`/`node -e` 等等价任意代码执行，不得因"非变异"混入只读侦查
+    // （否则熔断期白名单放行解释器=熔断失效，侦查池也被 eval 类命令挤占）
+    return !isMutatingBashCmd(cmd) && !FILE_REDIRECT_RE.test(cmd) && !INTERP_EVAL_RE.test(cmd);
   }
   return false;
 }
@@ -768,19 +795,28 @@ if (mode === "start") {
   // 2.0 卷宗载入：重建 readSetCache 与 TTL 表（总纲七）
   const st = loadState(path);
   st.envCache = env;
+  st.taskChain = "S" + Date.now().toString(36); // 3.0.0 因果链：会话根链
   const projDir = projectDir();
   if (projDir) {
-    st.caseCache = loadCaseRecords(ensureCaseFile(projDir));
-    // 2.5.3（案一）：会话启动从卷宗重建的取证记录标为"继承"——文件内容并不在本会话上下文中，
-    // 据此免重读拦截会挡住合法首读。继承记录只提示不拦；本会话真读过后（post 重录指纹）自动转正。
-    for (const k of Object.keys(st.caseCache)) st.caseCache[k].inherited = 1;
+    // FG-D4：卷宗初始化包防御——工作区只读时 SessionStart 整体抛错违反降级哲学，改降级继续
+    try {
+      st.caseCache = loadCaseRecords(ensureCaseFile(projDir));
+      // 2.5.3（案一）：会话启动从卷宗重建的取证记录标为"继承"——文件内容并不在本会话上下文中，
+      // 据此免重读拦截会挡住合法首读。继承记录只提示不拦；本会话真读过后（post 重录指纹）自动转正。
+      for (const k of Object.keys(st.caseCache)) st.caseCache[k].inherited = 1;
+    } catch {
+      noteFail(sid, "卷宗初始化（工作区可能只读，降级继续）");
+    }
     try {
       // 2.5.1：卷宗【一】环境声明落卷（此前仅占位符，人类无法查阅——盘点报告半成品项）
+      // FG-D2：改 tmp+rename 原子写（同文件另两处均为原子模式，此前此处崩溃窗可损坏 CASE_FILE.md）
       const cp = casePath(projDir);
       let t = readFileSync(cp, "utf8");
       const envRow = `- OS=${env.os} / Shell=${env.shellIdKey} / 大小写=${env.caseSensitive === false ? "不敏感" : "敏感"} / 编码=${env.encoding || "-"} / 检测于 ${new Date().toISOString()}`;
       t = t.replace(/### 【一】[\s\S]*?(?=\n### |\n## |$)/, () => `### 【一】环境声明（会话级检测，全程复用）\n\n${envRow}\n`);
-      writeFileSync(cp, t);
+      const tmp = cp + "." + process.pid + ".tmp";
+      writeFileSync(tmp, t);
+      renameSync(tmp, cp);
     } catch {
       noteFail(sid, "卷宗【一】环境声明落卷");
     }
@@ -934,6 +970,7 @@ if (mode === "reset") {
   state.taskBudget = Math.max(kw, state.declaredBudget || 0, state.taskBudget || BUDGET_DEFAULT);
   state.taskInitial = state.taskBudget;
   state.ineffCalls = 0;
+  state.taskChain = "T" + Date.now().toString(36); // 3.0.0 因果链：新任务起新链（随 saveState 落盘）
 
   saveState(path, {
     ...state, // envCache/caseCache（侦查缓存）随 spread 保留；kpi/delegateUsed（考核与委托台账）跨回合保留
@@ -956,17 +993,20 @@ if (mode === "reset") {
     kpiScolded: {},
     kpiDelegatedAwarded: false,
     turnPrompt: promptText.slice(0, 500),
+    turnPromptFull: promptText.slice(0, 4000), // FG-D1：授权引文核验窗口（批示含授权语义可能在 500 字符之外）
     taskBudget: state.taskBudget,
     taskInitial: state.taskInitial,
     lastSig: "",
     lastInput: "",
   });
+  auditCtx.chain = state.taskChain; // 3.0.0：reset-fired 及其后事件挂新任务链（见上方 taskChain 赋值）
   audit(sid, "reset-fired", { level: null, evidence: `prompt:${promptText ? "有" : "无"} kw=${kw} budget=${state.taskBudget} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} stall=${state.stalledStreak || 0}${creditGranted ? " 信用延期" : ""}${mercy ? " 特赦" : ""}` });
   process.exit(0);
 }
 
 if (mode === "pre") {
   const state = loadState(path);
+  auditChainInit(state); // 3.0.0 因果链
   const tool = input.tool_name || "";
   const ti = input.tool_input || {};
   const rawPath = ti.file_path || ti.path || "";
@@ -974,6 +1014,33 @@ if (mode === "pre") {
   const handoff = /^(Write|Edit)$/.test(tool) && /(^|\/)handoff\.md$/i.test(filePath);
   const search = /^(WebSearch|WebFetch)$/.test(tool) || /mcp__.*(web|search)/i.test(tool);
   const env = state.envCache || null;
+
+  // ===== 3.0.0 本地哨兵（总纲 3.0.0 十五·二）：零成本离线预判，opt-in（FG_SENTINEL=1）=====
+  // 默认 audit-only：flag 只记档；FG_SENTINEL_MODE=strict 时 block/flag 一律拦截。
+  // 引擎内建启发式（tools/sentinel.mjs，零依赖）；CLI 侧可用 Needle 2（本地 45M 模型）跑 --model-cmd 外判。
+  if (tool === "Bash" && /^(1|true)$/i.test(String(process.env.FG_SENTINEL || ""))) {
+    try {
+      const { assess } = await import(new URL("../tools/sentinel.mjs", import.meta.url).href);
+      const v = assess(String(ti.command || ""));
+      if (v.verdict === "block" || (v.verdict === "flag" && String(process.env.FG_SENTINEL_MODE || "") === "strict")) {
+        audit(sid, "sentinel-deny", { level: null, evidence: `哨兵拦截 verdict=${v.verdict} score=${v.score} ${v.reasons.join(";")}` });
+        process.stderr.write(`[本地哨兵]判定 ${v.verdict}（score ${v.score}）：${v.reasons.join("；")}。确需执行请走【高危申请】或批示关闭哨兵。`);
+        process.exit(2);
+      }
+      if (v.verdict === "flag") {
+        audit(sid, "sentinel-flag", { level: null, evidence: `哨兵标记 score=${v.score} ${v.reasons.join(";").slice(0, 150)}` });
+      }
+    } catch {} // 哨兵缺失/损坏不影响护栏主流程（降级哲学）
+  }
+
+  // ===== 3.0.0 静态图书馆隔离：积木区不得直写（记忆更新隔离区，R6 采纳）=====
+  if (/^(Write|Edit)$/.test(tool) && LIBRARY_RE.test(filePath)) {
+    audit(sid, "library-write-deny", { level: null, evidence: `静态图书馆直写被拒 ${filePath}` });
+    process.stderr.write(
+      `[图书馆·隔离]${filePath} 属静态知识图书馆积木区，不得直写。追加新知/勘误到 .ai/library/inbox/notes.md，由 library-build 定期合并升级积木（防自我投毒）。`
+    );
+    process.exit(2);
+  }
 
   // ===== 2.0 总纲六：环境规则检查（平台命令拦截）=====
   if (tool === "Bash") {
@@ -1011,10 +1078,13 @@ if (mode === "pre") {
       process.exit(2);
     }
     // 48条 子代理继承留痕：父会话处分状态随派单记录（平台无注入通道，以留痕方式移交）
-    audit(sid, "subagent-spawn", {
+    const spawnSeq = audit(sid, "subagent-spawn", {
       level: null,
       evidence: `48条 父状态 fused=${!!state.fused} L${state.violations || 0} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} | ${String(ti.description || ti.prompt || "").slice(0, 60)}`,
     });
+    // 3.0.0 蜂群因果链：每次委派派生子链 /dN，ref 指回派单事件——因果图上"主会话调度→子代理执行"成边
+    state.childChainN = (state.childChainN || 0) + 1;
+    var childChain = (state.taskChain || sid) + "/d" + state.childChainN;
     // 2.3.0 一：委托池独立核算（不占执行池；用尽须人类批示追加）
     if ((state.delegateBudget ?? DELEGATE_DEFAULT) <= 0) {
       audit(sid, "delegate-exhausted", { level: null, evidence: `2.3.0 委托池用尽 剩余=0 累计=${state.delegateUsed || 0}` });
@@ -1027,7 +1097,12 @@ if (mode === "pre") {
     state.delegateUsed = (state.delegateUsed || 0) + 1;
     state.delegated = true;
     saveState(path, state);
-    audit(sid, "delegate-used", { level: null, evidence: `2.3.0 委托池消耗 剩余=${state.delegateBudget} 累计=${state.delegateUsed} | ${String(ti.description || "").slice(0, 50)}` });
+    audit(sid, "delegate-used", {
+      chain: childChain,
+      ref: spawnSeq,
+      level: null,
+      evidence: `2.3.0 委托池消耗 剩余=${state.delegateBudget} 累计=${state.delegateUsed} | ${String(ti.description || "").slice(0, 50)}`,
+    });
   }
 
   // 触发⑤：熔断期白名单——只读调查类 + 降级动作放行，改动类拒绝（L3 放行只读工具）
@@ -1185,7 +1260,7 @@ if (mode === "pre") {
       if (kb * 1024 > OUTPUT_GATE_BYTES) {
         // 2.5.3（案二）：审计/盘点/审查类任务的取证对象整读留痕不罚——法典将审计定为 50 预算
         // 重大专项，体积闸却拦审计最需要的整读，属制度性误伤。预算与巨量输出追责仍生效。
-        if (/审计|盘点|审查/.test(String(state.turnPrompt || ""))) {
+        if (/审计|盘点|审查/.test(String(state.turnPromptFull || state.turnPrompt || ""))) {
           audit(sid, "audit-read-allow", { level: null, evidence: `${filePath} ${kb}KB 整读（审计任务豁免，留痕不罚）` });
           process.stderr.write(`[体积刺客·审计豁免]${filePath} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`);
           process.exit(0);
@@ -1225,7 +1300,8 @@ if (mode === "pre") {
   // 指纹一致（mtime+size+SHA/git）且 TTL 未超 → 免重读放行：拦截本次 Read，复用已有取证。
   // 指纹不一致 / TTL 超时 → 拦截免读资格，放行真重读（post 更新卷宗指纹）。
   // 熔断/强制取证期豁免：降级重建证据需要真重读。offset 增量读永远放行。
-  if (tool === "Read" && rawPath && !ti.offset && !state.fused && !state.forcedInvestigate) {
+  if (tool === "Read" && rawPath && !ti.offset && !state.fused && !state.forcedInvestigate && !LIBRARY_RE.test(rawPath)) {
+    // （3.0.0：静态图书馆积木免卷宗闸——积木指纹在 INDEX.md 固化且内容不可变，动态卷宗【三】不为其记账）
     try {
       const rec = (state.caseCache || {})[filePath];
       if (rec) {
@@ -1266,6 +1342,7 @@ if (mode === "pre") {
 
 if (mode === "post" || mode === "postfail") {
   const state = loadState(path);
+  auditChainInit(state); // 3.0.0 因果链
   let reason = null;
 
   state.turnCount = (state.turnCount || 0) + 1;
@@ -1296,7 +1373,8 @@ if (mode === "post" || mode === "postfail") {
     }
     if (tool === "Grep" && typeof ti.path === "string") state.readSet[normalize(ti.path)] = 1;
     // ===== 2.0 总纲四/七：更新侦查取证记录（指纹 + TTL 依据）=====
-    if (tool === "Read" && ti.file_path) {
+    // 3.0.0：静态图书馆积木不进卷宗【三】——积木内容不可变（指纹固化在 INDEX.md），动态卷宗只管动态工作区
+    if (tool === "Read" && ti.file_path && !LIBRARY_RE.test(String(ti.file_path))) {
       try {
         const fp = fingerprint(ti.file_path);
         const key = normalize(ti.file_path);
@@ -1506,6 +1584,7 @@ if (mode === "post" || mode === "postfail") {
 
 if (mode === "stop") {
   const state = loadState(path);
+  auditChainInit(state); // 3.0.0 因果链
   const respText = ["response", "last_message", "message", "text", "output"]
     .map((k) => input[k])
     .find((v) => typeof v === "string");
@@ -1562,7 +1641,7 @@ if (mode === "stop") {
     if (PARDON_DECL_RE.test(text)) {
       const q = text.match(PARDON_QUOTE_RE);
       const b = text.match(PARDON_BASIS_RE);
-      const tp = String(state.turnPrompt || "").replace(/\s+/g, "");
+      const tp = String(state.turnPromptFull || state.turnPrompt || "").replace(/\s+/g, ""); // FG-D1：核验窗口扩到 4000 字符
       const quote = q ? q[1].replace(/\s+/g, "") : "";
       let invalid = "";
       if (!q) invalid = "声明未引用人类指令原文（条例四-B）";
@@ -1703,12 +1782,22 @@ if (mode === "stop") {
 
   state.stopBlocked = false;
   state.turnCount = 0;
-  // 2.5.1：委派 KPI 兑现入口——跌破阈值提醒一次并落 AUDIT（考核等次/奖惩等法条级扩展属平台暂缓项）。
+  // ===== 3.0.0 KPI 兑现闭环（二十七~三十二条部分机械化）=====
+  // 收尾即结算：本任务 KPI → 等次 → 委托池奖惩（执行池增减仍由人类批示，引擎只动委托池），跨任务累计 kpiCarry。
   // 必须在 saveState 之前判定，否则 kpiLowReported 标记不落盘，会每次收尾重复告警。
-  if ((state.kpi || 0) <= -10) {
+  const kpiNow = state.kpi || 0;
+  let grade = "称职";
+  let poolDelta = 0;
+  if (kpiNow >= 15) { grade = "优秀"; poolDelta = 5; }
+  else if (kpiNow >= 0) { grade = "称职"; poolDelta = 0; }
+  else if (kpiNow >= -9) { grade = "基本称职"; poolDelta = -2; }
+  else { grade = "不称职"; poolDelta = -5; }
+  state.delegateBudget = Math.max(0, Math.min(BUDGET_CAP, (state.delegateBudget ?? DELEGATE_DEFAULT) + poolDelta));
+  state.kpiCarry = (state.kpiCarry || 0) + kpiNow;
+  if (kpiNow <= -10) {
     if (!state.kpiLowReported) {
       state.kpiLowReported = true;
-      audit(sid, "kpi-low", { level: null, evidence: `委派 KPI ${state.kpi}：强制委派场景累计失分，下任务请优先 Agent 委派（委托池独立 20 次）` });
+      audit(sid, "kpi-low", { level: null, evidence: `委派 KPI ${kpiNow}：强制委派场景累计失分，下任务请优先 Agent 委派（委托池独立 20 次）` });
     }
   } else if (state.kpiLowReported) {
     state.kpiLowReported = false; // KPI 回升到阈值以上后，再次跌破可重新提醒
@@ -1718,7 +1807,12 @@ if (mode === "stop") {
   const pDir = projectDir();
   if (pDir) saveLedger(pDir, state);
   // 回合诊断：与 reset-fired 对照，定位 UserPromptSubmit 是否触发
-  audit(sid, "stop-fired", { level: null, evidence: `turnCalls=${input && input.stop_hook_active !== undefined ? "有" : "?"} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} budget=${state.taskBudget} kpi=${state.kpi || 0}` });
+  const settleSeq = audit(sid, "stop-fired", { level: null, evidence: `turnCalls=${input && input.stop_hook_active !== undefined ? "有" : "?"} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} budget=${state.taskBudget} kpi=${kpiNow}` });
+  audit(sid, "kpi-settle", {
+    ref: settleSeq,
+    level: null,
+    evidence: `二十七~三十二条 兑现 KPI=${kpiNow} 等次=${grade} 委托池${poolDelta >= 0 ? "+" : ""}${poolDelta}（现=${state.delegateBudget}）跨任务累计=${state.kpiCarry}`,
+  });
   process.exit(0);
 }
 

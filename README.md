@@ -1,7 +1,7 @@
 # FocusGuard 聚焦护栏
 
 
-**Node ≥ 18.17**（零依赖）· **MIT** · **ZCode 原生硬拦截** + **DSH 经官方桥硬拦截** · 当前 **v2.5.3**
+**Node ≥ 18.17**（零依赖）· **MIT** · **ZCode 原生硬拦截** + **DSH 经官方桥硬拦截** · 当前 **v3.0.0**（协作治理版）
 
 > 给 AI 编码智能体装上一套"纪律与监察系统"：日常对话零打扰，一旦出现未取证就改、结论无锚点、整读大文件烧上下文、无限空转等失控行为，立刻按梯度处罚——打回、强制取证、熔断、记档、降权、上报。所有执法行为全程留痕，人类随时可复核。
 
@@ -20,6 +20,11 @@ FocusGuard 不是提示词里的一句"请不要乱来"，而是把失控行为�
 | 顺手 `rm -rf` / `git push` / `npm publish` | 高危命令闸：一行审批单 | `y` 放行本次 / `n` 彻底阻断 |
 | 上下文被巨量输出撑爆 | 污染检测 + 卷宗免重读 | 记档 + 复用已有取证 |
 | 反复读同一个没变的文件 | 卷宗指纹 + TTL | 拦截本次 Read（`offset` 增量读永远放行） |
+| 大搜索/大文档主会话硬扛 | 强制委派场景 + 委派法典 | KPI 计分，收尾结算委托池奖惩（3.0） |
+| 表现只有记分牌没有后果 | KPI 兑现闭环（3.0） | 收尾即结算：等次 → 委托池 ±5/±2，跨任务累计 |
+| 出了事日志是一笔糊涂账 | 因果链留痕 seq/chain/ref（3.0） | `npm run chain` 渲染因果树/因果图 |
+| 经验库被 AI 自己写坏 | 静态积木图书馆（3.0） | 积木区只读，新知只进 inbox 便签区 |
+| 云端判定贵且离线不可用 | 本地零成本哨兵（3.0） | `FG_SENTINEL=1` 启用，Needle 2 可插拔外判 |
 
 ## 为什么需要它
 
@@ -156,24 +161,28 @@ AI 智能体最常见的三种失控：
 | `CASE_MAX_ROWS` | 200 | 卷宗【三】最大行数（超出淘汰最旧） |
 | `BACKUP_KEEP` | 100 | `.ai/backup/` 最大保留份数 |
 | `TTL_FIRST/RECENT/WEEK/STABLE` | 4h / 2h / 24h / 7天 | 卷宗自适应 TTL 四级 |
-| `ENGINE_VERSION` | 2.5.3 | 42条部署版本核验基准（须与五处清单及引擎头注释一致，有验收用例锁定） |
+| `ENGINE_VERSION` | 3.0.0 | 42条部署版本核验基准（须与五处清单及引擎头注释一致，有验收用例锁定） |
 
 ## 工作原理
 
 ```
 SessionStart       → 环境检测一次 + 卷宗载入（重建取证缓存与 TTL 表）+ 注入执法模型
-UserPromptSubmit   → 批示识别（关键词预算 / 信用延期 / 特赦 / 追加额度 / y-n）+ 重置任务态（保留侦查缓存）+ shell 变化重检
-PreToolUse         → 平台命令拦截 + 高危审批闸 + 熔断白名单 + 未取证拦截 + 污染核实闸 + 体积三闸 + 盲写拦截 + 卷宗免重读 + 改动前备份
-PostToolUse        → 进度检测引擎（三池 / 续杯 / 停滞熔断）+ 卷宗取证记录 + 污染检测 + 抽查
+UserPromptSubmit   → 批示识别（关键词预算 / 信用延期 / 特赦 / 追加额度 / y-n）+ 重置任务态（保留侦查缓存）+ shell 变化重检 + 任务链起新链
+PreToolUse         → 平台命令拦截 + 本地哨兵（opt-in）+ 图书馆直写拦截 + 高危审批闸 + 熔断白名单 + 未取证拦截 + 污染核实闸 + 体积三闸 + 盲写拦截 + 卷宗免重读 + 改动前备份
+PostToolUse        → 进度检测引擎（三池 / 续杯 / 停滞熔断）+ 卷宗取证记录 + 污染检测 + 抽查 + 委派 KPI 计分
 PostToolUseFailure → 失败计入停滞
-Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 审批单格式校验 + 额度台账落卷
+Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 审批单格式校验 + KPI 兑现结算 + 额度台账落卷
 ```
 
 拦截协议：PreToolUse 以**退出码 2** 拒绝工具调用（原因走 stderr，原文透传给模型）；Stop / PostToolUse 返回 `{"decision":"block","reason":...}` 打回重写。所有打回路径都有一次性保护（`stopBlocked` + 宿主的 `stop_hook_active`），不会因强制续跑变成死循环。
 
+留痕协议：AUDIT.log（JSONL）每条带 `seq`（事件唯一号）/ `chain`（任务链，委派派生 `/dN` 子链）/ `ref`（父事件）三字段——流水账可随时重组为因果树：`node tools/audit-chain.mjs <AUDIT.log> [--mermaid]`。
+
+落盘全图（写入面共 10 处）：AUDIT.log、卷宗【一】环境声明、【三】侦查记录、【四】额度台账（同 CASE_FILE.md）、会话状态（%TEMP%）、改动前备份（.ai/backup/）、PATTERNS.md 经验库、TEMP 陈旧清扫、图书馆积木与索引（仅 library-build 写）、便签区模板（仅 library-build 首建）。
+
 ### 常驻注入的体量
 
-常驻注入 `SESSION_RULES` 运行期实测 **411 字**（243 全角 + 168 半角，≤500 字立法上限）。典型长会话的执法可见开销加权实测 **3404 字 ≈ 2269 tokens**：
+常驻注入 `SESSION_RULES` 运行期实测 **425 字**（260 全角 + 165 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3404 字 ≈ 2269 tokens**（2.5.3 实测值，3.0 新增报文：哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
 
 | 场景 | 引擎实测字符 | 会话内次数 | 加权 |
 |---|---|---|---|
@@ -195,10 +204,13 @@ Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 
 ## 测试与质量闸
 
 ```bash
-npm test        # 验收用例（90）
+npm test        # 验收用例（90 + 3.0 新增）
 npm run eval    # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
 npm run bench   # 报文体量基准
 npm run check   # test + eval
+npm run library -- --src <资料目录> --out .ai/library   # 积木图书馆构建（幂等）
+npm run chain -- <AUDIT.log路径> [--mermaid]            # 执法档案因果图渲染
+npm run sentinel -- --check "<命令>"                     # 本地哨兵单条预判
 ```
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵；
@@ -220,7 +232,9 @@ npm run check   # test + eval
 
 ## 版本与变更
 
-当前 **v2.5.3**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近三版：
+当前 **v3.0.0**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近三版：
+
+- **3.0.0 协作治理版**：依领导批示（十大原则）将治理面从单会话扩展到多代理协作与知识资产——中心调度与蜂群委派法典（第八十条）、去中心化验证（八十一）、静态积木图书馆 `.ai/library/`（八十二）、本地零成本哨兵 `tools/sentinel.mjs`（八十三，Needle 2 可插拔）、KPI 兑现闭环（八十四，收尾结算等次→委托池奖惩）、提问漏斗（八十五）、因果链留痕 seq/chain/ref + `tools/audit-chain.mjs`（八十六）；新增 `tools/library-build.mjs` 积木构建器；随批修复 deep-review 遗留：FG-D1 引文核验窗口 500→4000 字符、FG-D2 原子写、FG-D3 tmp 残片、FG-D4 降级防御、解释器 eval 不再判只读侦查；法典增第十五章之二（第八十~八十六条）；验收 90 → 90+3.0 新增；
 
 - **2.5.3 亲历修复版**：卷宗继承指纹只提示不拦（跨会话首读不再被拦——案一）；58 条对账限单条语句（复合命令误报清零——案三）；审计任务体积闸豁免（案二）；卷宗【一】/PATTERNS.md 写失败告警；61 条落地（启动清扫 30 天未动临时文件）；修法（法典 v1.1：SKILL 效力条款改为"暂停机械执行＋报请裁决"、废止 19/24四/44/45/46 条、47 条限定同机跨运行时）；补备案与误伤标注；仓库迁移 irisblackwood；验收 86 → 90；
 
@@ -236,6 +250,8 @@ npm run check   # test + eval
 | [docs/RULES.md](docs/RULES.md) | 法条原文 + 技术映射明细 + **未机械化条款清单**（永不自动加载） |
 | [skills/focus-thinking/SKILL.md](skills/focus-thinking/SKILL.md) | AI 运行时镜像：聚焦方法 + 纪律条款 |
 | [docs/MASTER-PLAN-2.0.0.md](docs/MASTER-PLAN-2.0.0.md) | 卷宗体系工程总纲 |
+| [docs/MASTER-PLAN-3.0.0.md](docs/MASTER-PLAN-3.0.0.md) | 协作治理工程总纲（十大原则 → 十项机制） |
+| [tools/](tools/) | 积木图书馆构建 / 因果链渲染 / 本地哨兵 |
 | [docs/LEGISLATION-LAW.md](docs/LEGISLATION-LAW.md) | 立法法：规则怎么立、怎么改、怎么备案 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更 |
 | [tests/](tests/) | 验收用例、对抗评测、报文基准 |

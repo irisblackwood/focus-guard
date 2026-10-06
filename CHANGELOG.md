@@ -5,6 +5,32 @@
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
+## 3.0.0 — 协作治理版
+
+依领导 2026-10-06 批示（十大原则）执行；总纲见 `docs/MASTER-PLAN-3.0.0.md`，法条见 `docs/RULES.md` 第十五章之二（第八十~八十六条）。治理面从"单会话履职"扩展到"多代理协作与知识资产"。
+
+**协作治理（新法八条，SKILL §13-16 镜像）**
+- **中心思维 + 蜂群委派（第八十条）**：主会话=调度+审计，关键路径亲手、sidecar 委派；委派法典细则（关键路径规则/写集分离/共存三律/等待纪律/explorer-worker 二分/派单自包含）采自 R7 Codex multi_agent 挖掘。
+- **去中心化验证（第八十一条）**：关键决策换模型互查，findings-first，无锚点互评=点头不算复核（R5-5 advisor 采纳）。纪律条款，人工执行。
+- **静态知识图书馆（第八十二条）**：`.ai/library/` 积木区不可变，引擎拦截直写；新知只进 `inbox/` 便签区，由后台合并（R6 记忆更新隔离区采纳）；积木读不进卷宗【三】、不占侦查池。
+- **积木化拼装**：新增 `tools/library-build.mjs`——研读长文按 `##` 拆积木（id/来源/sha256 frontmatter + INDEX.md 指针索引），幂等重建、源移除标 retired。
+- **本地零成本哨兵（第八十三条）**：新增 `tools/sentinel.mjs`——离线命令风险预判（管道执壳/代理性通信/敏感数据传输/混淆绕行/持久化通道），可外接 Needle 2 本地模型外判（失败回退启发式）；引擎接入 opt-in（`FG_SENTINEL=1`，默认 audit-only，`FG_SENTINEL_MODE=strict` 拦截）。
+- **KPI 兑现闭环（第八十四条）**：收尾即结算——KPI→等次（≥+15 优秀/0~+14 称职/-9~-1 基本称职/≤-10 不称职）→委托池奖惩（+5/0/-2/-5）→kpiCarry 跨任务累计，AUDIT 落 `kpi-settle`。二十七~三十二条由"未实现"转"部分落地"。
+- **提问即治理（第八十五条）**：任务漏斗（目标→约束→验收锚点→额度批示）；计划批准≠实现批准。
+- **因果链追溯（第八十六条）**：AUDIT.log 每条增 `seq/chain/ref` 三字段，委派派生 `/dN` 子链；新增 `tools/audit-chain.mjs` 渲染因果树/Mermaid（偷师 Semantica）。
+
+**执法修正与防线（deep-review-v2.5.3 遗留项，"随下个补丁"批次）**
+- **FG-D1（中）**：授权识别引文核验窗口 500→4000 字符——长批示靠后的授权原文此前必然核验失败误判越权，打击面是认真引用原文的规范遵守者。
+- **FG-D2**：卷宗【一】环境声明落卷改 tmp+rename 原子写。
+- **FG-D3**：saveCaseRecords/saveLedger rename 失败清理 .tmp 残片（对齐 saveState 防线）。
+- **FG-D4**：卷宗初始化包防御——工作区只读时降级继续，不再整体抛错。
+- **解释器黑名单（R5-3 采纳）**：`python -c`/`node -e` 等 eval 类命令不再判只读侦查——堵住"熔断期白名单放行解释器=熔断失效"的洞。
+
+**破坏性变更申报**
+- AUDIT.log（JSONL）追加 `seq/chain/ref` 三字段（追加式，旧解析器兼容；旧日志无链字段按流水账对待）。
+- 解释器 eval 类 Bash 从"侦查池只读"改判"执行类"：熔断期不再放行，计入执行池。
+- 常驻注入 `SESSION_RULES` 411 字 → 425 字（因果链提示，仍低于 500 字立法上限）。
+
 ## 2.5.3 — 亲历修复版
 
 依《处理意见书》（FG-纪审〔2026〕第1号，2026-10-02 领导批示"可"）执行；同批完成仓库迁移（JohnnyEisen → irisblackwood，LICENSE/author/URL 同步）。
