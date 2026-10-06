@@ -1,11 +1,15 @@
 # FocusGuard 聚焦护栏
 
+[![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
+[![version](https://img.shields.io/badge/version-3.0.4-369eff)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-ffcb47)](LICENSE)
+![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-**Node ≥ 18.17**（零依赖）· **MIT** · **ZCode 原生硬拦截** + **DSH 经官方桥硬拦截** · 当前 **v3.0.0**（协作治理版）
+**ZCode 原生硬拦截** + **DSH 经官方桥硬拦截** · 零依赖 · 钩子层 AI 行为治理
 
-> 给 AI 编码智能体装上一套"纪律与监察系统"：日常对话零打扰，一旦出现未取证就改、结论无锚点、整读大文件烧上下文、无限空转等失控行为，立刻按梯度处罚——打回、强制取证、熔断、记档、降权、上报。所有执法行为全程留痕，人类随时可复核。
+> **FocusGuard 不是另一把 Hook 枪，它是 AI 行为治理的完整体系**：立法（法条定标准）→ 执法（引擎机械执行）→ 监察（全程留痕可复核）。日常对话零打扰，一旦出现未取证就改、结论无锚点、整读大文件烧上下文、无限空转等失控行为，立刻按梯度处罚——打回、强制取证、熔断、记档、降权、上报，人类随时可复核。
 
-FocusGuard 不是提示词里的一句"请不要乱来"，而是把失控行为变成**钩子层可机械拦截的事件**。
+它不是提示词里的一句"请不要乱来"，而是把失控行为变成**钩子层可机械拦截的事件**。
 
 ## 30 秒速览
 
@@ -34,13 +38,20 @@ AI 智能体最常见的三种失控：
 2. **资源失控**：整读大文件、未过滤刷屏，上下文和 token 被无意义输出撑爆；
 3. **权限失控**：拿不准也硬改，先斩后奏，出了问题无法追溯。
 
-"立法 → 执法 → 监察"三件套把这三类失控变成可拦截的行为事件：**法条**（[docs/RULES.md](docs/RULES.md)）定标准，**引擎**（[hooks/guard.mjs](hooks/guard.mjs)）机械执行，**留痕**（`.focus-guard/AUDIT.log`）接受人类复核。
+"立法 → 执法 → 监察"三件套把这三类失控变成可拦截的行为事件：**法条**（[packages/core/docs/RULES.md](packages/core/docs/RULES.md)）定标准，**引擎**（[packages/core/hooks/guard.mjs](packages/core/hooks/guard.mjs)）机械执行，**留痕**（`.focus-guard/AUDIT.log`）接受人类复核。
 
 ## 快速开始
 
-**ZCode（推荐）**：克隆本仓库 → 插件市场 → 添加市场（选择含 `marketplace.json` 的**仓库根目录**）→ 插件列表安装 → 新开会话。
+**核心版与扩展版的关系**：`focus-guard`（`packages/core/`）是零依赖范本包——引擎钩子、技能、核心工具、法条文档，所有人从这里开始；`focus-guard-extended`（`packages/extended/`）是扩展衍生包，依赖核心包，承载重型外接集成（OpenViking 同步桥 / Needle 2 本地模型外判 / Semantica 图谱导出）。核心版是范本，可衍生无数扩展变体；下载核心版时**不需要也不会拉取**任何扩展依赖。
 
-**DSH**：用官方桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载本仓库 `hooks/hooks.json`，即可获得与 ZCode 同级的硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回）。⚠ **未挂桥时 DSH 端没有拦截**——这不是"装上就生效"的零配置路径，挂桥步骤见 [INSTALL.md](INSTALL.md) 第二节。
+```bash
+npm install focus-guard           # 核心版：零依赖，装完即用
+npm install focus-guard-extended  # 扩展版：按需启用外接集成（自动带上核心版）
+```
+
+**ZCode 插件（推荐）**：克隆本仓库 → 插件市场 → 添加市场（选择含 `marketplace.json` 的**仓库根目录**）→ 插件列表安装 → 新开会话。
+
+**DSH**：用官方桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载本仓库 `packages/core/hooks/hooks.json`，即可获得与 ZCode 同级的硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回）。⚠ **未挂桥时 DSH 端没有拦截**——这不是"装上就生效"的零配置路径，挂桥步骤见 [INSTALL.md](INSTALL.md) 第二节。
 
 **验证生效**：新会话开头出现 `<focus-guard AI履职执法模型v3.0 …>` 注入，且工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log`。
 
@@ -74,7 +85,7 @@ AI 智能体最常见的三种失控：
 - **有效调用**（返回内容有变化/产生文件变更/出现新报错）满阈值自动续杯 +10；
 - **无效调用**（重复读同一内容/同命令同返回/失败调用）连续 3 次 → 判真失控直接熔断；停滞 2 次可申请【信用延期】，由人类批示。
 
-### 卷宗体系（四册，总纲见 [docs/MASTER-PLAN-2.0.0.md](docs/MASTER-PLAN-2.0.0.md)）
+### 卷宗体系（四册，总纲见 [docs/MASTER-PLAN-2.0.0.md](packages/core/docs/MASTER-PLAN-2.0.0.md)）
 
 工作区档案 `<工作区>/.ai/CASE_FILE.md`：
 
@@ -131,7 +142,7 @@ AI 智能体最常见的三种失控：
 
 ### 正面指引（告诉 AI 怎么干活）
 
-负面清单管下限，正面指引给标准动作（法条第十五章之一，74–79 条；运行时镜像 [skills/focus-thinking/SKILL.md](skills/focus-thinking/SKILL.md) §10）：
+负面清单管下限，正面指引给标准动作（法条第十五章之一，74–79 条；运行时镜像 [packages/core/skills/focus-thinking/SKILL.md](packages/core/skills/focus-thinking/SKILL.md) §10）：
 
 | 树杈 | 标准动作 | 机械化 |
 |---|---|---|
@@ -144,7 +155,7 @@ AI 智能体最常见的三种失控：
 
 ## 配置
 
-所有阈值集中在 [hooks/guard.mjs](hooks/guard.mjs) 顶部常量区：
+所有阈值集中在 [packages/core/hooks/guard.mjs](packages/core/hooks/guard.mjs) 顶部常量区：
 
 | 常量 | 默认 | 说明 |
 |---|---|---|
@@ -234,7 +245,7 @@ npm run test:bridges                                     # 扩展包桥测试（
 
 - **回合边界双保险**：实测 `UserPromptSubmit` 不保证触发，回合计数由可靠的 `Stop` 事件兜底清零，`reset` 仅作尽力而为的提前重置；
 - **钩子读取的是安装副本**：改源码不会自动生效，需同步安装缓存或经市场更新——"源码已升级但引擎没变"是这套系统最常见的部署事故，[INSTALL.md](INSTALL.md) FAQ 4 有排查步骤；
-- **平台受限暂缓条款**：第 21 条 Token 成本核算、第 37 条思考链监管（钩子层不可见 token 用量与思考时长）、第 64 条(二)(三)(四)限流（无对应信号）；第 48 条子代理继承以留痕方式实现。**完整"未机械化条款清单"见 [docs/RULES.md](docs/RULES.md) 附注**——凡清单所列，AI 不得声称已由引擎自动执行；
+- **平台受限暂缓条款**：第 21 条 Token 成本核算、第 37 条思考链监管（钩子层不可见 token 用量与思考时长）、第 64 条(二)(三)(四)限流（无对应信号）；第 48 条子代理继承以留痕方式实现。**完整"未机械化条款清单"见 [packages/core/docs/RULES.md](packages/core/docs/RULES.md) 附注**——凡清单所列，AI 不得声称已由引擎自动执行；
 - **>200KB 文件没有内容级防伪**：见上文卷宗体系边界说明；
 - **引号内的危险字样仍会命中特征库**（如 `echo "git push"`、`grep -rn "delete from users"`）：去引号会引入更危险的漏检，故取保守策略，代价是多一次审批；
 - **特征库不可能堵完**：`rm${IFS}-rf`、base64 管道、shell 别名等在射程之外，护栏治的是"顺手失控"，不是定向对抗；
@@ -244,11 +255,15 @@ npm run test:bridges                                     # 扩展包桥测试（
 
 ## 版本与变更
 
-当前 **v3.0.0**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近三版：
+当前 **v3.0.4**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
 
-- **3.0.0 协作治理版**：依领导批示（十大原则）将治理面从单会话扩展到多代理协作与知识资产——中心调度与蜂群委派法典（第八十条）、去中心化验证（八十一）、静态积木图书馆 `.ai/library/`（八十二）、本地零成本哨兵 `tools/sentinel.mjs`（八十三，Needle 2 可插拔）、KPI 兑现闭环（八十四，收尾结算等次→委托池奖惩）、提问漏斗（八十五）、因果链留痕 seq/chain/ref + `tools/audit-chain.mjs`（八十六）；新增 `tools/library-build.mjs` 积木构建器；随批修复 deep-review 遗留：FG-D1 引文核验窗口 500→4000 字符、FG-D2 原子写、FG-D3 tmp 残片、FG-D4 降级防御、解释器 eval 不再判只读侦查；法典增第十五章之二（第八十~八十六条）；验收 90 → 90+3.0 新增；
+- **3.0.4 双包 monorepo**：`packages/core`（`focus-guard` 零依赖范本包）+ `packages/extended`（`focus-guard-extended` 扩展包，承载外接三件套）；`npm install focus-guard` 永不拉取扩展依赖；中心蜂群强化——调度三分法、派单给目标不给方法脚本、跨任务授权不对称、模型分层蜂群、对抗验证三怀疑者（第八十条增订七～十、第八十一条增订四）；library-build 幂等键改纯内容指纹；
+- **3.0.3 主分支精简版**：外接三件套移出主分支（迁 `packages/extended`），主分支保留哨兵本体与外判契约；
+- **3.0.2 外接三件套**：`viking-bridge`（OpenViking 积木同步）/ `audit-chain --semantica`（Semantica 图谱导出）/ `needle2-sentinel`（Needle 2 外判运行器）+ 批示词尾置容错；
+- **3.0.1 合并审批**：多条高危待批合并出示、一次 `y` 放行全部（各一次性消费）；批示词容错（"y，顺带把文档也改了"）；写入闸对抗审查同源判定；
+- **3.0.0 协作治理版**：按 3.0 规划（十大原则）将治理面从单会话扩展到多代理协作与知识资产——中心调度与蜂群委派法典（第八十条）、去中心化验证（八十一）、静态积木图书馆 `.ai/library/`（八十二）、本地零成本哨兵 `tools/sentinel.mjs`（八十三，Needle 2 可插拔）、KPI 兑现闭环（八十四，收尾结算等次→委托池奖惩）、提问漏斗（八十五）、因果链留痕 seq/chain/ref + `tools/audit-chain.mjs`（八十六）；新增 `tools/library-build.mjs` 积木构建器；修复 deep-review 遗留：FG-D1 引文核验窗口 500→4000 字符、FG-D2 原子写、FG-D3 tmp 残片、FG-D4 降级防御、解释器 eval 不再判只读侦查；法典增第十五章之二（第八十～八十六条）；
 
-- **2.5.3 亲历修复版**：卷宗继承指纹只提示不拦（跨会话首读不再被拦——案一）；58 条对账限单条语句（复合命令误报清零——案三）；审计任务体积闸豁免（案二）；卷宗【一】/PATTERNS.md 写失败告警；61 条落地（启动清扫 30 天未动临时文件）；修法（法典 v1.1：SKILL 效力条款改为"暂停机械执行＋报请裁决"、废止 19/24四/44/45/46 条、47 条限定同机跨运行时）；补备案与误伤标注；仓库迁移 irisblackwood；验收 86 → 90；
+- **2.5.3 实测误伤修复版**：卷宗继承指纹只提示不拦（跨会话首读不再被拦）；58 条对账限单条语句（复合命令误报清零）；审计任务体积闸豁免；卷宗【一】/PATTERNS.md 写失败告警；61 条落地（启动清扫 30 天未动临时文件）；法典 v1.1 修法（SKILL 效力条款改为"暂停机械执行＋报请裁决"、废止 19/24四/44/45/46 条、47 条限定同机跨运行时）；仓库迁移 irisblackwood；验收 86 → 90；
 
 - **2.5.2 对抗审查版**：修 P0——熔断期白名单先 `exit 0`，导致 `npm publish`/`shutil.rmtree`/`reg add` 等不在变更表里的高危命令在熔断期绕过审批；修中文批示（`同意/批准/不/拒绝` 因正则 `\b` 不认 CJK 全部失效）、止停令被写回 false、超 300 字符命令 y/n 永不匹配、Stop 部分打回缺一次性保护、`sudo mv`/`xargs mv`/`cp`/`sed -i` 被当只读侦查、bash↔zsh 切换永不重检；`.env`/私钥不再落明文备份、状态原子落盘；补 CI 与 CHANGELOG，验收 63 → 86；
 - **2.5.1 盘点修复版**：五处清单 + 引擎号 + 头注释全链一致并由用例锁定；**假留痕防线**（AUDIT/卷宗/备份写失败一律上 stderr）；卷宗【一】环境声明落卷；58 条路径查重判定修正；五处插件说明去重；
@@ -259,14 +274,14 @@ npm run test:bridges                                     # 扩展包桥测试（
 |---|---|
 | [README.md](README.md) | 人类：这是什么、怎么装、边界在哪（本文件） |
 | [INSTALL.md](INSTALL.md) | 逐行安装 / DSH 挂桥 / FAQ / 卸载 |
-| [docs/RULES.md](docs/RULES.md) | 法条原文 + 技术映射明细 + **未机械化条款清单**（永不自动加载） |
-| [skills/focus-thinking/SKILL.md](skills/focus-thinking/SKILL.md) | AI 运行时镜像：聚焦方法 + 纪律条款 |
-| [docs/MASTER-PLAN-2.0.0.md](docs/MASTER-PLAN-2.0.0.md) | 卷宗体系工程总纲 |
-| [docs/MASTER-PLAN-3.0.0.md](docs/MASTER-PLAN-3.0.0.md) | 协作治理工程总纲（十大原则 → 十项机制） |
+| [packages/core/docs/RULES.md](packages/core/docs/RULES.md) | 法条原文 + 技术映射明细 + **未机械化条款清单**（永不自动加载） |
+| [packages/core/skills/focus-thinking/SKILL.md](packages/core/skills/focus-thinking/SKILL.md) | AI 运行时镜像：聚焦方法 + 纪律条款 |
+| [docs/MASTER-PLAN-2.0.0.md](packages/core/docs/MASTER-PLAN-2.0.0.md) | 卷宗体系工程总纲 |
+| [docs/MASTER-PLAN-3.0.0.md](packages/core/docs/MASTER-PLAN-3.0.0.md) | 协作治理工程总纲（十大原则 → 十项机制） |
 | [tools/](tools/) | 积木图书馆构建 / 因果链渲染 / 本地哨兵 |
-| [docs/LEGISLATION-LAW.md](docs/LEGISLATION-LAW.md) | 立法法：规则怎么立、怎么改、怎么备案 |
+| [docs/LEGISLATION-LAW.md](packages/core/docs/LEGISLATION-LAW.md) | 立法法：规则怎么立、怎么改、怎么备案 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更 |
-| [tests/](tests/) | 验收用例、对抗评测、报文基准 |
+| [packages/core/tests/](packages/core/tests/) | 验收用例、对抗评测、报文基准 |
 
 ## License
 

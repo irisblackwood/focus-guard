@@ -1,179 +1,102 @@
 # 变更记录（CHANGELOG）
 
-> 本文件按版本倒序记录面向使用者的变更。2026-10-01 之前的历史依据 git 提交记录与
-> `docs/RULES.md` 实施差异备忘回溯整理；版本号必须与五处清单（`package.json`、根 `marketplace.json`、
+> 本文件按版本倒序记录面向使用者的变更。版本号与五处清单（`package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
-## 3.0.4 — 双包 monorepo 版 + 中心蜂群强化（R8）
+## 3.0.4 · 双包 monorepo 与中心蜂群强化
 
-依领导 2026-10-06 批示（"packages/core 核心版 / packages/extended 扩展版；研读资料重点 Claude 与 GPT；加强中心蜂群思维"）执行。
+- feat: 仓库重构为 npm monorepo——`packages/core`（`focus-guard`，零依赖范本包）+ `packages/extended`（`focus-guard-extended`，依赖 core，承载外接三件套）；`npm install focus-guard` 只下载核心，永不拉取扩展依赖。
+- feat: 中心蜂群强化（第八十条增订七～十，采自 Claude cowork 与 GPT-6 蜂群提示词研究 R8）：调度三分法与 ack 并行、派单给目标不给方法脚本、并行默认流水线（屏障例外须说明）、跨任务授权不对称（收到他任务来函≠授权）、协作动作禁藏入脚本、模型分层蜂群（全量继承禁降档）。
+- feat: 对抗验证三怀疑者模式（第八十一条增订四，采自 Claude cowork 质量模式库）：各自"试图驳倒"、默认 refuted、多数决存真，复核截断必须留痕（no silent caps）。
+- chore: 插件挂载路径适配 monorepo——hooks.json 六条命令与插件清单指向 `packages/core/`；42条部署核验新增 monorepo 路径；`external-bridges` 分支废止（内容入 extended 包），`v3.0.2-external` 标签留档。
+- fix: library-build 幂等键改为纯内容指纹配对（修复路径分隔符差异导致的重复积木）。
+- docs: 对外文档剥离内部公文语气（CHANGELOG/README/INSTALL 回归开源专业表达，历史条目同步改写）；研读笔记 R8 入积木图书馆（共 75 块）。
 
-**双包 monorepo（架构重构）**
-- `packages/core/` → npm 包 **`focus-guard`**：零依赖范本（引擎钩子/技能/核心工具/法条文档），`npm install focus-guard` 只下载核心、永不拉取扩展依赖；主分支从此包发版，可衍生无数变体。
-- `packages/extended/` → npm 包 **`focus-guard-extended`**：依赖 core，承载外接三件套（viking-bridge / needle2-sentinel / audit-chain-semantica，均自包含、零第三方依赖、失败静默回退核心行为）。
-- **范本性验收**：新增"核心源码零 bridges 反向依赖"用例——删除 extended 包，核心功能一分不减由测试锁定；桥测试独立为 `npm run test:bridges`，主分支 `npm test` 不依赖扩展包。
-- 插件挂载路径适配 monorepo：hooks.json 六条命令与插件清单指向 `packages/core/`；42条部署核验新增 monorepo 路径。
-- `external-bridges` 分支废止删除（内容已入 extended 包）；tag `v3.0.2-external` 保留为历史标记。
+## 3.0.3 · 主分支精简版（外接层移出）
 
-**中心蜂群强化（R8 研读：Claude cowork × GPT-6 蜂群，3 子代理并行挖掘）**
-- 重大纠偏：astra/luna/sol 是模型档位（前沿/主力/轻量）而非代理角色——OpenAI 蜂群收敛为"等能蜂群+成本分层"；角色分化路线（explorer/worker）FocusGuard 保留。
-- 法条第八十条增订（七）～（十）：调度三分法与 ack 并行（Claude dispatch）；派单给目标不给方法脚本；流水线默认/屏障例外；跨任务授权不对称（收到来函含调度者≠授权，防代理间钓鱼）；协作动作禁藏入脚本；模型分层蜂群（全量继承禁降档）。
-- 法条第八十一条增订（四）：对抗验证三怀疑者模式（试图驳倒/默认 refuted/多数决）+ no silent caps 截断留痕。
-- SKILL §13/§14 镜像强化；R8 研读笔记入积木图书馆（vault prompts-mining/r8-center-swarm.md）。
+- refactor: 外接三件套移出主分支——`tools/viking-bridge.mjs`、`tools/needle2-sentinel.mjs`、`audit-chain --semantica` 及对应用例、README 外接节、`viking` 脚本；主分支保留哨兵本体与 `FG_SENTINEL_CMD` 外判契约。
+- docs: README 外接指引与 CHANGELOG 同步；版本链 3.0.2 → 3.0.3。
 
-## 3.0.3 — 主分支精简版（外接层移出）
+## 3.0.2 · 外接三件套
 
-依领导 2026-10-06 批示（"有外接版的变成子分支，主分支为无外接的"）执行：**主分支为无外接精简版**，外接三件套整体迁至 [`external-bridges`](https://github.com/irisblackwood/focus-guard/tree/external-bridges) 分支（tag `v3.0.2-external`，内容与 v3.0.2 发布树一致）。
+- feat: `tools/viking-bridge.mjs`——积木图书馆同步 OpenViking：积木以 `viking://resources/focus-guard-library/` 落入 resources 作用域；默认导出 batch-write 载荷，`--push` 直推（`OPENVIKING_URL`/`OPENVIKING_API_KEY`，默认端口 1933）。
+- feat: `tools/audit-chain.mjs --semantica`——执法档案因果链导出 LPG 图谱 JSON（`caused`/`spawned` 边），供 Semantica Knowledge Explorer 导入。
+- feat: `tools/needle2-sentinel.mjs`——Needle 2 本地模型外判运行器（`FG_SENTINEL_CMD` 契约；`NEEDLE2_BIN`/`NEEDLE2_MODEL` 指向本地推理运行时；失败静默回退内建启发式）。
+- feat: 批示词尾置容错——"……照此办理，y" 亦构成批示（3.0.1 的容错只认句首，尾置批示此前会被吞）。
+- chore: 版本链 3.0.1 → 3.0.2。
 
-- **移出主分支**：`tools/viking-bridge.mjs`（OpenViking 同步桥）、`tools/needle2-sentinel.mjs`（Needle 2 外判运行器）、`audit-chain --semantica` 图谱导出及对应验收用例、README 外接三件套节与 `viking` 脚本。
-- **保留主分支**：哨兵本体（`tools/sentinel.mjs` + `FG_SENTINEL_CMD` 外判契约——契约在主分支，适配器在分支）、因果链渲染（文本树/Mermaid）、批示词尾置、全部协作治理与执法功能。
-- 版本链 3.0.2 → 3.0.3；验收 101 → 100（1 例随外接层迁分支）。
+## 3.0.1 · 合并审批
 
-## 3.0.2 — 外接三件套版
+- feat: 高危待批队列（上限 10 条）——多条高危命令合并出示，一次 `y` 放行全部待批（每条仍各一次性消费、逐字一致），`n` 全部彻底阻断。
+- fix: 授权消费统一——批量键与单条键重复登记时双槽同清（修复同一命令被无声放行两次）。
+- feat: 批示词容错——批示词后接分隔符与简短补充指令（全文 ≤30 字符）仍构成批示（"y，顺带把文档改了"不再被整条吞掉）。
+- fix: 写入闸对抗审查同源判定——同回合被拒 A 目标后写 B 目标不再连坐 L4 记档，跨目标走正常待批。
 
-依领导 2026-10-06 批示（"先接入 OpenViking 和 Semantica、Needle 2"）增补；OpenViking 对接基于本地 `E:\OpenViking-0.4.23` 真实 API（`POST /api/v1/fs/mkdir`、`POST /api/v1/content/batch-write`，默认端口 1933，`X-API-Key` 认证）。
+## 3.0.0 · 协作治理版（十大原则）
 
-- **viking-bridge（tools/viking-bridge.mjs）**：静态积木图书馆 ↔ OpenViking 同步桥——积木以 `viking://resources/focus-guard-library/<积木文件>` 落入 resources 作用域。默认导出 `viking-import.json`（batch-write 载荷 + 可复制的 `ov`/curl 命令）；`--push` 直推本地/远程 OpenViking 服务端（`OPENVIKING_URL`/`OPENVIKING_API_KEY`，Node 18+ 原生 fetch，零依赖）。
-- **Semantica 图谱导出（tools/audit-chain.mjs --semantica）**：执法档案因果链导出为 LPG 图谱 JSON（nodes/edges，`caused`/`spawned` 两类边），供 Semantica（图原生记忆层）Knowledge Explorer 导入做因果追溯与可视化。
-- **needle2-sentinel（tools/needle2-sentinel.mjs）**：Needle 2（Cactus Compute 45M 端侧模型）外判运行器，实现 `FG_SENTINEL_CMD` 契约（stdin 收 `{"command"}` → stdout 回 `{"verdict","reasons"}`）；经 `NEEDLE2_BIN`/`NEEDLE2_MODEL`/`NEEDLE2_ARGS` 对接本地推理运行时，未配置/失败时静默回退哨兵内建启发式。
-- **批示词尾置（七十五条(四) 增补）**：批示词亦可位于句尾（分隔符前导，"……照此办理，y"）——3.0.1 的容错只认句首，尾置批示此前仍会被吞。
-- 版本链 3.0.1 → 3.0.2。
+- feat: 中心调度与蜂群委派（第八十条）：主会话只做调度与审计，关键路径亲手、sidecar 委派；委派法典细则（关键路径规则/写集分离/共存三律/等待纪律/explorer-worker 二分/派单自包含）。
+- feat: 去中心化验证（第八十一条）：关键决策（高危批准前/熔断宣告前/宣称完成前）换模型互查，findings-first，无锚点互评不计为复核发现。
+- feat: 静态积木图书馆（第八十二条）：`.ai/library/` 积木区不可变、引擎拦截直写、新知只进 `inbox/` 便签区（记忆更新隔离区）、积木读不进卷宗【三】；新增 `tools/library-build.mjs` 构建器（幂等重建）。
+- feat: 本地哨兵接入层（第八十三条，opt-in `FG_SENTINEL=1`，默认仅记档 audit-only，`FG_SENTINEL_MODE=strict` 拦截）。
+- feat: KPI 兑现闭环（第八十四条）：收尾即结算——KPI→等次→委托池奖惩（+5/0/-2/-5），跨任务累计 kpiCarry 落台账，AUDIT 记 `kpi-settle`。
+- feat: 提问即治理（第八十五条）：任务漏斗（目标→约束→验收锚点→额度批示）；计划批准≠实现批准。
+- feat: 因果链追溯（第八十六条）：AUDIT.log 每条增 `seq/chain/ref` 三字段，委派派生 `/dN` 子链；新增 `tools/audit-chain.mjs` 渲染因果树/Mermaid。
+- fix: FG-D1 授权引文核验窗口 500→4000 字符（长批示靠后的授权原文此前必然核验失败误判越权）；FG-D2 卷宗【一】改原子写；FG-D3 rename 失败清理 tmp 残片；FG-D4 卷宗初始化降级防御。
+- fix: 解释器 eval 类命令（`python -c`/`node -e`）不再判只读侦查——堵住熔断期白名单放行解释器的洞。
+- breaking: AUDIT.log 追加 `seq/chain/ref` 三字段（追加式，旧解析器兼容）；解释器 eval 类 Bash 改判执行类（熔断期不再放行、计入执行池）；常驻注入 411→425 字（仍低于 500 字立法上限）。
+- docs: 新增 `docs/MASTER-PLAN-3.0.0.md`（协作治理总纲）、法条第十五章之二（第八十～八十六条）、SKILL §13-16 镜像。
 
-## 3.0.1 — 合并审批版
+## 2.5.3 · 实测误伤修复
 
-依领导 2026-10-06 批示（"如果有多条高危命令尽量一次提交一次审批"）修法，法条为第七十五条(四)。
+- fix: 卷宗免重读限定会话内——跨会话继承指纹只提示不拦（内容不在本会话上下文，拦首读即阻断取证）；会话内真读后恢复拦截。
+- fix: 58条对账限单条语句——复合命令（`&&`/`;`/换行）跳过整段对账，清除六起系统性误报（巨量输出仍由体积追责兜底）。
+- fix: 审计任务体积闸豁免——批示含"审计/盘点/审查"时取证对象整读留痕不罚（预算与巨量输出追责仍生效）。
+- chore: 卷宗【一】/PATTERNS.md 写失败告警；61条落地（启动清扫临时目录 30 天陈旧文件）；法典 v1.1 修法（SKILL 效力条款改"暂停机械执行＋报请裁决"、废止 19/24四/44/45/46条）；仓库迁移 JohnnyEisen → irisblackwood。
+- test: 验收 86 → 90 用例。
 
-- **批量审批**：新增待批队列（上限 10 条）——多条高危命令被拦时合并出示全部待批项，领导回复 **y** 一次放行全部待批（每条仍各一次性消费、逐字一致），回复 **n** 全部彻底阻断；审批报文与待批队列注记随拦截输出。
-- **批示词容错**：y/同意/批准/允许/不/拒绝等批示词后接分隔符与简短补充指令（全文 ≤30 字符）仍构成批示——"y，顺带把文档改了"此前会被严格匹配整条吞掉、批示作废，现放行与业务指令同时生效。
-- 单条 y/n 语义不变；`rejectedCmds` 彻底阻断登记同样按批量执行。
+## 2.5.2 · 对抗审查版
 
-## 3.0.0 — 协作治理版
+- fix(安全/P0): 熔断期不再放行高危命令——旧顺序让只读白名单先退出，`npm publish`/`shutil.rmtree`/`reg add`/`diskpart` 等直接绕过审批；现白名单之前先判高危，熔断期一律拒绝。
+- fix: 中文批示生效（`同意/批准/允许` 与 `不/拒绝` 因正则 `\b` 不识别 CJK 全部失效 → 整句精确匹配）；「停止/熔断」批示真正生效（熔断状态曾被同一函数写回 false）；超 300 字符命令 y/n 生效（比对键改全量哈希）；Stop 打回一次性保护（杜绝强制续跑死循环）。
+- fix: 变更类命令识别——`sudo mv`/`xargs mv`/`cp`/`sed -i` 不再被当只读侦查；shell 重检修复（zsh/sh 不再误报为 bash）。
+- chore: `.env`/私钥不再落明文备份；会话状态原子落盘；SQL WHERE 豁免按单条语句判定；`curl -d` 与 `-D` 区分大小写；补齐 `find -delete`/`rimraf`/`wget --post-data`/`Invoke-WebRequest -Method POST` 特征。
+- chore: 新增 CI（Windows 必过，Linux/macOS 观察项 × Node 18/20/22）；威胁评测 31+16 → 61+34；验收 63 → 86。
 
-依领导 2026-10-06 批示（十大原则）执行；总纲见 `docs/MASTER-PLAN-3.0.0.md`，法条见 `docs/RULES.md` 第十五章之二（第八十~八十六条）。治理面从"单会话履职"扩展到"多代理协作与知识资产"。
+## 2.5.1 · 盘点修复版
 
-**协作治理（新法八条，SKILL §13-16 镜像）**
-- **中心思维 + 蜂群委派（第八十条）**：主会话=调度+审计，关键路径亲手、sidecar 委派；委派法典细则（关键路径规则/写集分离/共存三律/等待纪律/explorer-worker 二分/派单自包含）采自 R7 Codex multi_agent 挖掘。
-- **去中心化验证（第八十一条）**：关键决策换模型互查，findings-first，无锚点互评=点头不算复核（R5-5 advisor 采纳）。纪律条款，人工执行。
-- **静态知识图书馆（第八十二条）**：`.ai/library/` 积木区不可变，引擎拦截直写；新知只进 `inbox/` 便签区，由后台合并（R6 记忆更新隔离区采纳）；积木读不进卷宗【三】、不占侦查池。
-- **积木化拼装**：新增 `tools/library-build.mjs`——研读长文按 `##` 拆积木（id/来源/sha256 frontmatter + INDEX.md 指针索引），幂等重建、源移除标 retired。
-- **本地零成本哨兵（第八十三条）**：新增 `tools/sentinel.mjs`——离线命令风险预判（管道执壳/代理性通信/敏感数据传输/混淆绕行/持久化通道），可外接 Needle 2 本地模型外判（失败回退启发式）；引擎接入 opt-in（`FG_SENTINEL=1`，默认 audit-only，`FG_SENTINEL_MODE=strict` 拦截）。
-- **KPI 兑现闭环（第八十四条）**：收尾即结算——KPI→等次（≥+15 优秀/0~+14 称职/-9~-1 基本称职/≤-10 不称职）→委托池奖惩（+5/0/-2/-5）→kpiCarry 跨任务累计，AUDIT 落 `kpi-settle`。二十七~三十二条由"未实现"转"部分落地"。
-- **提问即治理（第八十五条）**：任务漏斗（目标→约束→验收锚点→额度批示）；计划批准≠实现批准。
-- **因果链追溯（第八十六条）**：AUDIT.log 每条增 `seq/chain/ref` 三字段，委派派生 `/dN` 子链；新增 `tools/audit-chain.mjs` 渲染因果树/Mermaid（偷师 Semantica）。
+- fix: 版本一致性——`ENGINE_VERSION`、引擎头注释与五处清单统一并新增自检用例锁定。
+- fix: 假留痕防线——AUDIT.log、卷宗【三】【四】、改动前备份写失败一律上报 stderr。
+- feat: 卷宗【一】环境声明落卷（此前仅占位符）；42条适配"根即插件"布局。
+- fix: 58条路径查重改判"首 token 是路径"（git 警告散文行不误报）；委派 KPI 落台账并阈值提醒；删除只写不读的 `envChecked`；五处清单 description 去重（加用例禁止镜像复制）。
 
-**执法修正与防线（deep-review-v2.5.3 遗留项，"随下个补丁"批次）**
-- **FG-D1（中）**：授权识别引文核验窗口 500→4000 字符——长批示靠后的授权原文此前必然核验失败误判越权，打击面是认真引用原文的规范遵守者。
-- **FG-D2**：卷宗【一】环境声明落卷改 tmp+rename 原子写。
-- **FG-D3**：saveCaseRecords/saveLedger rename 失败清理 .tmp 残片（对齐 saveState 防线）。
-- **FG-D4**：卷宗初始化包防御——工作区只读时降级继续，不再整体抛错。
-- **解释器黑名单（R5-3 采纳）**：`python -c`/`node -e` 等 eval 类命令不再判只读侦查——堵住"熔断期白名单放行解释器=熔断失效"的洞。
+## 2.5.0 · DSH 硬拦截
 
-**破坏性变更申报**
-- AUDIT.log（JSONL）追加 `seq/chain/ref` 三字段（追加式，旧解析器兼容；旧日志无链字段按流水账对待）。
-- 解释器 eval 类 Bash 从"侦查池只读"改判"执行类"：熔断期不再放行，计入执行池。
-- 常驻注入 `SESSION_RULES` 411 字 → 425 字（因果链提示，仍低于 500 字立法上限）。
+- feat: 官方桥 `dsh-hooks-claude-code` 直接运行 `hooks/hooks.json`——DSH 获得与 ZCode 同级硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回），取代 fire-and-forget 监察模式。
+- fix: 识别桥接 Stop 签名自适应降级（锚点/审批单打回仅审计），防桥接强制续跑死循环；`cordis.patch.yml` 改空载（避免 bundle 与桥双跑）。
 
-## 2.5.3 — 亲历修复版
+## 2.4.1 · 特征库加固
 
-依《处理意见书》（FG-纪审〔2026〕第1号，2026-10-02 领导批示"可"）执行；同批完成仓库迁移（JohnnyEisen → irisblackwood，LICENSE/author/URL 同步）。
+- fix: 堵住 `git -C <目录> push`、`rm --recursive`、node `rmSync(recursive)`、无 where 的 `DELETE FROM`/`UPDATE SET`；补 `DROP DATABASE`。
+- chore: post 阶段五处响应采样合并为单次；卷宗缓存 200 条按取证时间裁剪。
 
-**执法修正（三起亲历误伤，逐案修复）**
-- **卷宗免重读限定会话内（案一）**：会话启动从卷宗继承的取证指纹只提示不拦——内容不在本会话上下文，拦首读等于阻断取证；会话内真读过后自动恢复拦截。
-- **58条 对账限单条语句（案三）**：复合命令（&&/;/换行）里 head 只约束其段，其余段输出无法归因，整段对账有六起系统性误报；复合命令跳过对账（巨量输出仍由体积追责兜底）。
-- **审计任务体积闸豁免（案二）**：批示含"审计/盘点/审查"时，取证对象整读留痕不罚；预算与巨量输出追责仍生效。
+## 2.4.0 · 高危命令闸
 
-**防线与卫生**
-- 卷宗【一】环境声明落卷、PATTERNS.md 经验库创建失败 → stderr 告警（对齐 2.5.1 假留痕防线标准）。
-- 61条落地：会话启动清扫系统临时目录中 30 天未动的 focus-guard 状态/档案文件（实测残留曾达 8376 个）。
+- feat: 六类不可逆命令（破坏性删除/强推与历史覆盖/权限与配置篡改/全局依赖安装/对外发送与发布/数据库影响）命中即拒，须一行【高危申请】审批单——`y` 放行本次（一次性、逐字一致）、`n` 彻底阻断。
+- feat: 目标预授权与执行级授权分离；严禁脚本包装绕行（写入与执行两侧都拦）。
 
-**修法（法典编译版 v1.0 → v1.1）**
-- SKILL §7 效力条款：与引擎不一致时"暂停机械执行＋报请裁决"，废除"以引擎行为为准"。
-- 废止第十九条（不限额度后门）、第二十四条(四)、第四十四~四十六条（WORK_MAP/PROGRESS/拆批）；第四十七条限定同机跨运行时；映射表 58条去重。
-- 补备案 2.5.1/2.5.2 两次修法（此前漏备）；执法档案追加误伤更正标注（档案不改写原则）。
+## 2.3.0 · 委派条例
 
-**测试**：验收 86 → 90 用例（继承放行 / 分段对账 / 审计豁免 / 陈旧清理）。
+- feat: 委托池独立核算（默认 20 次，不占执行池）；子代理摘要四字段 ≤200 字，超长或缺字段拒收（KPI-3）。
+- feat: 强制委派场景（全库搜索/大文档摘要/批量文件处理）未委派 KPI-5、已委派 +5；熔断期启动子代理=越权绕行（L4+L5）。
 
-## 2.5.2 — 对抗审查版
+## 2.2.0 · 正面指引版
 
-对引擎与测试各做了一路独立对抗审查，逐条复现后修复。
+- feat: 法条第十五章之一（第七十四～七十九条）与运行时镜像；机械化三处：污染核实闸、改动前自动备份、推送走审批单。
+- chore: 常驻注入压缩为电报体。
 
-**安全（P0）**
-- **熔断期不再放行高危命令**：旧顺序让熔断期"只读白名单"先退出，`npm publish`、`shutil.rmtree`、
-  `reg add`、`diskpart` 等不在变更表里的高危命令直接绕过审批。现于白名单之前先判高危，熔断期一律拒绝。
+## 2.0.0 ~ 2.0.2 · 卷宗体系重构
 
-**正确性（P1）**
-- **中文批示生效**：`同意/批准/允许` 与 `不/拒绝` 此前因正则 `\b` 收尾（JS 的 `\b` 不识别 CJK）全部失效，
-  按中文回复时命令一直待批或无法阻断；改为整句精确匹配（也避免"是不是应该…"被误判成放行）。
-- **「停止/熔断」批示真正生效**：该批示设置的熔断状态被同一处理函数写回 `false`，止停令只有一行审计、没有实效。
-- **超长命令的 y/n 生效**：超过 300 字符的命令此前因"截断后比对"永远匹配不上（y 白按、n 不阻断）；
-  比对键改为全量哈希，展示文本仍截断。
-- **Stop 打回加一次性保护**：部分打回路径缺守卫，可被宿主反复重入；现加 `stopBlocked` +
-  `stop_hook_active` 双重闸，并放宽 DSH 无文本签名判定，杜绝强制续跑死循环。
-- **变更类命令识别**：`sudo mv`、`xargs mv`、`cp`、`sed -i` 此前被当成"只读侦查"，可绕过"未取证就改"；
-  现按命令词识别并剥离 `sudo/env/xargs/time` 等前缀，补齐 `cp/copy/rsync/sed -i` 等。
-- **shell 重检修复**：`quickShellId()` 曾把 zsh/sh 一律报成 `bash`，导致 bash↔zsh 切换永远检测不到。
-
-**健壮性与隐私（P2）**
-- `.env`、私钥、凭据类文件不再被复制成明文备份（改为跳过并留痕，回滚请用版本控制）。
-- 会话状态改原子落盘（临时文件 + rename），损坏状态不再静默降级而是上报 stderr。
-- SQL 的 WHERE 豁免改按"单条语句"判定；`curl -d`（发送数据）与 `-D`（dump 响应头）区分大小写。
-- 补齐 `find -delete`、`rimraf`、`wget --post-data`、`Invoke-WebRequest -Method POST` 等特征。
-- 删除只写不读且无上限的 `state.seen`；备份/台账临时文件加进程号；会话 ID 消毒撞名以短哈希区分。
-
-**工程**
-- 新增 CI（Windows 必过 + Linux/macOS 观察项 × Node 18/20/22）：验收 + 威胁评测（有漏检/误报即失败）。
-- `npm test` / `npm run eval` / `npm run bench`；`engines.node >= 18.17`；`.gitattributes` 统一 LF。
-- 威胁评测样本由 31+16 扩到 61+34（按"同一危险动作的多种写法"组织，含良性反例，防止用误报换检出）。
-- 验收用例 63 → 86，覆盖此前零行为覆盖的授权识别、脚本登记、抽查A、「查无实据」二次判定、
-  shell 重检、部署漂移等；测试脚手架改为同时捕获 stdout+stderr，使"零打扰"断言真实有效。
-
-## 2.5.1 — 盘点修复版
-
-依《系统资产盘点报告》逐项核验后修复（报告锚点有偏移，按实际代码重核）。
-- 版本一致性：`ENGINE_VERSION`、引擎头注释与五处清单统一，并新增自检用例锁定。
-- 假留痕防线：AUDIT.log、卷宗【三】【四】、改动前备份写失败一律上报 stderr。
-- 卷宗【一】环境声明落卷（此前仅占位符）；42条 适配"根即插件"布局、市场源核验不再写死工作区名。
-- 58条 路径查重改判"首 token 是路径"：git 警告散文行不误报，`git ls-files` 裸相对路径不放过。
-- 委派 KPI 落额度台账并在跌破阈值时提醒一次；删除只写不读的 `envChecked`。
-- 五处清单 `description` 去重：按载体（npm 包 / ZCode 市场 / ZCode 插件页 / 兼容层清单 / DSH 入口市场）
-  各写独立文案，并加用例禁止镜像复制。
-
-## 2.5.0 — DSH 硬拦截
-
-- 官方桥 `dsh-hooks-claude-code` 直接运行 `hooks/hooks.json`，DSH 端获得与 ZCode 同级的硬拦截
-  （exit 2 阻断、stderr 原文透传、Stop 打回）。取代此前的 fire-and-forget 监察模式。
-- 识别桥接 Stop 签名（`transcript_path` 恒空串且无收尾文本），锚点/审批单打回降级为仅审计，防强制续跑死循环。
-- `cordis.patch.yml` 改为空载（避免 bundle 与官方桥双跑）。
-
-## 2.4.1 — 特征库加固
-
-- 堵住 `git -C <目录> push`、`rm --recursive`、node `rmSync(recursive)`、无 where 的 `DELETE FROM`/`UPDATE SET`。
-- post 阶段五处响应采样合并为单次；卷宗缓存 200 条按取证时间裁剪；补 `DROP DATABASE`。
-
-## 2.4.0 — 高危命令闸
-
-- 六类不可逆命令（破坏性删除 / 强推与历史覆盖 / 权限与配置篡改 / 全局依赖安装 / 对外发送与发布 /
-  数据库影响）命中即拒，须一行【高危申请】审批单；人类 `y` 放行本次（一次性、逐字一致）、`n` 彻底阻断。
-- 目标预授权与执行级授权分离；严禁脚本包装绕行（写入与执行两侧都拦）。
-
-## 2.3.0 — 委派条例
-
-- 委托池独立核算（默认 20 次，不占执行池）；子代理摘要四字段 ≤200 字，超长或缺字段拒收（KPI-3）。
-- 强制委派场景（全库搜索 / 大文档摘要 / 批量文件处理）未委派 KPI-5，已委派 +5。
-- 熔断期启动子代理 = 越权绕行（L4 记档 + L5 降权）；正常委派放行不计违规。
-
-## 2.2.0 — 正面指引版
-
-- 新增法条第十五章之一（第七十四~七十九条）与其运行时镜像，机械化三处：污染核实闸、改动前自动备份、
-  推送走审批单（推送口径已于 2.4.0 由"人类 UI 执行"改为"y 放行本次"）。
-- 常驻注入压缩为电报体（当时相对更早版本省 31.6%，对比基线见 git 历史）。
-
-## 2.0.0 ~ 2.0.2 — 卷宗体系重构
-
-- 2.0.0（破坏性变更）：卷宗四册（`.ai/CASE_FILE.md`：环境声明 / 依赖声明 / 侦查记录 / 额度台账）、
-  会话级环境检测一次复用、跨回合取证指纹（mtime+size+SHA-256≤200KB+git 脏态）、自适应 TTL
-  （4h/2h/24h/7天，依赖声明 > 人工标注 > 自适应）、免重读放行、跨平台命令拦截、额度台账落卷。
-  旧第四十九条 mtime 逐回合闸废弃。
-- 2.0.1：win32 shell 误判热修（PSModulePath 机器级恒存不再判为 PowerShell）。
-- 2.0.2：`.csproj`/`.sln` 列入风险文件备案（C# 项目配置与 package.json 同级）。
+- feat(2.0.0·破坏性): 卷宗四册（`.ai/CASE_FILE.md`：环境声明/依赖声明/侦查记录/额度台账）、会话级环境检测一次复用、跨回合取证指纹（mtime+size+SHA-256≤200KB+git 脏态）、自适应 TTL（4h/2h/24h/7天，依赖声明 > 人工标注 > 自适应）、免重读放行、跨平台命令拦截、额度台账落卷；旧 mtime 逐回合闸废弃。
+- fix(2.0.1): win32 shell 误判热修（PSModulePath 机器级恒存不再判为 PowerShell）。
+- chore(2.0.2): `.csproj`/`.sln` 列入风险文件备案。

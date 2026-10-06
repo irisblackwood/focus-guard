@@ -1,4 +1,4 @@
-# FocusGuard 安装指南（v2.5.3）
+# FocusGuard 安装指南（v3.0.4）
 
 前置要求：Node.js ≥ 18.17（引擎零依赖，仅用内置模块；与 `package.json` 的 `engines` 一致）。逐行验证：
 
@@ -10,10 +10,10 @@ node -v
 
 | 平台 | 插件结构 | 拦截语义 | 安装方式 |
 |---|---|---|---|
-| **ZCode** | `.zcode-plugin/plugin.json` + `hooks/hooks.json` | PreToolUse 退出码 2 / `decision:block` **硬拦截** | 插件市场（市场源刷新 + UI 更新） |
-| **DSH**（Cordis 运行时） | 官方桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载本仓库 `hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
+| **ZCode** | `.zcode-plugin/plugin.json` + `packages/core/hooks/hooks.json` | PreToolUse 退出码 2 / `decision:block` **硬拦截** | 插件市场（市场源刷新 + UI 更新） |
+| **DSH**（Cordis 运行时） | 官方桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载本仓库 `packages/core/hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
 
-版本必须全链一致（**五处清单 + 引擎号 + 引擎头注释**）：`package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json` 的 `version`，与 `hooks/guard.mjs` 顶部的 `ENGINE_VERSION` 及首行注释版本号。不一致时 SessionStart 会注入"部署版本核验 deploy-mismatch"警告；本地验收有专门用例锁定该一致性（`node --test tests/acceptance.test.mjs`）。
+版本必须全链一致（**五处清单 + 引擎号 + 引擎头注释**）：`package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json` 的 `version`，与 `packages/core/hooks/guard.mjs` 顶部的 `ENGINE_VERSION` 及首行注释版本号。不一致时 SessionStart 会注入"部署版本核验 deploy-mismatch"警告；本地验收有专门用例锁定该一致性（`node --test packages/core/tests/acceptance.test.mjs`）。
 
 ## 一、ZCode 安装（逐行可复制）
 
@@ -35,18 +35,18 @@ dir /b marketplace.json
 
 验证生效：新会话开头出现 `<focus-guard AI履职执法模型v3.0：日常零打扰，只看行为>【触发】…` 的注入即为生效（该字符串是引擎 `SESSION_RULES` 的开头，逐字镜像见 `docs/RULES.md` 第四部分；早期文档此处曾写过引擎里并不存在的措辞，以本判据为准）；工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log` 即为卷宗与留痕就绪。
 
-源码目录内跑质量闸（86 用例应全绿；仓库已带 CI，推送即自动跑）：
+源码目录内跑质量闸（100 用例应全绿；仓库已带 CI，推送即自动跑）：
 
 ```bat
 cd /d <仓库目录>
-npm test         :: 验收 86 用例（等价于 node --test tests/acceptance.test.mjs）
+npm test         :: 验收 100 用例（等价于 node --test packages/core/tests/acceptance.test.mjs）
 npm run eval     :: 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即失败
 npm run check    :: test + eval
 ```
 
 ## 二、DSH 安装（逐行可复制，v2.5.0 起为硬拦截）
 
-机制：DSH 官方桥 `@deepseek-ai/dsh-hooks-claude-code`（`dsh` 应用自带，无需安装）直接运行本仓库的 Claude 方言 `hooks/hooks.json`——六条钩子在 DSH 上获得与 ZCode 同级的**硬拦截**：PreToolUse deny/ask、退出码 2 阻断、stderr 原文透传给模型、Stop 打回强制续步。
+机制：DSH 官方桥 `@deepseek-ai/dsh-hooks-claude-code`（`dsh` 应用自带，无需安装）直接运行本仓库的 Claude 方言 `packages/core/hooks/hooks.json`——六条钩子在 DSH 上获得与 ZCode 同级的**硬拦截**：PreToolUse deny/ask、退出码 2 阻断、stderr 原文透传给模型、Stop 打回强制续步。
 
 ```text
 1) 取得仓库到固定目录（示例 E:\focus-guard-main，git clone 或下载解压）
@@ -58,7 +58,7 @@ npm run check    :: test + eval
 
 - name: '@deepseek-ai/dsh-hooks-claude-code'
   config:
-    configPath: 'E:/focus-guard-main/hooks/hooks.json'
+    configPath: 'E:/focus-guard-main/packages/core/hooks/hooks.json'
     pluginRoot: 'E:/focus-guard-main'
 
 3) 重启 DSH 会话生效。
@@ -113,7 +113,7 @@ marketplace 清单：.agents/plugins/ → .claude-plugin/ → .cursor-plugin/ �
 - 表现：`.focus-guard/AUDIT.log` 的 `rules-registered` 事件仍记 `引擎v2.4.0`；`%USERPROFILE%\.zcode\cli\plugins\installed_plugins.json` 中 `focus-guard` 的 `version` / `installPath` 仍指向旧版；新会话注入带【部署版本核验】警告。
 - 原因：钩子运行的是**插件安装副本**（`...\.zcode\cli\plugins\cache\<市场名>\focus-guard\<版本>\`），改源码不会自动生效。
 - 修复：ZCode → 设置 → 插件 → 插件市场 → 刷新 → 对 FocusGuard 执行更新（必要时先移除市场再重新添加）；确认缓存目录出现新版本号后重开会话。
-- 自检：`node --test tests/acceptance.test.mjs` 全绿即源码五处清单与引擎号一致；注册表 ↔ 市场源 ↔ 运行引擎三方一致性由 SessionStart 持续核验（`deploy-mismatch` 事件）。
+- 自检：`node --test packages/core/tests/acceptance.test.mjs` 全绿即源码五处清单与引擎号一致；注册表 ↔ 市场源 ↔ 运行引擎三方一致性由 SessionStart 持续核验（`deploy-mismatch` 事件）。
 
 ## 四、卸载
 
