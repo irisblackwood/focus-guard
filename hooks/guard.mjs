@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// focus-guard 护栏脚本 v3.0.1 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
+// focus-guard 护栏脚本 v3.0.2 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
 // v3.0.0 增补：①因果链留痕（audit 带 seq/chain/ref，tools/audit-chain.mjs 渲染因果图）②KPI 兑现闭环
 //   （收尾结算等次→委托池奖惩，二十七~三十二条部分机械化）③静态知识图书馆隔离（.ai/library/ 积木区
 //   只读、便签只进 inbox/，读不占卷宗【三】）④本地哨兵（FG_SENTINEL=1 启用 tools/sentinel.mjs 离线预判，
 //   默认仅记档，strict 模式拦截）⑤解释器 eval 类命令不再判只读侦查（R5-3 解释器黑名单）⑥FG-D1~D4 修复。
 // v3.0.1 增补（七十五条(四)）：⑦高危批量审批——多条待批合并出示，y 放行全部待批（各一次）、n 全部阻断；
 //   ⑧批示词容错——y/同意/批准等批示词后接分隔符与简短补充指令（总长≤30字符）仍构成批示。
+// v3.0.2 增补：⑨批示词头尾皆可（"…，y" 尾置亦构成批示）⑩外接三件套桥：audit-chain --semantica
+//   图谱导出、viking-bridge 积木库同步 OpenViking（viking://resources）、needle2-sentinel 本地模型外判运行器。
 // 一、空气层：不查词、不打扰（违禁词扫描已废除）
 // 二、触发层：行为违规即罚，梯度处罚 L1-L6；触发④=动态预算+进度检测；三预算池(侦查/执行/委托，20条)
 // 三、卷宗层(2.0)：.ai/CASE_FILE.md 四册（环境声明/依赖声明/侦查记录/额度台账）
@@ -39,7 +41,7 @@ const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 const REFILL = 10; // 自动续杯步长
 const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
 const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-const ENGINE_VERSION = "3.0.1"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
+const ENGINE_VERSION = "3.0.2"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
 // 2.0.1 热修：win32 shell 误判（PSModulePath 系统级恒存 → 误判 powershell → 平台禁令堵死 Git Bash 管道）
 // 2.0.2 DSH 版：csproj/sln 列入风险文件备案（C# 项目配置与 package.json 同级）
 // 2.2.0 正面指引版：git push 人类专属闸（二.3/五.3，本地 commit AI 可做、推送人类 UI 执行）
@@ -979,8 +981,13 @@ if (mode === "reset") {
   //            （整个产品的操作界面是中文，按"同意"却一直待批、按"不"却不阻断）；改为"整条短指令就是一个批示词
   //            +可有尾标点"的精确匹配，顺带避免"是不是应该…"这类句子被误判成 y。
   //            ②比对键改用全量哈希（见 cmdKey）：超过 300 字符的命令此前永远等不到 y/n 匹配。
-  const yReply = short.length <= MERCY_SHORT && /^(?:y|yes|是|好|行|ok|同意|批准|允许|可以|没问题|通过)(?:[\s。！!，,]*$|[\s]*[，,。：:！!][\s]*\S)/i.test(short);
-  const nReply = short.length <= MERCY_SHORT && /^(?:n|no|不|不行|否|不要|拒绝|不许)(?:[\s。！!，,]*$|[\s]*[，,。：:！!][\s]*\S)/i.test(short);
+  // 3.0.2：批示词头尾皆可——句首（后接分隔符+补充）或句尾（分隔符前导，如"…，y"）均构成批示
+  const Y_TOKEN = "(?:y|yes|是|好|行|ok|同意|批准|允许|可以|没问题|通过)";
+  const N_TOKEN = "(?:n|no|不|不行|否|不要|拒绝|不许)";
+  const LEAD = (tok) => new RegExp(`^${tok}(?:[\\s。！!，,]*$|[\\s]*[，,。：:！!][\\s]*\\S)`, "i");
+  const TAIL = (tok) => new RegExp(`(?:^|[\\s，,。：:！!])${tok}[\\s。！!，,]*$`, "i");
+  const yReply = short.length <= MERCY_SHORT && (LEAD(Y_TOKEN).test(short) || TAIL(Y_TOKEN).test(short));
+  const nReply = short.length <= MERCY_SHORT && (LEAD(N_TOKEN).test(short) || TAIL(N_TOKEN).test(short));
   // 3.0.1（七十五条(四)）：y/n 放行全部待批（队列 + 当前），每条各消费一次；n 全部阻断。
   // 批示词容错：批示词 + 分隔符 + 简短补充指令（总长 ≤30 字符）仍构成批示——"y，规则改一下…"不再被吞。
   const pendingCount = (state.highRiskQueue || []).length + (state.highRiskKey ? 1 : 0);

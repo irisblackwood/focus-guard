@@ -5,6 +5,16 @@
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
+## 3.0.2 — 外接三件套版
+
+依领导 2026-10-06 批示（"先接入 OpenViking 和 Semantica、Needle 2"）增补；OpenViking 对接基于本地 `E:\OpenViking-0.4.23` 真实 API（`POST /api/v1/fs/mkdir`、`POST /api/v1/content/batch-write`，默认端口 1933，`X-API-Key` 认证）。
+
+- **viking-bridge（tools/viking-bridge.mjs）**：静态积木图书馆 ↔ OpenViking 同步桥——积木以 `viking://resources/focus-guard-library/<积木文件>` 落入 resources 作用域。默认导出 `viking-import.json`（batch-write 载荷 + 可复制的 `ov`/curl 命令）；`--push` 直推本地/远程 OpenViking 服务端（`OPENVIKING_URL`/`OPENVIKING_API_KEY`，Node 18+ 原生 fetch，零依赖）。
+- **Semantica 图谱导出（tools/audit-chain.mjs --semantica）**：执法档案因果链导出为 LPG 图谱 JSON（nodes/edges，`caused`/`spawned` 两类边），供 Semantica（图原生记忆层）Knowledge Explorer 导入做因果追溯与可视化。
+- **needle2-sentinel（tools/needle2-sentinel.mjs）**：Needle 2（Cactus Compute 45M 端侧模型）外判运行器，实现 `FG_SENTINEL_CMD` 契约（stdin 收 `{"command"}` → stdout 回 `{"verdict","reasons"}`）；经 `NEEDLE2_BIN`/`NEEDLE2_MODEL`/`NEEDLE2_ARGS` 对接本地推理运行时，未配置/失败时静默回退哨兵内建启发式。
+- **批示词尾置（七十五条(四) 增补）**：批示词亦可位于句尾（分隔符前导，"……照此办理，y"）——3.0.1 的容错只认句首，尾置批示此前仍会被吞。
+- 版本链 3.0.1 → 3.0.2。
+
 ## 3.0.1 — 合并审批版
 
 依领导 2026-10-06 批示（"如果有多条高危命令尽量一次提交一次审批"）修法，法条为第七十五条(四)。

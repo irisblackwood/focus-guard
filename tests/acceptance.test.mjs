@@ -1479,3 +1479,59 @@ describe("3.0.0 协作治理", () => {
     assert.equal(ok.rc, 0, "真只读命令熔断期仍放行");
   });
 });
+
+// ============================== 3.0.2 批示词尾置 + 外接三件套 ==============================
+
+describe("3.0.2 尾置批示与外接桥", () => {
+  test("批示词尾置：'……照此办理，y' 构成批示；普通业务句不误批", () => {
+    const run = makeRunner("tail-y");
+    writeState("tail-y", { highRiskKey: "keyX", highRiskCmd: "demo-x" });
+    run("reset", { prompt: "先按方案推进，y" });
+    assert.equal(stateOf("tail-y").highRiskOk, true, "尾置 y 应构成批示");
+    writeState("tail-y", { highRiskKey: "keyX", highRiskCmd: "demo-x", highRiskOk: false });
+    run("reset", { prompt: "帮我看看这个方案推进到哪一步了" });
+    assert.equal(stateOf("tail-y").highRiskOk, false, "无批示词的普通业务句不得误判为批示");
+    // 头置容错回归（3.0.1）
+    writeState("tail-y", { highRiskKey: "keyX", highRiskCmd: "demo-x", highRiskOk: false });
+    run("reset", { prompt: "y，顺带把文档也改了" });
+    assert.equal(stateOf("tail-y").highRiskOk, true, "头置 y+补充 仍构成批示");
+  });
+
+  test("audit-chain --semantica：因果链导出 LPG 图谱（caused/spawned 边）", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { fileURLToPath } = await import("node:url");
+    const log = join(tmpdir(), `focus-guard-sem-${RUN}.log`);
+    const recs = [
+      { ts: "2026-10-06T12:00:00Z", session: "s", seq: "s1", chain: "T1", ref: null, action: "reset-fired", trigger: "x", level: null, evidence: "kw=10", pardon: false },
+      { ts: "2026-10-06T12:01:00Z", session: "s", seq: "s2", chain: "T1", ref: null, action: "subagent-spawn", trigger: "x", level: null, evidence: "派单", pardon: false },
+      { ts: "2026-10-06T12:02:00Z", session: "s", seq: "s3", chain: "T1/d1", ref: "s2", action: "delegate-used", trigger: "x", level: null, evidence: "委托消耗", pardon: false },
+    ];
+    writeFileSync(log, recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    const tool = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "audit-chain.mjs");
+    const p = spawnSync("node", [tool, log, "--semantica"], { encoding: "utf8" });
+    const g = JSON.parse(p.stdout);
+    assert.equal(g.format, "lpg-v1");
+    assert.equal(g.nodes.length, 3);
+    assert.deepEqual(g.edges.filter((e) => e.label === "caused").map((e) => [e.src, e.dst]), [["s2", "s3"]]);
+    assert.ok(g.edges.some((e) => e.label === "spawned"), "父链→子代理链应有 spawned 边");
+    rmSync(log, { force: true });
+  });
+
+  test("viking-bridge：INDEX 解析与 batch-write 载荷组装（纯函数）", async (t) => {
+    let bridge = null;
+    try {
+      bridge = await import("../tools/viking-bridge.mjs");
+    } catch {}
+    if (!bridge) return t.skip("viking-bridge.mjs 待高危审批落盘后启用（文件含签名字面量走审批单）");
+    const rows = bridge.parseIndex(
+      "| id | 积木 | 标题 | sha256 | 源 | 状态 |\n|---|---|---|---|---|---|\n| B001 | B001-x.md | 积木一 | abc123 | src.md | 新建 |\n| B002 | B002-y.md | 积木二 | def456 | src.md | retired |"
+    );
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].id, "B001");
+    const payload = bridge.toOperations(bridge.ROOT_URI, rows, (f) => (f === "B001-x.md" ? "内容A" : null));
+    assert.equal(payload.root_uri, "viking://resources/focus-guard-library");
+    assert.equal(payload.operations.length, 1, "retired/缺失积木不投影");
+    assert.equal(payload.operations[0].uri, "viking://resources/focus-guard-library/B001-x.md");
+    assert.equal(payload.operations[0].mode, "upsert");
+  });
+});
