@@ -1229,9 +1229,14 @@ if (mode === "pre") {
       if (consumeHighRisk(state, key)) { // 3.0.1：单条/批量统一消费
         saveState(path, state);
         audit(sid, "high-risk-executed", { level: null, evidence: `2.4.0 已批高危脚本写入 ${filePath}` });
-      } else if (state.highRiskDeniedThisTurn) {
+      } else if (
+        state.highRiskDeniedThisTurn &&
+        // 3.0.1 同源判定：只有"同回合被拒过的同一写入目标"重试才构成对抗审查；
+        // 被拒的是 A 文件、随后写 B 文件的，走正常待批（此前不分目标连坐，L4 误伤跨目标写入）
+        (state.highRiskKey === key || (state.highRiskQueue || []).some((x) => x.k === key))
+      ) {
         state.violations = Math.max(state.violations || 0, 3); // 16条：对抗审查从重，至少落在 L4 记档
-        const level = penalize(state, sid, "violation-wrap-bypass", `2.4.0 脚本包装绕过(写入) ${filePath}`);
+        const level = penalize(state, sid, "violation-wrap-bypass", `2.4.0 脚本包装绕过(写入·同源) ${filePath}`);
         saveState(path, state);
         process.stderr.write(
           `[对抗审查·L${level}]高危命令被拒后改写脚本继续，按对抗审查记档。要写入请走【高危申请】审批，不得绕行。${ladderNote(level)}`
