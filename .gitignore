@@ -15,3 +15,7 @@ _test.mjs
 node_modules/
 .DS_Store
 Thumbs.db
+
+# Python 字节码（sentinel.py 运行产物）
+__pycache__/
+*.pyc

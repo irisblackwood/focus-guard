@@ -14,6 +14,8 @@
 import { auditDeny, appendCostRow } from './audit.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 每次改动本文件递增；用于磁盘/内存版本一致性提示 */
@@ -155,8 +157,39 @@ function buildAsk(cmd, risk, category, extra) {
   }
 }
 
-/** ① 工具执行前：三层分流 —— ①绝对红线短路 deny ②语义预判 risk>阈值 → ask，否则放行 ③（M4 接入状态校验） */
-export function preExecuteListener({ warn, riskOf = riskOfHeuristic }) {
+// ── 第 2 层·真哨兵接线（观察模式）──
+export const SENTINEL_PY = fileURLToPath(new URL('./sentinel.py', import.meta.url))
+export const SENTINEL_TIMEOUT_MS = 1500 // 实测 Needle 冷启 0.30s / 单次 0.13-0.42s → 取 ~5x 余量
+export const SENTINEL_PYTHON = process.env.FG_PYTHON || 'python'
+export const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
+
+const OBSERVATION = { effective: false, judgements: 0, highRisk: 0 }
+let observeNoticeEmitted = false
+
+/** 观察模式状态（自检/汇报用只读快照） */
+export function observeState() {
+  return { ...OBSERVATION }
+}
+
+/**
+ * sentinel.py 的 Node 侧接线：execFileSync 调子进程，超时/异常/解析失败一律抛错，
+ * 由 preExecuteListener 的 catch 转成保守 ask（不静默放行）。
+ * HF_HOME 只注入子进程 env，不写全局。
+ */
+export function riskOfSentinel(cmd) {
+  const out = execFileSync(SENTINEL_PYTHON, [SENTINEL_PY, '--cmd', String(cmd ?? '')], {
+    encoding: 'utf8',
+    timeout: SENTINEL_TIMEOUT_MS,
+    windowsHide: true,
+    env: { ...process.env, HF_HOME: process.env.HF_HOME || 'E:\\venvs\\hf-cache', FG_SENTINEL_CALLER: 'focus-guard' },
+  })
+  const line = String(out).trim().split(/\r?\n/).filter(Boolean).pop()
+  if (!line) throw new Error('sentinel 无输出')
+  const verdict = JSON.parse(line)
+  if (!verdict || typeof verdict !== 'object') throw new Error('sentinel 输出非对象')
+  return verdict
+}
+export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION }) {
   return async (exec, next) => {
     warnIfStaleOnce(warn)
     let cmd
@@ -191,10 +224,24 @@ export function preExecuteListener({ warn, riskOf = riskOfHeuristic }) {
       const risk = clampRisk(verdict && verdict.risk)
       const category = (verdict && verdict.category) || 'unknown'
       const reasons = (verdict && verdict.reasons) || []
+      const backend = (verdict && verdict.backend) || 'unknown'
+      observe.judgements += 1
       if (reasons.length > 0) warn(`第2层启发式命中（risk=${risk}）：`, reasons.join(','))
       if (risk > RISK_ASK_THRESHOLD) {
-        warn(`第2层判定高危但可审批（risk=${risk} category=${category}）：`, cmd.slice(0, 120))
-        return buildAsk(cmd, risk, category)
+        observe.highRisk += 1
+        // 观察模式：留痕 + 告警，但放行（不返回 ask），直到累计判定数达标并由人类启用
+        auditDeny(exec, `risk=${risk} category=${category} backend=${backend} | ${String(cmd).slice(0, 100)}`)
+        warn(
+          `第2层高危但观察模式放行（risk=${risk} category=${category} backend=${backend} judgements=${observe.judgements}）：`,
+          cmd.slice(0, 120),
+        )
+        if (!observeNoticeEmitted && observe.judgements >= OBSERVE_UNTIL_JUDGEMENTS) {
+          observeNoticeEmitted = true
+          warn(
+            `观察模式已累计 ${observe.judgements} 次判定（高危 ${observe.highRisk} 次），可评估是否启用 ask（由人类决定）`,
+          )
+        }
+        if (observe.effective) return buildAsk(cmd, risk, category)
       }
     }
     return next()
