@@ -13,6 +13,49 @@
  */
 import { auditDeny, appendCostRow } from './audit.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
+import { statSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+/** 每次改动本文件递增；用于磁盘/内存版本一致性提示 */
+const PIPELINE_VERSION = '3.0.5-m1'
+
+/**
+ * 运行实例的"内存版本时间戳"：模块加载（DSH 启动）时采一次。
+ * FG 是 link 挂载，启动后改磁盘不会重新加载 —— 与磁盘 mtime 比对即可发现"跑旧代码"。
+ */
+const MEM_PIPELINE_MTIME = (() => {
+  try {
+    return statSync(fileURLToPath(import.meta.url)).mtimeMs
+  } catch {
+    return null
+  }
+})()
+
+let diskVersionWarned = false
+
+/** 单次检查：磁盘与内存不一致 → 警告一次（warn 只写日志，不抛错、不阻塞） */
+function warnIfStaleOnce(warn) {
+  if (diskVersionWarned || MEM_PIPELINE_MTIME === null) return false
+  try {
+    const diskMtime = statSync(fileURLToPath(import.meta.url)).mtimeMs
+    if (diskMtime === MEM_PIPELINE_MTIME) return false
+    diskVersionWarned = true
+    warn(
+      `[focus-guard] 磁盘代码已更新（${PIPELINE_VERSION}，磁盘 mtime=${diskMtime} ≠ 内存 mtime=${MEM_PIPELINE_MTIME}），当前运行实例为旧版，请重启 DSH`,
+    )
+    return true
+  } catch (error) {
+    warn('版本一致性检查失败（不阻塞）:', (error && error.message) || error)
+    return false
+  }
+}
+
+export const PIPELINE_VERSION_INFO = { version: PIPELINE_VERSION, memoryMtime: MEM_PIPELINE_MTIME }
+
+/** 供自检/诊断调用：返回本次是否检出磁盘更新 */
+export function checkDiskVersion(warn = console.warn) {
+  return warnIfStaleOnce(warn)
+}
 
 /** rm 后跟单簇旗标且同时含 r 与 f（任意顺序）：rm -rf / rm -fr / rm -Rdf …（第 1 层·普通档，模糊命令） */
 const RM_RF = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\b/
@@ -76,6 +119,7 @@ function usageOf(u) {
 /** ① 工具执行前：两档分流 —— 绝对红线短路 deny；普通 rm -rf 交由下游层（审计留痕失败不影响拦截本身） */
 export function preExecuteListener({ warn }) {
   return async (exec, next) => {
+    warnIfStaleOnce(warn)
     try {
       const cmd = commandOf(exec)
       if (cmd) {
@@ -99,6 +143,7 @@ export function preExecuteListener({ warn }) {
 /** ② 系统提示装配：追加成本提示行（改写失败原样放行下游） */
 export function systemPromptListener({ warn }) {
   return async (assembly, context, next) => {
+    warnIfStaleOnce(warn)
     let downstream
     try {
       downstream = await next()
