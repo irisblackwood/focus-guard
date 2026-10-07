@@ -11,7 +11,15 @@ import { calcCost } from '../peak-cost.mjs'
 
 // 插件文件位于 <仓库根>/packages/core/src/dsh/ → 上溯 4 级到仓库根
 export const AUDIT_FILE = fileURLToPath(new URL('../../../../.focus-guard/AUDIT.log', import.meta.url))
-export const CASE_FILE = fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
+
+/**
+ * 成本台账落卷目标。
+ * 默认 = 仓库根 `.ai/CASE_FILE.md`；`FG_CASE_FILE` 可覆盖——测试**必须**用它重定向到临时目录，
+ * 否则自检会写进人类真实卷宗（2026-10-07 事故）。落盘前另有一道守卫，见 appendCostRow。
+ */
+export function caseFilePath() {
+  return process.env.FG_CASE_FILE || fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
+}
 
 /** 拦截写入一条审计记录（JSONL 追加，字段与 hooks/guard.mjs 口径一致） */
 export function auditDeny(exec, cmd) {
@@ -42,7 +50,7 @@ export function appendCostRow(ts, model, inPeak, usage) {
   try {
     let header = ''
     try {
-      if (!readFileSync(CASE_FILE, 'utf8').includes(COST_MARK)) {
+      if (!readFileSync(caseFilePath(), 'utf8').includes(COST_MARK)) {
         header =
           '\n### 【五】成本台账（DSH 原生插件自动追加；tokens / USD）\n\n' +
           '| 时间 | 模型 | 时段 | 输入未缓存 | 缓存读 | 输出 | 成本USD |\n' +
@@ -55,8 +63,15 @@ export function appendCostRow(ts, model, inPeak, usage) {
       )
     }
     const usd = calcCost(model, usage, inPeak)
+    const target = caseFilePath()
+    // 写守卫：目标必须是默认卷宗路径，或调用方显式用 FG_CASE_FILE 重定向（测试用）。
+    // 其余一律拒写——防止任何代码路径把台账写到意料之外的位置。
+    const DEFAULT_CASE_FILE = fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
+    if (target !== DEFAULT_CASE_FILE && !process.env.FG_CASE_FILE) {
+      throw new Error(`成本台账目标异常，拒绝写入：${target}`)
+    }
     appendFileSync(
-      CASE_FILE,
+      target,
       `${header}| ${ts} | ${model} | ${inPeak ? '峰' : '谷'} | ${usage.input} | ${usage.cacheRead} | ${usage.output} | ${usd === null ? '未知价目' : usd.toFixed(6)} |\n`,
     )
   } catch (error) {

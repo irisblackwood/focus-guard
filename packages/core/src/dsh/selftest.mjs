@@ -9,11 +9,19 @@
  * 瀑布语义按装机源码实现：dsh-tools:3225（单 fallback allow）+
  * 桥接线（监听器返回决策即短路，返回 next() 即委托下游）。
  * 另附装机 cordis 可导入性冒烟（真实缝消费由 dsh-tools:3225 源码锚定，挂载后实弹）。
+ *
+ * 硬纪律：**自检永远只写 tmpdir()，绝不碰真实工作区**（FG_CASE_FILE 重定向 + 真实卷宗未触碰断言）。
  */
-import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+// —— 卷宗隔离：自检**永远只写临时目录**，绝不碰真实工作区 ——
+// 2026-10-07 事故：自检曾在真实 .ai/CASE_FILE.md 上落账/覆盖。此后本文件所有写路径必须经
+// FG_CASE_FILE 重定向到 tmpdir()，并断言真实卷宗未被触碰。
+const TEST_CASE_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-CASE_FILE.md`)
+process.env.FG_CASE_FILE = TEST_CASE_FILE
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { name, apply } = await import(pathToFileURL(join(here, 'index.js')))
@@ -119,10 +127,27 @@ console.warn('== 测试 B2：system-prompt/assemble（真实三参 assembly,cont
 console.warn('== 测试 B3：tools/post-execute（真实三参 exec,result,next）==')
 {
   // 契约修复点：监听器必须把下游决策原样返回（此前是 next() 缺失时返回 undefined）
-  // 本块不构造 usage，故不可能触发台账写入（零副作用，不触碰真实卷宗）
   const runPost = makeRun('tools/post-execute', () => ({ kind: 'accept', marker: 'downstream' }))
   const decision = await runPost({ name: 'read', arguments: { path: 'x' } }, { content: 'ok' })
   check('post-execute 原样透传下游决策（accept）', decision?.marker === 'downstream', JSON.stringify(decision))
+}
+{
+  // 台账写入走真实代码路径，但目标已被 FG_CASE_FILE 重定向到 tmpdir()
+  const realCaseFile = join(here, '..', '..', '..', '..', '.ai', 'CASE_FILE.md')
+  const before = existsSync(realCaseFile) ? readFileSync(realCaseFile, 'utf8') : ''
+  const runUsage = makeRun('tools/post-execute', () => ({ kind: 'accept' }))
+  await runUsage(
+    { name: 'read', arguments: { path: 'x' }, agent: { model: 'deepseek-flash' } },
+    { content: 'ok', usage: { input: 1000, cacheRead: 500, output: 2000 } },
+  )
+  const tmpText = existsSync(TEST_CASE_FILE) ? readFileSync(TEST_CASE_FILE, 'utf8') : ''
+  check(
+    '台账写入重定向到 tmp（真实卷宗零写入）',
+    tmpText.includes('deepseek-flash'),
+    `tmp=${TEST_CASE_FILE} len=${tmpText.length}`,
+  )
+  const after = existsSync(realCaseFile) ? readFileSync(realCaseFile, 'utf8') : ''
+  check('真实 .ai/CASE_FILE.md 未被触碰', before === after, before === after ? '' : '内容发生变化')
 }
 
 console.warn('== 测试 C：fail-open ==')
