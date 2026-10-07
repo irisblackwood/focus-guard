@@ -166,6 +166,36 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
     })({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
     check('哨兵崩 → 保守 ask', riskErr.kind === 'ask' && /judge_failed/.test(riskErr.reason))
   }
+
+  console.warn('== 测试 A5：第3层状态校验（读 guard.mjs 权威状态）==')
+  {
+    const { mkdtempSync, writeFileSync: wf } = await import('node:fs')
+    const { tmpdir: td } = await import('node:os')
+    const { preExecuteListener, EVIDENCE_GATE, STATE_GATE } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+    const dir = mkdtempSync(join(td(), 'fg-state-'))
+    const fusedPath = join(dir, 'focus-guard-selftest-fused.json')
+    const openPath = join(dir, 'focus-guard-selftest-open.json')
+    const stalePath = join(dir, 'focus-guard-selftest-missing.json')
+    wf(fusedPath, JSON.stringify({ fused: true, probation: false, readSet: {} }))
+    wf(openPath, JSON.stringify({ fused: false, probation: false, readSet: {} }))
+
+    const mkState = (sp) => preExecuteListener({ warn: () => {}, riskOf: async () => ({ risk: 0, category: 'benign' }), statePath: sp })
+    const pass = async () => ({ kind: 'allow' })
+
+    check('默认开关 = STATE_GATE on / EVIDENCE_GATE on', STATE_GATE.effective === true && EVIDENCE_GATE.effective === true)
+
+    const fusedGate = await mkState(fusedPath)({ name: 'Write', arguments: { file_path: '/tmp/fg-a.txt', content: 'x' } }, pass)
+    check('熔断中 + 改动类 → deny', fusedGate.kind === 'deny' && /熔断/.test(fusedGate.reason), JSON.stringify(fusedGate))
+
+    const fusedRead = await mkState(fusedPath)({ name: 'Read', arguments: { file_path: '/tmp/fg-a.txt' } }, pass)
+    check('熔断中 + 只读 → 放行', fusedRead.kind === 'allow')
+
+    const unseenGate = await mkState(openPath)({ name: 'Write', arguments: { file_path: '/tmp/fg-never-read.txt', content: 'x' } }, pass)
+    check('未取证 + 改文件 → deny', unseenGate.kind === 'deny' && /取证/.test(unseenGate.reason), JSON.stringify(unseenGate))
+
+    const noStateGate = await mkState(stalePath)({ name: 'Write', arguments: { file_path: '/tmp/fg-b.txt', content: 'x' } }, pass)
+    check('读不到状态 → fail-open 放行（不静默：有 warn）', noStateGate.kind === 'allow')
+  }
 }
 
 console.warn('== 测试 B：放行 ==')

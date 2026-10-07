@@ -13,10 +13,11 @@
  */
 import { auditDeny, appendCostRow } from './audit.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
-import { statSync } from 'node:fs'
+import { statSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
 
 /** 每次改动本文件递增；用于磁盘/内存版本一致性提示 */
 const PIPELINE_VERSION = '3.0.5-m1'
@@ -189,8 +190,116 @@ export function riskOfSentinel(cmd) {
   if (!verdict || typeof verdict !== 'object') throw new Error('sentinel 输出非对象')
   return verdict
 }
-export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION }) {
+// ── 第 3 层：状态校验（单向读 guard.mjs 权威状态，本插件只读不写）──
+// 权威落盘点（实测 guard.mjs:255-268, 372-395）：
+//   会话状态 → os.tmpdir()/focus-guard-<会话id>.json，字段 fused / forcedInvestigate / probation / readSet
+//   执法留痕 → <工作区>/.focus-guard/AUDIT.log（guard.mjs:19；工作区由 ZCODE_PROJECT_DIR/CLAUDE_PROJECT_DIR 定，缺省 tmpdir）
+//   取证记录 → <工作区>/.ai/CASE_FILE.md 的【三】（guard.mjs 写；原生插件另有记账类【五】）
+// 注意：任务书写的「熔断状态在 packages/core/.focus-guard/」不准确——该目录只有 AUDIT.log；
+// 熔断标志实际落在 os.tmpdir() 的会话状态文件里。
+export const STATE_GATE = { effective: true }
+export const EVIDENCE_GATE = { effective: process.env.FG_EVIDENCE_GATE !== '0' }
+export const GUARD_STATE_MAX_AGE_MS = 15 * 60 * 1000
+
+const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|NotebookEdit)$/i
+const READ_TOOL = /^(?:Read|Grep|Glob|read_image|NotebookRead)$/i
+const pathOfTool = (args) => {
+  const a = args || {}
+  return a.file_path || a.path || a.target || a.targetPath || a.dest || null
+}
+
+/**
+ * 取最近一个真实会话状态（排除 eval 快照）。
+ * 入参可以是目录（默认 os.tmpdir()）或一个具体的状态文件路径（自检注入用）。
+ * 无可用状态返回 null。
+ */
+export function readGuardState(target = tmpdir()) {
+  try {
+    const isFile = /\.json$/i.test(String(target)) && !String(target).endsWith('\\') && !String(target).endsWith('/')
+    if (isFile) {
+      const state = JSON.parse(readFileSync(target, 'utf8'))
+      if (state && typeof state === 'object') return { file: target, state }
+      return null
+    }
+    const dir = target
+    const now = Date.now()
+    const candidates = readdirSync(dir)
+      .filter((n) => n.startsWith('focus-guard-') && n.endsWith('.json') && !n.startsWith('focus-guard-eval-'))
+      .map((n) => join(dir, n))
+      .map((p) => ({ p, st: statSync(p) }))
+      .filter((x) => now - x.st.mtimeMs < GUARD_STATE_MAX_AGE_MS)
+      .sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)
+    for (const c of candidates) {
+      try {
+        const state = JSON.parse(readFileSync(c.p, 'utf8'))
+        if (state && typeof state === 'object') return { file: c.p, state }
+      } catch {
+        /* 单个状态损坏：继续找下一个（不静默丢整层判定） */
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+const nativeReadSet = new Set()
+const evidenceBlockedOnce = new Set()
+
+/** 记录本会话内已读过的文件（第 3 层取证判定的原生侧证据） */
+function rememberReads(exec) {
+  if (READ_TOOL.test(String((exec && exec.name) || ''))) {
+    const p = pathOfTool(exec && exec.arguments)
+    if (p) nativeReadSet.add(String(p))
+  }
+}
+
+/** 第 3 层判定：返回 deny 决策或 null（放行到下游）；读失败一律 fail-open + warn */
+function layer3Check(exec, warn, statePathOverride) {
+  const tool = String((exec && exec.name) || '')
+  if (!MUTATING_TOOL.test(tool)) return null
+
+  const gs = readGuardState(statePathOverride)
+  if (gs === null) {
+    warn('第3层：读不到 guard 会话状态（fail-open 放行；目录内无 15 分钟内更新的 focus-guard-*.json）')
+    return null
+  }
+  const { state } = gs
+  if (STATE_GATE.effective && (state.fused || state.probation)) {
+    const which = state.probation ? 'L5 降权' : '熔断'
+    return {
+      kind: 'deny',
+      reason: `focus-guard-native 第3层状态校验：guard 权威状态为「${which}」，改动类调用（${tool}）被拒；只读放行，解除按 guard 流程`,
+    }
+  }
+
+  if (EVIDENCE_GATE.effective) {
+    const fp = pathOfTool(exec && exec.arguments)
+    if (fp) {
+      const known =
+        nativeReadSet.has(String(fp)) ||
+        (state.readSet && typeof state.readSet === 'object' && Object.hasOwn(state.readSet, String(fp)))
+      if (!known && !evidenceBlockedOnce.has(String(fp))) {
+        evidenceBlockedOnce.add(String(fp))
+        return {
+          kind: 'deny',
+          reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
+        }
+      }
+    }
+  }
+  return null
+}
+
+export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION, statePath } = {}) {
   return async (exec, next) => {
+    rememberReads(exec)
+    const layer3 = layer3Check(exec, warn, statePath)
+    if (layer3) {
+      auditDeny(exec, layer3.reason)
+      warn('第3层拦截：', layer3.reason)
+      return layer3
+    }
     warnIfStaleOnce(warn)
     let cmd
     try {
@@ -211,7 +320,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       return next()
     }
 
-    // 第 2 层：语义预判（可插拔）。无命令参数的调用零打扰透传。
+    // 第 2 层：语义预判（可插拔）。工具调用（write/read 等无命令参数）零打扰透传。
     if (cmd) {
       const tool = String((exec && exec.name) || '')
       let verdict
