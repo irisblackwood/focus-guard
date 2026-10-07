@@ -204,6 +204,9 @@ console.warn('== 测试 B：放行 ==')
   check('ls -la 零打扰放行', gate.kind === 'allow')
 }
 {
+  // 先 Read 同一路径（第 3 层取证语义：先读后写），本块只验第1层不被内容里的危险字样误伤
+  const readGate = await run({ name: 'read', arguments: { path: 'a.md' } })
+  check('先读 a.md（第3层取证前提）', readGate.kind === 'allow')
   const gate = await run({ name: 'write', arguments: { path: 'a.md', content: '文档里提到 rm -rf 很危险' } })
   check('写文件内容提及 rm -rf 不误伤', gate.kind === 'allow')
 }
