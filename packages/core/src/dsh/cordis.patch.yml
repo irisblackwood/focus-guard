@@ -1,0 +1,10 @@
+# focus-guard 原生 Cordis 插件挂载（3.0.5 阶段一 · 最小可行原型）
+#
+# 安装：dsh plugin --profile <name> add <本仓库 packages/core 目录>
+# （bundle 补丁由 package.json 的 dsh.bundle.patch 指向本文件，随插件并入 profile 补丁层）
+#
+# ⚠ 与桥 @deepseek-ai/dsh-hooks-claude-code 互斥挂载（同一缝双监听=双跑，
+#   见仓库根 cordis.patch.yml 同源教训与《审 3 号报告》风险 4）。
+- insert:
+    - id: focus-guard-native
+      name: 'focus-guard'
