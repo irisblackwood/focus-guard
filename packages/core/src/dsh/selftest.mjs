@@ -122,6 +122,34 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
   check('非 rm 命令不受第1层管辖（交下游特征库）', gate.kind === 'allow')
 }
 
+console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）==')
+{
+  const { preExecuteListener } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+  const mk = (riskOf) => preExecuteListener({ warn: () => {}, riskOf })
+  const passthrough = async () => ({ kind: 'allow' })
+
+  const askGate = await mk(async () => ({ risk: 0.9, category: 'filesystem_destruction' }))(
+    { name: 'bash', arguments: { command: 'node cleanup.mjs --all' } },
+    passthrough,
+  )
+  check('risk=0.9 → 返回 ask 决策', askGate.kind === 'ask', JSON.stringify(askGate))
+  check('ask 带 reason + displayReason', typeof askGate.reason === 'string' && typeof askGate.displayReason === 'string')
+
+  const lowGate = await mk(async () => ({ risk: 0.3, category: 'fs_mutation' }))(
+    { name: 'bash', arguments: { command: 'node cleanup.mjs --all' } },
+    passthrough,
+  )
+  check('risk=0.3 → 放行 next()', lowGate.kind === 'allow')
+
+  const errGate = await mk(async () => {
+    throw new Error('needle timeout')
+  })({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
+  check('第2层抛错 → 保守走 ask（不静默放行）', errGate.kind === 'ask' && /judge_failed/.test(errGate.reason))
+
+  const defGate = await mk(undefined)({ name: 'bash', arguments: { command: 'rm -rf ./tmp' } }, passthrough)
+  check('默认启发式下 rm -rf ./tmp 不触发 ask（走第2层后放行）', defGate.kind === 'allow', JSON.stringify(defGate))
+}
+
 console.warn('== 测试 B：放行 ==')
 {
   const gate = await run({ name: 'bash', arguments: { command: 'ls -la' } })

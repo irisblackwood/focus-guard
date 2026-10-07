@@ -116,12 +116,52 @@ function usageOf(u) {
   return usage.input || usage.output ? usage : null
 }
 
-/** ① 工具执行前：两档分流 —— 绝对红线短路 deny；普通 rm -rf 交由下游层（审计留痕失败不影响拦截本身） */
-export function preExecuteListener({ warn }) {
+// ── 第 2 层：语义预判（接口可插拔；M3 换成 Needle 2 实现）──
+export const RISK_ASK_THRESHOLD = 0.85
+
+const clampRisk = (n) => Math.min(0.99, Math.max(0, Number(n) || 0))
+
+const HEURISTIC_RULES = [
+  { re: /\|\s*(?:sh|bash|zsh|cmd|powershell|pwsh)\b/i, cat: 'pipe_to_shell', w: 0.55 },
+  { re: /[>]{1,2}\s*\S/, cat: 'redirect', w: 0.3 },
+  { re: /\b(?:child_process|execSync|spawnSync|subprocess|os\.system)\b/, cat: 'subprocess', w: 0.5 },
+  { re: /\b(?:shutil\.rmtree|fs\.rmSync|Remove-Item)\b/i, cat: 'destructive_api', w: 0.6 },
+  { re: RM_RF, cat: 'fs_mutation', w: 0.3 },
+  { re: /\b(?:mv|dd|truncate)\s/, cat: 'fs_mutation', w: 0.3 },
+  { re: /\bgit\s+(?:reset\s+--hard|clean\s+-[a-z]*f|checkout\s+\.)/, cat: 'history_overwrite', w: 0.6 },
+]
+
+/**
+ * 启发式兜底实现（本阶段 mock 语义）：命中规则累加权重、上限 0.99。
+ * 当前规则最高累加 0.6 —— 设计上**恒不越过 0.85 阈值**，因此不产生 ask；
+ * 阈值分支由测试/未来 Needle 2 实现驱动（见 preExecuteListener 的 riskOf 注入）。
+ * @returns {{risk:number, category:string, reasons:string[]}}
+ */
+export function riskOfHeuristic(cmd, tool) {
+  const hits = HEURISTIC_RULES.filter((r) => r.re.test(cmd ?? ''))
+  return {
+    risk: clampRisk(hits.reduce((a, r) => a + r.w, 0)),
+    category: hits.slice().sort((a, b) => b.w - a.w)[0]?.cat || 'benign',
+    reasons: hits.map((r) => r.cat),
+  }
+}
+
+/** 审批单形状（对齐 dsh-tools/lib/index.js:3439-3458：reason 必填，displayReason 可选） */
+function buildAsk(cmd, risk, category, extra) {
+  return {
+    kind: 'ask',
+    reason: `focus-guard-native 第2层语义预判：risk=${risk} category=${category} 命令=${String(cmd).slice(0, 120)}`,
+    displayReason: `高危但可审批（${category}，risk ${risk}）${extra ? ' — ' + extra : ''}`,
+  }
+}
+
+/** ① 工具执行前：三层分流 —— ①绝对红线短路 deny ②语义预判 risk>阈值 → ask，否则放行 ③（M4 接入状态校验） */
+export function preExecuteListener({ warn, riskOf = riskOfHeuristic }) {
   return async (exec, next) => {
     warnIfStaleOnce(warn)
+    let cmd
     try {
-      const cmd = commandOf(exec)
+      cmd = commandOf(exec)
       if (cmd) {
         const redline = redlineOf(cmd)
         if (redline) {
@@ -134,7 +174,28 @@ export function preExecuteListener({ warn }) {
         }
       }
     } catch (error) {
-      warn('判定异常，fail-open 放行：', (error && error.message) || error)
+      warn('红线判定异常，fail-open 放行：', (error && error.message) || error)
+      return next()
+    }
+
+    // 第 2 层：语义预判（可插拔）。无命令参数的调用零打扰透传。
+    if (cmd) {
+      const tool = String((exec && exec.name) || '')
+      let verdict
+      try {
+        verdict = await riskOf(cmd, tool)
+      } catch (error) {
+        warn('第2层判定失败，保守走审批：', (error && error.message) || error)
+        return buildAsk(cmd, 'error', 'judge_failed', (error && error.message) || String(error))
+      }
+      const risk = clampRisk(verdict && verdict.risk)
+      const category = (verdict && verdict.category) || 'unknown'
+      const reasons = (verdict && verdict.reasons) || []
+      if (reasons.length > 0) warn(`第2层启发式命中（risk=${risk}）：`, reasons.join(','))
+      if (risk > RISK_ASK_THRESHOLD) {
+        warn(`第2层判定高危但可审批（risk=${risk} category=${category}）：`, cmd.slice(0, 120))
+        return buildAsk(cmd, risk, category)
+      }
     }
     return next()
   }
