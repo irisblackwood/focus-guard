@@ -81,19 +81,45 @@ console.warn('== 注册自检 ==')
 check('apply 导出 name', name === 'focus-guard', `实际 ${name}`)
 check('注册了 tools/pre-execute 监听', events.some(([t, e]) => t === 'on' && e === 'tools/pre-execute'))
 
-console.warn('== 测试 A：拦截 ==')
+console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）==')
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf /' } })
+  check('rm -rf / 短路 deny', gate.kind === 'deny', JSON.stringify(gate))
+  check('deny 理由含红线名', typeof gate.reason === 'string' && gate.reason.includes('rm-rf-root'))
+}
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf ~/' } })
+  check('rm -rf ~/ 命中红线 deny', gate.kind === 'deny')
+}
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'git push -f origin main' } })
+  check('git push -f 命中红线 deny', gate.kind === 'deny')
+}
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'DROP DATABASE prod' } })
+  check('DROP DATABASE 命中红线 deny', gate.kind === 'deny')
+}
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'TRUNCATE TABLE orders' } })
+  check('TRUNCATE TABLE 命中红线 deny', gate.kind === 'deny')
+}
+{
+  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "/usr"' } })
+  check('带引号的非根路径不误伤（红线只认根/HOME）', gate.kind !== 'deny', JSON.stringify(gate))
+}
+
+console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，交由下游层）==')
 {
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf ./test-dir' } })
-  check('rm -rf 被拒', gate.kind === 'deny', JSON.stringify(gate))
-  check('理由模型可见且含 focus-guard', typeof gate.reason === 'string' && gate.reason.includes('focus-guard'))
+  check('rm -rf ./test-dir 不在红线，放行到下游层', gate.kind !== 'deny', JSON.stringify(gate))
 }
 {
   const gate = await run({ name: 'bash', arguments: { command: 'cd /tmp && rm -fr build/' } })
-  check('rm -fr 变体被拒', gate.kind === 'deny')
+  check('rm -fr build/ 不在红线，放行到下游层', gate.kind !== 'deny')
 }
 {
   const gate = await run({ name: 'pwsh', arguments: { command: 'Remove-Item -Recurse -Force ./x' } })
-  check('非 rm 命令不受本插件管辖（阶段一范围外，交 guard.mjs 特征库）', gate.kind === 'allow')
+  check('非 rm 命令不受第1层管辖（交下游特征库）', gate.kind === 'allow')
 }
 
 console.warn('== 测试 B：放行 ==')

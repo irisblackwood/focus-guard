@@ -14,8 +14,28 @@
 import { auditDeny, appendCostRow } from './audit.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 
-/** rm 后跟单簇旗标且同时含 r 与 f（任意顺序）：rm -rf / rm -fr / rm -Rdf … */
+/** rm 后跟单簇旗标且同时含 r 与 f（任意顺序）：rm -rf / rm -fr / rm -Rdf …（第 1 层·普通档，模糊命令） */
 const RM_RF = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\b/
+
+// ── 第 1 层·绝对红线（零延迟短路 deny，不进第 2 层）──
+// rm 递归强删根/HOME 族：rm -rf / ... 、rm -rf ~ ...（后随任意字符即命中本档）
+const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\s+["']?[\/~][\/\s"']*(?=\s|["']|$)/
+/** 破坏库结构：DROP DATABASE / DROP SCHEMA / TRUNCATE TABLE */
+const DROP_DB = /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i
+/** 强制推送：git push -f / --force / --force-with-lease */
+const GIT_PUSH_FORCE = /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i
+
+export const ABSOLUTE_REDLINES = [
+  { name: 'rm-rf-root', re: RM_RF_ROOT },
+  { name: 'drop-database', re: DROP_DB },
+  { name: 'git-push-force', re: GIT_PUSH_FORCE },
+]
+
+/** 命中哪条绝对红线；未命中返回 null */
+export function redlineOf(cmd) {
+  if (!cmd) return null
+  return ABSOLUTE_REDLINES.find((r) => r.re.test(cmd)) || null
+}
 
 /** 提取命令类参数；非命令类工具（write/read 等）返回 null，不做检查 */
 function commandOf(exec) {
@@ -53,17 +73,20 @@ function usageOf(u) {
   return usage.input || usage.output ? usage : null
 }
 
-/** ① 工具执行前：高危删除拦截（审计留痕失败不影响拦截本身） */
+/** ① 工具执行前：两档分流 —— 绝对红线短路 deny；普通 rm -rf 交由下游层（审计留痕失败不影响拦截本身） */
 export function preExecuteListener({ warn }) {
   return async (exec, next) => {
     try {
       const cmd = commandOf(exec)
-      if (cmd && RM_RF.test(cmd)) {
-        warn('已拦截高危删除命令：', cmd.slice(0, 120))
-        auditDeny(exec, cmd)
-        return {
-          kind: 'deny',
-          reason: 'focus-guard-native: rm -rf 属高危递归删除，已拦截；如需放行请批示，或改用限定路径的删除方式',
+      if (cmd) {
+        const redline = redlineOf(cmd)
+        if (redline) {
+          warn(`已拦截绝对红线（${redline.name}）：`, cmd.slice(0, 120))
+          auditDeny(exec, cmd)
+          return {
+            kind: 'deny',
+            reason: `focus-guard-native: 命中绝对红线「${redline.name}」，直接拒绝（不弹审批）；如确需执行请说明理由后人工处理`,
+          }
         }
       }
     } catch (error) {
