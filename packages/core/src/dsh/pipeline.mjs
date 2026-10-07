@@ -199,7 +199,7 @@ export function riskOfSentinel(cmd) {
 // 熔断标志实际落在 os.tmpdir() 的会话状态文件里。
 export const STATE_GATE = { effective: true }
 export const EVIDENCE_GATE = { effective: process.env.FG_EVIDENCE_GATE !== '0' }
-export const GUARD_STATE_MAX_AGE_MS = 15 * 60 * 1000
+export const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
 
 const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|NotebookEdit)$/i
 const READ_TOOL = /^(?:Read|Grep|Glob|read_image|NotebookRead)$/i
@@ -211,7 +211,8 @@ const pathOfTool = (args) => {
 /**
  * 取最近一个真实会话状态（排除 eval 快照）。
  * 入参可以是目录（默认 os.tmpdir()）或一个具体的状态文件路径（自检注入用）。
- * 无可用状态返回 null。
+ * 顺序：先按 mtime 取最新一个 focus-guard-*.json → 再判定是否在 GUARD_STATE_MAX_AGE_MS 内。
+ * 无可用状态（无文件 / 过旧 / 解析失败）返回 null，由调用方 fail-open + warn。
  */
 export function readGuardState(target = tmpdir()) {
   try {
@@ -222,21 +223,15 @@ export function readGuardState(target = tmpdir()) {
       return null
     }
     const dir = target
-    const now = Date.now()
-    const candidates = readdirSync(dir)
+    const latest = readdirSync(dir)
       .filter((n) => n.startsWith('focus-guard-') && n.endsWith('.json') && !n.startsWith('focus-guard-eval-'))
       .map((n) => join(dir, n))
       .map((p) => ({ p, st: statSync(p) }))
-      .filter((x) => now - x.st.mtimeMs < GUARD_STATE_MAX_AGE_MS)
-      .sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)
-    for (const c of candidates) {
-      try {
-        const state = JSON.parse(readFileSync(c.p, 'utf8'))
-        if (state && typeof state === 'object') return { file: c.p, state }
-      } catch {
-        /* 单个状态损坏：继续找下一个（不静默丢整层判定） */
-      }
-    }
+      .sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)[0]
+    if (!latest) return null
+    if (Date.now() - latest.st.mtimeMs >= GUARD_STATE_MAX_AGE_MS) return null // 最新一个也已过期
+    const state = JSON.parse(readFileSync(latest.p, 'utf8'))
+    if (state && typeof state === 'object') return { file: latest.p, state }
     return null
   } catch {
     return null
