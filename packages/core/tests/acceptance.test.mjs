@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const GUARD = fileURLToPath(new URL("../hooks/guard.mjs", import.meta.url));
+// 母版层模块（v3.0.5 拆分）：常量表与红线表的唯一真相源，工程自检须读这里而非 guard.mjs
+const CONSTANTS = fileURLToPath(new URL("../src/core/constants.mjs", import.meta.url));
+const REDLINES = fileURLToPath(new URL("../src/core/redlines.mjs", import.meta.url));
 const RUN = `${process.pid}-${Date.now()}`; // 运行级隔离：引擎预算棘轮跨运行持久，测试状态必须用唯一 sid
 let seq = 0;
 function freshDir() {
@@ -1248,7 +1251,8 @@ describe("工程自检（防版本与文档漂移）", () => {
 
   test("版本一致性：五处清单 + ENGINE_VERSION + 引擎头注释完全相同", () => {
     const guard = readFileSync(GUARD, "utf8");
-    const engine = (guard.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
+    const consts = readFileSync(CONSTANTS, "utf8");
+    const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
     const header = (guard.match(/focus-guard 护栏脚本 v(\d+\.\d+\.\d+)/) || [])[1];
     assert.ok(engine, "未找到 ENGINE_VERSION");
     assert.equal(header, engine, "引擎头注释版本与 ENGINE_VERSION 漂移");
@@ -1286,9 +1290,10 @@ describe("工程自检（防版本与文档漂移）", () => {
     const rules = readFileSync(ROOT("packages/core/docs/RULES.md"), "utf8");
     const skill = readFileSync(ROOT("packages/core/skills/focus-thinking/SKILL.md"), "utf8");
     const guard = readFileSync(GUARD, "utf8");
+    const consts = readFileSync(CONSTANTS, "utf8");
     // 术语统一：映射表不再要求【请示报告】，引擎只认【授权识别】
     assert.ok(!rules.includes("须输出【请示报告】"), "法条映射表仍残留旧术语【请示报告】");
-    assert.ok(rules.includes("【授权识别】") && guard.includes("PARDON_DECL_RE = /【授权识别】/"));
+    assert.ok(rules.includes("【授权识别】") && consts.includes("PARDON_DECL_RE = /【授权识别】/"));
     // 43条：法条处置与引擎一致（记档后清理，而非"停止执行并报告"）
     assert.ok(rules.includes("残留则记录在案并清理"));
     assert.ok(guard.includes('"residue-check"'));
@@ -1510,6 +1515,8 @@ describe("3.0.2 尾置批示与外接桥", () => {
   test("范本性：核心源码零 bridges 反向依赖（删 bridges/ 目录主分支功能一分不减）", () => {
     const coreFiles = [
       GUARD,
+      CONSTANTS,
+      REDLINES,
       join(dirname(GUARD), "..", "tools", "library-build.mjs"),
       join(dirname(GUARD), "..", "tools", "audit-chain.mjs"),
       join(dirname(GUARD), "..", "tools", "sentinel.mjs"),
