@@ -286,6 +286,52 @@ function layer3Check(exec, warn, statePathOverride) {
   return null
 }
 
+// ===== 第 1.5 层：命令硬校验（规则来源 = .ai/env-fingerprint.json 的 map 表）=====
+// 指纹是规则来源、本层是执行层：mtime 变化立即生效，无需重启；指纹缺失/损坏一律 fail-open + warn。
+const ENV_FINGERPRINT_REL = join('.ai', 'env-fingerprint.json')
+let envFpCache = { path: null, mtimeMs: 0, map: null }
+let envFpMissingWarned = false
+
+/** 读环境指纹的 map 表；缺失或损坏返回 null（fail-open）。 */
+export function readEnvMap(warn, cwd = process.cwd()) {
+  const p = join(cwd, ENV_FINGERPRINT_REL)
+  try {
+    const mtimeMs = statSync(p).mtimeMs
+    if (envFpCache.path !== p || envFpCache.mtimeMs !== mtimeMs) {
+      const parsed = JSON.parse(readFileSync(p, 'utf8'))
+      const map = parsed && parsed.map && typeof parsed.map === 'object' && !Array.isArray(parsed.map) ? parsed.map : null
+      envFpCache = { path: p, mtimeMs, map }
+    }
+    return envFpCache.map
+  } catch {
+    envFpCache = { path: null, mtimeMs: 0, map: null }
+    if (warn && !envFpMissingWarned) {
+      envFpMissingWarned = true
+      warn(`环境指纹缺失（${p}）：命令硬校验跳过（fail-open）。生成：node packages/core/tools/env-fingerprint.mjs`)
+    }
+    return null
+  }
+}
+
+/**
+ * 命令硬校验：任一段（|、;、&&、||、换行）的段首命令词命中 map 的 key → deny。
+ * 白名单：① 引号内字符串字面量（先剥离）② 参数值（只判段首 token）③ 文件路径（含分隔符或以 . 开头）。
+ */
+export function hardCheck(cmd, map, warn) {
+  const m = map || readEnvMap(warn)
+  if (!m) return null
+  const stripped = String(cmd || '').replace(/'[^']*'|"[^"]*"/g, ' ')
+  for (const seg of stripped.split(/\|\||&&|[|;\n]/)) {
+    const first = seg.trim().split(/\s+/)[0]
+    if (!first) continue
+    if (/[\\/]/.test(first) || first.startsWith('.')) continue
+    if (Object.prototype.hasOwnProperty.call(m, first)) {
+      return { kind: 'deny', reason: `本机环境：用 ${m[first]} 替代 ${first}。命令：${String(cmd).slice(0, 120)}` }
+    }
+  }
+  return null
+}
+
 export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION, statePath } = {}) {
   return async (exec, next) => {
     rememberReads(exec)
@@ -313,6 +359,20 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
     } catch (error) {
       warn('红线判定异常，fail-open 放行：', (error && error.message) || error)
       return next()
+    }
+
+    // 第 1.5 层：命令硬校验（红线之后、语义预判之前；不依赖 AI 自觉）
+    if (cmd) {
+      try {
+        const hard = hardCheck(cmd, null, warn)
+        if (hard) {
+          warn('硬校验拦截：', hard.reason)
+          auditDeny(exec, cmd)
+          return hard
+        }
+      } catch (error) {
+        warn('硬校验异常，fail-open 放行：', (error && error.message) || error)
+      }
     }
 
     // 第 2 层：语义预判（可插拔）。工具调用（write/read 等无命令参数）零打扰透传。
