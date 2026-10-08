@@ -1,0 +1,199 @@
+// FocusGuard 母版层 · 事前资格审核（六层判定，规格 §三）
+//
+// 逻辑层是法官：自己判简单的（状态 / 红线 / 资格 / 前置），复杂的送模型（鉴定科）出信号，
+// 最终 allow / deny / needApproval 一律由本层裁决。模型只出信号，不出裁决。
+//
+// 依赖注入：redlines / model / audit / grants 全部由调用方传入 —— 母版不反向依赖适配层
+// （《资料与代码分层总规范》二·1）。model 未注入时跳过第 5 层，故第一步零模型即可用。
+// 审计一律走注入的 audit：本文件不直接写 AUDIT.log（测试注入 mock，不污染真实审计）。
+
+import { isMutating } from "./risk.mjs";
+import { createGrantTable } from "./grants.mjs";
+
+/** 第 5 层语义风险的审批阈值（与 pipeline 的 RISK_ASK_THRESHOLD 同值）。 */
+export const RISK_ASK_THRESHOLD = 0.85;
+
+/** 第 4 层·系统路径：命中即 deny（配置与系统目录不属业务改动面）。 */
+export const SYSTEM_PATH_RE =
+  /(?:^|[\s"'=:,])(?:[A-Za-z]:[\\/]Windows(?:[\\/]|$)|[A-Za-z]:[\\/]Program Files(?:[\\/]|$)|\/etc(?:\/|$)|\/usr(?:\/|$)|\/bin(?:\/|$)|\/sbin(?:\/|$)|\/System(?:\/|$))/im;
+
+/** 第 4 层·特殊目录：命中需人工审批（改之会污染版本库或依赖树）。 */
+export const SPECIAL_DIR_RE = /(?:^|[\s"'=:,]|[\\/])(?:\.git|node_modules)(?:[\\/]|$)/i;
+
+/** 第 3 层·高危工具/命令特征库。带 id，便于审计与测试定点。 */
+export const HIGH_RISK_TOOLS = [
+  { id: "rm-rf", re: /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*/ },
+  { id: "format-volume", re: /\bFormat-Volume\b|\bmkfs\b|\bdiskpart\b|\bformat\s+[a-z]:/i },
+  { id: "git-push-force", re: /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i },
+  { id: "drop-database", re: /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i },
+  { id: "publish", re: /\b(?:npm|pnpm|yarn)\s+publish\b|\bdocker\s+push\b/i },
+  { id: "global-install", re: /\b(?:npm|pnpm)\s+(?:i|install|add)\b[^\n]*\s-g(?:\s|$)|\byarn\s+global\s+add\b/i },
+  { id: "chmod-wide", re: /\bchmod\s+[^\n]*\b777\b|\bchmod\s+-R\b/i },
+];
+
+/** 命中哪条高危特征（未命中返回 null）。 */
+export function highRiskOf(command) {
+  const cmd = String(command || "");
+  return HIGH_RISK_TOOLS.find((r) => r.re.test(cmd)) || null;
+}
+
+/**
+ * 六层资格审核。async：第 5 层要 await 模型信号。
+ *
+ * @param {object} req
+ * @param {string} req.tool 工具名
+ * @param {string} [req.command] 命令或操作描述
+ * @param {string} req.purpose 声称的目的（必填，空白即 deny）
+ * @param {string} req.scope 声称的影响范围（必填，空白即 deny）
+ * @param {"turn"|"task"|"persist"} [req.ttl="turn"]
+ * @param {object} [req.state] guard 侧只读状态：fused / probation / taskBudget / readSet
+ * @param {string} [req.target] 改动类操作的目标路径（供第 4 层比对 readSet；缺省则跳过该项）
+ * @param {Array<{name: string, re: RegExp}>} [req.redlines] 第 2 层绝对红线表（适配层注入）
+ * @param {Function} [req.model] 第 5 层探针：({command,purpose,scope}) => {mismatch,risk,reason,actual_effect}
+ * @param {Function} [req.audit] 审计写入（注入；本函数不碰真实 AUDIT.log）
+ * @param {object} [req.grants] 授权表（默认新建一张）
+ * @param {Function} [req.trace] 逐层回调，用于打印/断言每层判定
+ * @returns {Promise<{decision: "allow"|"deny"|"needApproval", layer: string, reason: string, modelSignal: object|null, trace: Array}>}
+ */
+export async function checkEligibility({
+  tool,
+  command = "",
+  purpose,
+  scope,
+  ttl = "turn",
+  state = {},
+  target,
+  redlines = [],
+  model,
+  audit,
+  grants = createGrantTable(),
+  trace,
+} = {}) {
+  const steps = [];
+  const mark = (layer, decision, reason) => {
+    const row = { layer, decision, reason };
+    steps.push(row);
+    if (typeof trace === "function") trace(row);
+    return row;
+  };
+  const settle = (decision, layer, reason, modelSignal = null) => {
+    if (typeof audit === "function") {
+      audit({
+        action: decision === "allow" ? "grant" : decision,
+        tool,
+        command: String(command || "").slice(0, 120),
+        purpose,
+        scope,
+        ttl,
+        layer,
+        decision,
+        modelSignal,
+        reason,
+        evidence: reason,
+      });
+    }
+    return { decision, layer, reason, modelSignal, trace: steps };
+  };
+
+  // 第 0 层：申请完整性（规格 §五：purpose / scope 必填，空白即 deny）
+  if (!String(purpose ?? "").trim()) {
+    mark("0", "deny", "purpose 缺失");
+    return settle("deny", "0", "purpose 缺失：申请必须写明目的");
+  }
+  if (!String(scope ?? "").trim()) {
+    mark("0", "deny", "scope 缺失");
+    return settle("deny", "0", "scope 缺失：申请必须写明影响范围");
+  }
+  mark("0", "pass", "申请完整");
+
+  // 第 1 层：状态
+  if (state.fused) {
+    mark("1", "deny", "熔断中");
+    return settle("deny", "1", "熔断中，仅允许只读");
+  }
+  if (state.probation) {
+    mark("1", "deny", "降权中");
+    return settle("deny", "1", "降权中，资格审核暂停");
+  }
+  const budget =
+    typeof state.taskBudget === "number" ? state.taskBudget : typeof state.budget === "number" ? state.budget : undefined;
+  if (typeof budget === "number" && budget <= 0) {
+    mark("1", "deny", "预算耗尽");
+    return settle("deny", "1", "预算耗尽");
+  }
+  mark("1", "pass", "状态正常");
+
+  // 第 2 层：绝对红线（命中即 deny，不进第 3 层）
+  const hit = (Array.isArray(redlines) ? redlines : []).find(
+    (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
+  );
+  if (hit) {
+    mark("2", "deny", `绝对红线 ${hit.name}`);
+    return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+  }
+  mark("2", "pass", "未命中绝对红线");
+
+  // 第 3 层：资格（高危且本会话无授权 → needApproval；已有授权则继续）
+  const risky = highRiskOf(command);
+  if (risky && !grants.has(tool)) {
+    mark("3", "needApproval", `高危 ${risky.id} 且无授权`);
+    return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
+  }
+  mark("3", "pass", risky ? `已有授权（${risky.id}）` : "非高危");
+
+  // 第 4 层：前置条件
+  if (target && isMutating(tool, { command }, false)) {
+    const readSet = state.readSet || {};
+    if (!readSet[target]) {
+      mark("4", "deny", "未取证");
+      return settle("deny", "4", `改动 ${target} 前未取证（readSet 无此目标）`);
+    }
+  }
+  if (SYSTEM_PATH_RE.test(String(command || ""))) {
+    mark("4", "deny", "系统路径");
+    return settle("deny", "4", "命令涉及系统路径（C:\\Windows / /etc / /usr 等），禁止");
+  }
+  if (SPECIAL_DIR_RE.test(String(command || ""))) {
+    mark("4", "needApproval", "特殊目录");
+    return settle("needApproval", "4", "命令涉及 .git/ 或 node_modules/，需人工审批");
+  }
+  mark("4", "pass", "前置条件通过");
+
+  // 第 5 层：语义对齐（仅注入了 model 时生效；未注入则跳过，第一步零模型可跑）
+  let modelSignal = null;
+  if (typeof model === "function") {
+    try {
+      modelSignal = await model({ command, purpose, scope });
+    } catch (error) {
+      modelSignal = { mismatch: false, risk: 0, reason: "model-unavailable", error: String((error && error.message) || error) };
+    }
+    if (!modelSignal || typeof modelSignal !== "object") {
+      modelSignal = { mismatch: false, risk: 0, reason: "model-unavailable" };
+    }
+    if (modelSignal.reason === "model-unavailable") {
+      mark("5", "needApproval", "模型不可用");
+      return settle("needApproval", "5", "模型审核失败，保守审批", modelSignal);
+    }
+    if (modelSignal.mismatch === true) {
+      mark("5", "deny", "目的不符");
+      return settle("deny", "5", `声称目的与实际效果不符：${String(modelSignal.actual_effect || modelSignal.reason || "")}`, modelSignal);
+    }
+    const risk = Number(modelSignal.risk);
+    if (Number.isFinite(risk) && risk > RISK_ASK_THRESHOLD) {
+      mark("5", "needApproval", `语义风险 ${risk}`);
+      return settle("needApproval", "5", `语义风险 ${risk} 超过阈值 ${RISK_ASK_THRESHOLD}，转人工审批`, modelSignal);
+    }
+    mark("5", "pass", "语义一致");
+  } else {
+    mark("5", "skip", "未注入模型探针");
+  }
+
+  // 第 6 层：通过 → 临时开放该工具 + 审计
+  const granted = grants.grant(tool, {
+    ttl,
+    reason: `${String(purpose).trim()} / ${String(scope).trim()}`,
+    layer: "6",
+  });
+  mark("6", "allow", "已临时开放");
+  return settle("allow", "6", `资格审核通过，已按 ttl=${granted.ttl} 临时开放 ${tool}`, modelSignal);
+}
