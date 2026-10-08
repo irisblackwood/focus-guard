@@ -27,7 +27,7 @@
 | 大搜索/大文档主会话硬扛 | 强制委派场景 + 委派法典 | KPI 计分，收尾结算委托池奖惩（3.0） |
 | 表现只有记分牌没有后果 | KPI 兑现闭环（3.0） | 收尾即结算：等次 → 委托池 ±5/±2，跨任务累计 |
 | 出了事日志是一笔糊涂账 | 因果链留痕 seq/chain/ref（3.0） | `npm run chain` 渲染因果树/因果图 |
-| 经验库被 AI 自己写坏 | 静态积木图书馆（3.0） | 积木区只读，新知只进 inbox 便签区 |
+| 经验库被 AI 自己写坏 | 资料分层 + 派生积木（3.0） | `.ai/library/` 只同步外部原文；积木由 library-build 派生，两区均禁直写 |
 | 云端判定贵且离线不可用 | 本地零成本哨兵（3.0） | `FG_SENTINEL=1` 启用，Needle 2 可插拔外判 |
 
 ## 为什么需要它
@@ -189,7 +189,7 @@ Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 
 
 留痕协议：AUDIT.log（JSONL）每条带 `seq`（事件唯一号）/ `chain`（任务链，委派派生 `/dN` 子链）/ `ref`（父事件）三字段——流水账可随时重组为因果树：`node tools/audit-chain.mjs <AUDIT.log> [--mermaid]`。
 
-落盘全图（写入面共 10 处）：AUDIT.log、卷宗【一】环境声明、【三】侦查记录、【四】额度台账（同 CASE_FILE.md）、会话状态（%TEMP%）、改动前备份（.ai/backup/）、PATTERNS.md 经验库、TEMP 陈旧清扫、图书馆积木与索引（仅 library-build 写）、便签区模板（仅 library-build 首建）。
+落盘全图（写入面共 9 处）：AUDIT.log、卷宗【一】环境声明、【三】侦查记录、【四】额度台账（同 CASE_FILE.md）、会话状态（%TEMP%）、改动前备份（.ai/backup/）、PATTERNS.md 经验库、TEMP 陈旧清扫、派生积木与索引（仅 library-build 写到 .ai/output/library/）。
 
 ### 常驻注入的体量
 
@@ -219,7 +219,7 @@ npm test        # 验收用例（90 + 3.0 新增）
 npm run eval    # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
 npm run bench   # 报文体量基准
 npm run check   # test + eval
-npm run library -- --src <资料目录> --out .ai/library   # 积木图书馆构建（幂等）
+npm run library                                          # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
 npm run chain -- <AUDIT.log路径> [--mermaid]            # 执法档案因果树渲染
 npm run sentinel -- --check "<命令>"                     # 本地哨兵单条预判
 npm run test:bridges                                     # 扩展包桥测试（单独跑）
