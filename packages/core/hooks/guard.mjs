@@ -33,15 +33,9 @@ import { join, dirname, sep, basename, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFILL, STALL_FUSE, MERCY_SHORT, ENGINE_VERSION, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_RECENT, TTL_WEEK, TTL_STABLE, FUSE_PHRASE, FUSE_HINT, LIBRARY_RE, BLOCKS_RE, INTERP_EVAL_RE, HIGH_RISK_FORM, MERCY_RE, CREDIT_RE, STOP_ORDER_RE, TASK_SCALE_RE, KEY50_RE, KEY15_RE, PARDON_DECL_RE, PARDON_PENDING_RE, PARDON_QUOTE_RE, PARDON_BASIS_RE, AUTH_SEMANTICS_RE, DOWNGRADE_MARKERS, EVIDENCE_ANCHORS, RISKY_FILE_RE, SECRET_FILE_RE, BACKUP_KEEP, DELEGATE_DEFAULT, DOWNGRADE_MSG, SESSION_RULES, CASE_TEMPLATE, HIGH_RISK_QUEUE_MAX } from "../src/core/constants.mjs";
+import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
 
-const OUTPUT_GATE_BYTES = 50 * 1024; // 触发③：体积闸值
-const RANDOM_AUDIT_EVERY = 5; // 抽查A：每 N 次写操作全量审计 1 次
-const BUDGET_DEFAULT = 10; // 默认任务预算
-const BUDGET_CAP = 200; // 硬上限：达到强制熔断
-const REFILL = 10; // 自动续杯步长
-const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
-const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-const ENGINE_VERSION = "3.0.4"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
 // 2.0.1 热修：win32 shell 误判（PSModulePath 系统级恒存 → 误判 powershell → 平台禁令堵死 Git Bash 管道）
 // 2.0.2 DSH 版：csproj/sln 列入风险文件备案（C# 项目配置与 package.json 同级）
 // 2.2.0 正面指引版：git push 人类专属闸（二.3/五.3，本地 commit AI 可做、推送人类 UI 执行）
@@ -76,173 +70,7 @@ const ENGINE_VERSION = "3.0.4"; // 42条：部署版本核验基准（须与五�
 //   [案二] 审计/盘点/审查批示下，取证对象整读留痕不罚（体积闸豁免），预算与巨量输出追责仍生效；
 //   [防线] 卷宗【一】落卷与 PATTERNS.md 创建失败上 stderr（对齐 2.5.1 假留痕防线标准）；
 //   [61条] 会话启动清扫临时目录中 30 天未动的 focus-guard 状态/档案文件（实测残留曾达 8376 个）。
-const INV_POOL_DEFAULT = 15; // 20条：侦查池独立额度（批示可追加）
-const SHA_LIMIT = 200 * 1024; // 总纲四：SHA-256 校验上限（≤200KB）
-const CASE_MAX_ROWS = 200; // 卷宗【三】最大行数（超出淘汰最旧）
-const TTL_FIRST = 4 * 3600e3; // 自适应：首次 4h
-const TTL_RECENT = 2 * 3600e3; // 自适应：7天内有变 2h
-const TTL_WEEK = 24 * 3600e3; // 自适应：7-30天未变 24h
-const TTL_STABLE = 7 * 86400e3; // 自适应：30天未变 7天
-
-const FUSE_PHRASE = "【熔断】无法通过现有资料定位核心问题";
-const FUSE_HINT = "1【最小复现】步骤/实验 2【联网证据】链接+原文 3【卡点记录】写HANDOFF.md"; // 各一行
-// 3.0.5 资料分层（《资料与代码分层总规范》）：.ai/library 为外部原文静态区（只同步不就地改）；
-// 派生积木视图由 library-build 生成到 .ai/output/library（R6 记忆更新隔离区的机械化）
-const LIBRARY_RE = /(^|[\\/])\.ai[\\/]library[\\/]/i;
-const BLOCKS_RE = /(^|[\\/])\.ai[\\/]output[\\/]library[\\/]/i;
-// 3.0.0 解释器黑名单（R5-3 采纳）：解释器 -c/--eval 一类等价任意代码执行，不再判只读侦查（熔断期不放行、不进侦查池）
-const INTERP_EVAL_RE = /\b(?:python3?|py|node|perl|ruby|php|lua|pwsh|powershell)\b[^&|;]*(?:-c|-e|--eval|--command)\b/i;
-// 2.4.0：标准审批单（一行，禁长篇解释）
-const HIGH_RISK_FORM =
-  "【高危申请】命令：`<真实命令>` | 真实目的：<一句话> | 影响范围：<具体文件/表/系统> | 回滚方案：<可否回滚> | 允许执行？(y/n)";
-const MERCY_RE = /允许基于有限信息(进行)?猜测|(开启|启动|进入|批准|授予)绝境模式|【特赦】|(^|[\s，。！？,!?])特赦(?=$|[\s，。！？,!?])/;
-const CREDIT_RE = /继续|放行|延长/; // 信用延期批复（短指令）
-const STOP_ORDER_RE = /熔断|停止|^停$/; // 停止批复（短指令）
-const TASK_SCALE_RE = /【任务规模】[^0-9]{0,8}(\d{1,3})/;
-const KEY50_RE = /审计|红队|重构|全量|批量|探索|遍历|升级|补丁/;
-const KEY15_RE = /修复|添加|修改|重命名|删除/;
-// 《授权识别与留痕条例》声明核验
-const PARDON_DECL_RE = /【授权识别】/;
-const PARDON_PENDING_RE = /【授权待确认】/;
-const PARDON_QUOTE_RE = /【授权识别】[\s\S]{0,60}?「([^「」\n]{2,120})」/;
-const PARDON_BASIS_RE = /依据[:：]\s*【?([^】\n，。；]{2,50})/;
-const AUTH_SEMANTICS_RE = /授权|特赦|赦免|批准|允许|豁免|跳过|绕过|无需|不用|猜测/;
-const DOWNGRADE_MARKERS = /最小复现|复现请求|排查实验|联网证据|外部搜寻|卡点记录|HANDOFF\.md|交接报告/i;
-const EVIDENCE_ANCHORS = /:\d+|日志原文|报错|HANDOFF\.md|交接报告|【假设】|【熔断】/;
-const RISKY_FILE_RE = /(^|\/)(package(-lock)?\.json|[^\/]*\.lock|tsconfig\.json|AGENTS\.md|CLAUDE\.md|Dockerfile|[^\/]*\.env[^\/]*|zcode\.json|[^\/]*\.csproj|[^\/]*\.sln)$|\.github\/|\.zcode-plugin\//i;
-// 2.5.2：敏感文件（明文密钥与凭据）——改动前不做明文副本，只留痕（.pub 公钥不在此列）
-const SECRET_FILE_RE = /(^|\/)(?:\.env(?:\.[^\/]*)?|\.npmrc|\.netrc|\.git-credentials|\.pgpass|\.htpasswd|id_rsa|id_ed25519|id_ecdsa)$|[^\/]*\.(?:pem|key|pfx|p12|jks)$/i;
-// 2.5.2 变更类命令判定：按"命令词"识别，并剥掉 sudo/env/xargs/时间前缀等外壳。
-// 旧写法（`(^|[;&|]\s*)(rm|mv|…)`）要求命令词紧跟段首，于是 `sudo mv`、`xargs mv`、`cp`（当时根本不在表里）
-// 全被判成"只读侦查"——既绕过触发①（未取证就改），又在熔断期拿到放行。
-const MUTATOR_HEAD_RE = /^(?:rm|rmdir|rd|mv|del|cp|copy|xcopy|robocopy|install|rsync|chmod|chown|kill|taskkill|truncate|mkfs|mkdir|touch|tee|patch|git\s+(?:add|commit|push|pull|merge|rebase|reset|checkout|clean|restore|apply|stash|mv|rm)|npm\s+(?:i|install|ci|uninstall|remove|rm|update|publish)|pnpm\s+(?:add|install|remove|rm|update|publish)|yarn\s+(?:add|install|remove|publish|global)|pip3?\s+(?:install|uninstall)|(?:Set|Add|Remove|New|Copy|Move|Clear)-Content|New-Item|Copy-Item|Move-Item|Remove-Item|Set-ItemProperty|New-ItemProperty|Out-File|sed\s+[^&|;]*-i)\b/i;
-const CMD_PREFIX_RE = /^(?:sudo|doas|time|nohup|nice|env|xargs|start|call|command|builtin)\s+(?:-[^\s]+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*/i;
-function isMutatingBashCmd(cmd) {
-  for (const seg of String(cmd || "").split(/[;&|]+/)) {
-    let s = seg.trim();
-    for (let i = 0; i < 3; i++) {
-      const next = s.replace(CMD_PREFIX_RE, "");
-      if (next === s) break;
-      s = next;
-    }
-    if (MUTATOR_HEAD_RE.test(s)) return true;
-  }
-  return false;
-}
-const FILE_REDIRECT_RE = /(^|\s)>{1,2}(?!\s*&)/;
-const BACKUP_KEEP = 100; // 2.2.0：.ai/backup/ 最大保留份数（超出淘汰最旧）
 let backupSeq = 0; // 2.5.2：备份文件名加进程号+自增序号，避免同一毫秒内两次备份互相覆盖
-const DELEGATE_DEFAULT = 20; // 2.3.0：委托池默认额度（独立于执行池；批示『追加额度』三池各+10）
-// 2.4.0 高危命令特征库（六类：破坏性删除/强制推送与历史覆盖/系统权限与配置篡改/全局依赖安装/对外发送与发布/数据库影响）
-// 即使完全访问（yolo）也须人类实时审批；普通单文件 rm、常规构建不在此列。
-// 2.5.2 加固：补别名与长旗标写法（npm i -g / yarn global add / pnpm add -g / rd /s / ri -r /
-//   wget --post-data / Invoke-WebRequest -Method POST / curl -d），并修掉两处误伤
-//   （`--force` 里的字母 r 被当成递归删除；`--dry-run` 只在紧跟子命令时才豁免）。
-const DANGEROUS_PATTERNS = new RegExp([
-  // 一、破坏性删除：递归旗标必须是旗标本身（-r/-rf/-fr/-R/--recursive），不再用会命中 --force 里 r 的 "-\\w*r"
-  "(?:sudo\\s+)?\\brm\\b[^&|;]*\\s(?:-[a-zA-Z]*[rR][a-zA-Z]*\\b|--recursive\\b)",
-  "(?:^|[;&|]\\s*)(?:rmdir|rd)\\b[^&|;]*/s",
-  "\\bdel\\b[^&|;]*/[fsq]",
-  "Remove-Item\\s[^&|;]*-Recurse",
-  "(?:^|[;&|]\\s*)ri\\b[^&|;]*\\s(?:-[a-zA-Z]*[rR][a-zA-Z]*\\b|-Recurse\\b)",
-  "shutil\\.rmtree",
-  "\\brmSync\\s*\\([^&|;]*recursive",
-  "\\brmdirSync\\s*\\([^&|;]*recursive",
-  "drop\\s+table",
-  "drop\\s+database",
-  "truncate\\s+table",
-  // 二、系统权限与配置篡改
-  "chmod\\s+[^&|;]*\\b777\\b",
-  "chmod\\s+-R",
-  "\\bchown\\b",
-  "\\breg\\s+(?:add|delete)\\b",
-  "\\bnet\\s+user\\b.*\\b(?:add|delete)\\b",
-  // 三、全局依赖安装：npm/pnpm 的 i|install|add|uninstall 与 -g/--global 任意位置；yarn global 无 -g 也拦
-  "\\b(?:npm|pnpm)\\s+(?:i|install|add|uninstall|remove|rm)\\b[^&|;]*(?:\\s-g(?![\\w-])|\\s--global(?![\\w-]))",
-  "\\byarn\\s+(?:global\\s+(?:add|remove|upgrade)|add\\b[^&|;]*\\s-g(?![\\w-]))",
-  "pip3?\\s+install\\s+[^&|;]*(--global|--user)",
-  "apt(?:-get)?\\s+install",
-  "docker\\s+run\\b[^&|;]*--privileged",
-  // 四、对外发送与发布：--dry-run 不发送，整段内出现即豁免
-  "\\b(?:npm|pnpm|yarn)\\s+publish\\b(?![^&|;]*--dry-run)",
-  "docker\\s+push",
-  "curl\\b[^&|;]*(-X\\s*POST|--request\\s+POST)",
-  "wget\\b[^&|;]*(--post-data|--post-file)",
-  "(?:Invoke-WebRequest|Invoke-RestMethod)\\b[^&|;]*-Method\\s+POST",
-  // 五、系统/容器级破坏
-  "docker\\s+(?:system\\s+prune|volume\\s+rm)",
-  "mkfs",
-  "format\\s+[a-z]:",
-  "diskpart",
-  "\\bdd\\s+[^&|;]*of=/dev/",
-  "\\bshutdown\\b",
-  "\\bfind\\b[^&|;]*-delete\\b",
-  "\\brimraf\\b",
-].join("|"), "i");
-const SQL_NOWHERE_RE = /\bdelete\s+from\s+[\w`."]+|\bupdate\s+[\w`."]+\s+set\b/i; // 2.4.0：无 where 的 DELETE FROM / UPDATE...SET
-// 2.5.2：WHERE 豁免按"单条语句"判定——旧写法只要整行任意位置出现 where，就把同行的无 where 删除一并放过。
-function sqlNowhere(cmd) {
-  return String(cmd || "")
-    .split(";")
-    .some((s) => SQL_NOWHERE_RE.test(s) && !/\bwhere\b/i.test(s));
-}
-// 2.5.2：curl 的 -d/--data 必须区分大小写（-D 是 dump 响应头，属只读 GET），故单独用无 /i 的正则
-const CURL_DATA_RE = /curl\b[^&|;]*(\s-d\b|\s--data(?:-raw|-binary|-urlencode)?\b)/;
-const SCRIPT_FILE_RE = /\.(sh|ps1|bat|cmd|py|pl|rb|mjs|cjs|js)$/i; // 2.4.0：脚本包装检测范围
-
-// 2.5.2 git 高危子命令：逐段取 git 调用 → 剥掉 git 全局选项 → 看子命令。
-// 旧写法用前缀组硬凑 "-C/-c + 取值"，遇到 --git-dir=/x、--no-pager、-C= 之类穿插即绕过；且只看首段会漏 `a && git push`。
-// --dry-run（clean 为 -n）在该命令段内任意位置出现即豁免——dry-run 不产生任何不可逆后果。
-const GIT_OPT_WITH_VALUE = /(?:^|\s)(?:-[Cc]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:=\S+|\s+\S+)?/g;
-const GIT_OPT_VALUELESS = /(?:^|\s)(?:--no-pager|--paginate|--bare|--literal-pathspecs|--no-replace-objects|--no-optional-locks)\b/g;
-function gitHighRisk(cmd) {
-  for (const seg of String(cmd || "").split(/[;&|]+/)) {
-    const m = seg.match(/\bgit\b([\s\S]*)$/i);
-    if (!m) continue;
-    const rest = m[1].replace(GIT_OPT_WITH_VALUE, " ").replace(GIT_OPT_VALUELESS, " ").trim();
-    if (/^push\b/i.test(rest)) {
-      if (!/--dry-run\b/i.test(rest)) return true;
-      continue;
-    }
-    if (/^reset\b/i.test(rest)) {
-      if (/--hard\b/i.test(rest)) return true;
-      continue;
-    }
-    if (/^clean\b/i.test(rest)) {
-      const force = /(?:^|\s)-[a-zA-Z]*f[a-zA-Z]*\b|--force\b/i.test(rest);
-      const dry = /(?:^|\s)-[a-zA-Z]*n[a-zA-Z]*\b|--dry-run\b/i.test(rest);
-      if (force && !dry) return true;
-    }
-  }
-  return false;
-}
-
-// 2.5.2：审批/否决的比对键改用内容哈希。旧写法把命令截断到 300 字符再与原文比对，
-// 于是超过 300 字符的命令永远等不到匹配——人类按 y 白按（highRiskOk 被消耗但仍不匹配）、
-// 按 n 也存不进 rejectedCmds（"彻底阻断"静默失效）。显示文本仍截断，比对用全量哈希。
-function cmdKey(s) {
-  return createHash("sha256").update(String(s)).digest("hex").slice(0, 24);
-}
-
-function isDangerousCmd(cmd) {
-  const c = String(cmd || "");
-  if (gitHighRisk(c)) return true;
-  return DANGEROUS_PATTERNS.test(c) || sqlNowhere(c) || CURL_DATA_RE.test(c);
-}
-
-const DOWNGRADE_MSG =
-  "[触发⑤·熔断]改动类已拒（只读放行）。三选一各一行：" + FUSE_HINT +
-  "。禁静默禁硬凑。解除后经验按 [环境:x][任务:y] 记入 .ai/PATTERNS.md。";
-
-const SESSION_RULES =
-  "<focus-guard AI履职执法模型v3.0：日常零打扰，只看行为>" +
-  "【触发】①未取证就改 ②≥5次收尾无[文件:行号]锚点且无【假设】 ③整读>50KB/Grep无head_limit/裸cat ④超预算 ⑤查无实据硬凑。" +
-  "【额度】批示关键词定(50/15/10)，【任务规模】可上调；侦查/执行/委托三池分立，执行满+10上限200。" +
-  "【进度】3次无效→熔断；停滞2次→【信用延期】(继续/放行/延长→+10)。" +
-  "【处罚】L1打回→L2取证→L3熔断(只读放行)→L4记档→L5降权→L6上报；人类指令=批示。" +
-  "【熔断出口】『" + FUSE_PHRASE + "』+三行降级方案。" +
-  "【特赦】仅认短指令(绝境模式/允许猜测/【特赦】)；受权须先出【授权识别】(引原文+法条)，否则越权。" +
-  "【留痕】全程记<工作区>/.focus-guard/AUDIT.log(因果链chain/seq)。细则见focus-thinking技能与docs/RULES.md。";
 
 function readStdinJson() {
   try {
@@ -535,19 +363,6 @@ function detectEnv() {
   };
 }
 
-// ============ 2.0 卷宗（总纲二：.ai/CASE_FILE.md 四册） ============
-
-const CASE_TEMPLATE =
-  "# FocusGuard 卷宗（CASE_FILE）\n\n" +
-  "> 引擎自动维护【一】【三】【四】；【二】由人工填写。请勿手工重排结构。【三】TTL 列留空=自适应，人工填写（如 30天/1小时）=覆盖。\n\n" +
-  "### 【一】环境声明（会话启动检测，全程复用）\n\n（SessionStart 自动写入检测结果并全程复用，人类可在此直接查阅）\n\n" +
-  "### 【二】项目依赖声明（人工填写，可覆盖自动 TTL）\n\n" +
-  "| 依赖名 | 版本 | 安装路径 | 更新频率 | 信任TTL | 备注 |\n|---|---|---|---|---|---|\n\n" +
-  "### 【三】侦查取证记录（插件自动追加）\n\n" +
-  "| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n\n" +
-  "### 【四】工作额度台账\n\n" +
-  "| 任务 | 初始额度 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 更新时间 | KPI |\n|---|---|---|---|---|---|---|---|\n";
-
 function casePath(projDir) {
   return join(projDir, ".ai", "CASE_FILE.md");
 }
@@ -780,7 +595,6 @@ function penalize(state, sid, trigger, evidence) {
 }
 
 // ===== 3.0.1（七十五条(四)）批量审批：多条待批合并出示、一次批示；批示词容错后缀 =====
-const HIGH_RISK_QUEUE_MAX = 10; // 待批队列上限（防状态无界）
 function pushHighRiskPending(state, key, cmdBrief) {
   if (!key) return;
   state.highRiskQueue = state.highRiskQueue || [];
