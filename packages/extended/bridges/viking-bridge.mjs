@@ -1,6 +1,6 @@
 // FocusGuard 积木图书馆 ↔ OpenViking 同步桥 v3.0.2（总纲 3.0.0 十五·二）
 //
-// 把 .ai/library/ 的积木同步到 OpenViking（火山引擎开源的 Agent 上下文数据库，
+// 把 .ai/output/library/ 的派生积木同步到 OpenViking（火山引擎开源的 Agent 上下文数据库，
 // viking:// 虚拟文件系统）的 resources 作用域：
 //   viking://resources/focus-guard-library/<积木文件>
 //
@@ -50,7 +50,7 @@ export function toOperations(rootUri, blocks, readContent) {
 }
 
 function main(argv) {
-  const libDir = argv.includes("--lib") ? argv[argv.indexOf("--lib") + 1] : ".ai/library";
+  const libDir = argv.includes("--lib") ? argv[argv.indexOf("--lib") + 1] : ".ai/output/library";
   const push = argv.includes("--push");
   const out = argv.includes("--out") ? argv[argv.indexOf("--out") + 1] : "viking-import.json";
   const indexPath = join(libDir, "INDEX.md");

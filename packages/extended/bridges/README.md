@@ -24,5 +24,5 @@
 |---|---|---|
 | 执法档案 | JSONL：`ts/session/seq/chain/ref/action/trigger/level/evidence/pardon` | `hooks/guard.mjs` audit()；docs/RULES.md 表6 |
 | 哨兵外判 | stdin `{"command"}` → stdout `{"verdict":"allow\|flag\|block","reasons":[]}`，失败回退启发式 | `tools/sentinel.mjs` judgeByModel；环境变量 `FG_SENTINEL_CMD` |
-| 积木图书馆 | `.ai/library/<id>-<slug>.md`（frontmatter：id/title/source/sha256）+ `INDEX.md` 指针表 | `tools/library-build.mjs`；docs/RULES.md 第八十二条 |
+| 派生积木 | `.ai/output/library/<id>-<slug>.md`（frontmatter：id/title/source/sha256）+ `INDEX.md` 指针表 | `tools/library-build.mjs`；docs/RULES.md 第八十二条 |
 | 降级哲学 | 桥失败 → 回退主分支默认行为，stderr 一行说明 | docs/RULES.md 第八十三条(二) |
