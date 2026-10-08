@@ -10,6 +10,9 @@ const GUARD = fileURLToPath(new URL("../hooks/guard.mjs", import.meta.url));
 // 母版层模块（v3.0.5 拆分）：常量表与红线表的唯一真相源，工程自检须读这里而非 guard.mjs
 const CONSTANTS = fileURLToPath(new URL("../src/core/constants.mjs", import.meta.url));
 const REDLINES = fileURLToPath(new URL("../src/core/redlines.mjs", import.meta.url));
+const AUDIT = fileURLToPath(new URL("../src/core/audit.mjs", import.meta.url));
+const RISK = fileURLToPath(new URL("../src/core/risk.mjs", import.meta.url));
+const STATE = fileURLToPath(new URL("../src/core/state.mjs", import.meta.url));
 const RUN = `${process.pid}-${Date.now()}`; // 运行级隔离：引擎预算棘轮跨运行持久，测试状态必须用唯一 sid
 let seq = 0;
 function freshDir() {
@@ -1517,6 +1520,9 @@ describe("3.0.2 尾置批示与外接桥", () => {
       GUARD,
       CONSTANTS,
       REDLINES,
+      AUDIT,
+      RISK,
+      STATE,
       join(dirname(GUARD), "..", "tools", "library-build.mjs"),
       join(dirname(GUARD), "..", "tools", "audit-chain.mjs"),
       join(dirname(GUARD), "..", "tools", "sentinel.mjs"),
