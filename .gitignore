@@ -19,3 +19,7 @@ Thumbs.db
 # Python 字节码（sentinel.py 运行产物）
 __pycache__/
 *.pyc
+
+# 本地研读精华（正文私有，不入库；仅保留空壳清单做版本保护）
+/docs/vault-notes/*
+!/docs/vault-notes/README.md
