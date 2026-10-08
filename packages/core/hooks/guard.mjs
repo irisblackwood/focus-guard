@@ -795,6 +795,16 @@ function queueNote(state, currentBrief) {
 // 授权消费（单条与批量统一）：命中即消费一次，且两槽同时清除——否则批量 y 放行的命令
 // 会在单条槽消费后仍留在批量槽里，同一命令被无声放行两次（一次性语义被破坏）
 function consumeHighRisk(state, key) {
+  // 3.0.5 目标绑定：批示 y 后该目标键本会话内持续有效——同目标重复触达不再重复弹单
+  // （修"一次一 attempt 消费制"被程序性拒绝烧掉批准、同目标反复弹单之痛，《审 2 号》同源）。
+  // 每次命中仍逐一记档 high-risk-executed；n 批示即解除绑定；键为全量哈希，命令变体不受豁免。
+  if (state.highRiskApprovedKeys && state.highRiskApprovedKeys[key]) {
+    // 绑定命中：同步清空单条槽，保持"绑定映射"为唯一授权事实源
+    state.highRiskOk = false;
+    state.highRiskCmd = "";
+    state.highRiskKey = "";
+    return "bound";
+  }
   let hit = false;
   if (state.highRiskOk && state.highRiskKey === key) {
     state.highRiskOk = false;
@@ -997,13 +1007,18 @@ if (mode === "reset") {
     state.highRiskOk = true;
     state.highRiskBatch = keys;
     state.highRiskQueue = [];
-    audit(sid, "high-risk-approved", { level: null, evidence: `批示原文: ${short} | 放行 ${keys.length} 条待批（各一次）`, pardon: true });
+    // 3.0.5 目标绑定：批示即绑定目标键（本会话有效），替代"一次一 attempt"消费制
+    state.highRiskApprovedKeys = state.highRiskApprovedKeys || {};
+    for (const k of keys) state.highRiskApprovedKeys[k] = true;
+    audit(sid, "high-risk-approved", { level: null, evidence: `批示原文: ${short} | 放行 ${keys.length} 条待批（目标绑定）`, pardon: true });
   }
   if (nReply && pendingCount > 0) {
     state.rejectedCmds = state.rejectedCmds || {};
     const keys = (state.highRiskQueue || []).map((x) => x.k);
     if (state.highRiskKey && !keys.includes(state.highRiskKey)) keys.push(state.highRiskKey);
     for (const k of keys) state.rejectedCmds[String(k)] = 1;
+    // 3.0.5：n 即彻底阻断——同步解除目标绑定，防止历史 y 豁免压过否决
+    if (state.highRiskApprovedKeys) for (const k of keys) delete state.highRiskApprovedKeys[k];
     audit(sid, "high-risk-rejected", { level: null, evidence: `批示原文: ${short} | 已彻底阻断 ${keys.length} 条` });
     state.highRiskCmd = "";
     state.highRiskKey = "";
