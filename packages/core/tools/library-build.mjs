@@ -81,6 +81,33 @@ function splitBlocks(text) {
   return blocks;
 }
 
+// 主题导航：只影响 INDEX.md 的分组渲染——积木编号、文件名、指纹与内容一律不动。
+// 判定按标题顺序匹配，先命中先归组；改分组只改这张表，无需重建积木。
+const THEMES = [
+  ["验证与证据纪律", /验证|证据|oracle|保真|校准|问责|auto-review|自我审查|复核|advisor|诚实声明|防幻觉/],
+  ["记忆 · 图书馆 · 写入面", /记忆|memory|patterns|图书馆|积木|压缩|skill|经验文件|会话基建|doctor|写入面|截断/],
+  ["委派 · 蜂群 · 编排", /委派|worker|子代理|subagent|蜂群|swarm|多代理|cowork|调度|编排|并行|等待|所有权|共存|谱系|路由器|关键路径|任务设计/],
+  ["边界 · 身份 · 信任模型", /边界|身份|归属|反猜测|谄媚|信任|档位/],
+  ["危险操作与授权门", /危险|确认|审批|授权|权限|白名|注入|computer-use|safety|安全条款|防护|意图论|好条款|规则风格/],
+  ["长任务 · 交付 · 流程纪律", /不早停|持久|步数|预算|额度|kpi|幽灵任务|收尾声明|监护/],
+  ["输出 · 写作 · 格式规范", /输出|简洁|写作|微格式|前端|\bui\b|design|金句|风格/],
+  ["检索 · 提问 · 澄清", /提问|澄清|搜索|查询|检索/],
+  ["采纳矩阵与增补", /采纳矩阵|采纳清单|采纳增补/],
+  ["产品与资料杂项", /misc|杂锦|杂项|补录|其他|产品|档案|演化|反工具蔓延/],
+  ["深审发现（v2.5.3）", /执行摘要|发现清单|修复优先级|方法论附注/],
+];
+// 按源路径判定：新研读批次整体成组，优先于标题正则（现有 9 份源不含 vault-notes，不受影响）
+const SRC_THEMES = [
+  ["研读精华（FG3）", /vault-notes\/TOP-TAKEAWAYS/],
+  ["厂商研读（FG3）", /vault-notes\/vendors\//],
+];
+const UNGROUPED = "未归类";
+const themeOf = (title, src) => {
+  const bySrc = SRC_THEMES.find(([, re]) => re.test(String(src || "")));
+  if (bySrc) return bySrc[0];
+  return (THEMES.find(([, re]) => re.test(title)) || [])[0] || UNGROUPED;
+};
+
 function loadIndex(libDir) {
   const p = join(libDir, "INDEX.md");
   if (!existsSync(p)) return { path: p, rows: [], raw: "" };
@@ -105,7 +132,7 @@ function main() {
   let built = 0, kept = 0, maxN = 0;
   for (const v of index.rows) maxN = Math.max(maxN, parseInt(v.id.slice(1), 10) || 0);
 
-  const rows = [];
+  const rows = []; // {id,file,title,sha,src,status}
   const today = new Date().toISOString();
   const normSep = (s) => String(s).replace(/\\/g, "/"); // 幂等配对与平台无关（分隔符归一）
   for (const f of sources) {
@@ -119,7 +146,7 @@ function main() {
       const dup = index.rows.find((v) => v.sha === fp);
       if (dup) {
         kept++;
-        rows.push(`| ${dup.id} | ${dup.file} | ${b.title} | ${fp} | ${rel} | 保留 |`);
+        rows.push({ id: dup.id, file: dup.file, title: b.title, sha: fp, src: rel, status: "保留" });
         continue;
       }
       const id = "B" + String(++maxN).padStart(3, "0");
@@ -141,26 +168,46 @@ function main() {
       ].join("\n");
       writeFileSync(blockPath, md, "utf8");
       built++;
-      rows.push(`| ${id} | ${file} | ${b.title} | ${fp} | ${rel} | 新建 |`);
+      rows.push({ id, file, title: b.title, sha: fp, src: rel, status: "新建" });
     }
   }
 
   // 源已消失的积木：标 retired（不物理删——档案不改写原则）
-  const activeIds = new Set(rows.map((r) => r.split("|")[1].trim()));
+  const activeIds = new Set(rows.map((r) => r.id));
   for (const v of index.rows) {
-    if (!activeIds.has(v.id)) rows.push(`| ${v.id} | ${v.file} | ${v.title} | ${v.sha} | (源已移除) | retired |`);
+    if (!activeIds.has(v.id)) rows.push({ id: v.id, file: v.file, title: v.title, sha: v.sha, src: "(源已移除)", status: "retired" });
   }
 
-  const table = [
+  // 主题分组渲染：组标题 + 重复表头，保证每组独立成表；`| B` 行格式不变（外部解析器只认该前缀）
+  const header = [
     "| id | 积木 | 标题 | sha256(前16) | 源 | 状态 |",
     "|---|---|---|---|---|---|",
-    ...rows,
   ].join("\n");
+  const groups = [];
+  for (const r of rows) {
+    const name = themeOf(r.title, r.src);
+    let g = groups.find((x) => x.name === name);
+    if (!g) groups.push((g = { name, rows: [] }));
+    g.rows.push(r);
+  }
+  const themeOrder = [...SRC_THEMES.map(([n]) => n), ...THEMES.map(([n]) => n), UNGROUPED];
+  groups.sort((a, b) => themeOrder.indexOf(a.name) - themeOrder.indexOf(b.name));
+  const table = groups
+    .map((g) =>
+      [
+        `### ${g.name}（${g.rows.length} 块）`,
+        "",
+        header,
+        ...g.rows.map((r) => `| ${r.id} | ${r.file} | ${r.title} | ${r.sha} | ${r.src} | ${r.status} |`),
+      ].join("\n")
+    )
+    .join("\n\n");
   const indexMd = [
     "# 静态知识图书馆 · 索引（积木清单）",
     "",
     "> 引擎与 AI 只读本目录；积木区不可变，新知/勘误一律写入 inbox/notes.md 便签区，经审核后由 library-build 合并。",
     "> 索引与内容分离：每行一条指针；积木指纹在此固化，动态卷宗【三】不为其记账（动静隔离）。",
+    "> 按主题分组仅为导航（判定表见 library-build.mjs THEMES）：分组变动不改 id、文件名与指纹。",
     "",
     table,
     "",
