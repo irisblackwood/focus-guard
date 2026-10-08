@@ -37,7 +37,12 @@ import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFI
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail } from "../src/core/audit.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize } from "../src/core/risk.mjs";
-import { bindSession, statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
+import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
+import { readStdinJson, sessionId, projectDir } from "../src/adapters/dsh/protocol.mjs";
+import { quickShellId, detectEnv, platformBashViolation } from "../src/core/env.mjs";
+import { backupSeq, backupBeforeEdit } from "../src/core/backup.mjs";
+import { pushHighRiskPending, queueNote, consumeHighRisk, ladderNote } from "../src/core/approval.mjs";
+import { bindSession } from "../src/core/session.mjs";
 
 // 2.0.1 热修：win32 shell 误判（PSModulePath 系统级恒存 → 误判 powershell → 平台禁令堵死 Git Bash 管道）
 // 2.0.2 DSH 版：csproj/sln 列入风险文件备案（C# 项目配置与 package.json 同级）
@@ -73,219 +78,8 @@ import { bindSession, statePath, loadState, saveState, cleanStaleTemp, normalize
 //   [案二] 审计/盘点/审查批示下，取证对象整读留痕不罚（体积闸豁免），预算与巨量输出追责仍生效；
 //   [防线] 卷宗【一】落卷与 PATTERNS.md 创建失败上 stderr（对齐 2.5.1 假留痕防线标准）；
 //   [61条] 会话启动清扫临时目录中 30 天未动的 focus-guard 状态/档案文件（实测残留曾达 8376 个）。
-let backupSeq = 0; // 2.5.2：备份文件名加进程号+自增序号，避免同一毫秒内两次备份互相覆盖
 
-function readStdinJson() {
-  try {
-    const raw = readFileSync(0, "utf8");
-    return raw.trim() ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
 
-function sessionId(input) {
-  const id =
-    input.session_id ||
-    process.env.CLAUDE_SESSION_ID ||
-    process.env.ZCODE_SESSION_ID ||
-    "default";
-  const raw = String(id);
-  const safe = raw.replace(/[^A-Za-z0-9._-]/g, "_");
-  // 2.5.2：消毒会撞名（proj/a 与 proj_a → 同一状态文件，熔断/审批/预算跨会话串味）。
-  // 仅当发生替换时追加短哈希；正常 id 保持原样，不影响既有状态文件。
-  return safe === raw ? safe : safe + "-" + createHash("sha256").update(raw).digest("hex").slice(0, 8);
-}
-
-function projectDir() {
-  const d = process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || "";
-  if (!d) return null;
-  try {
-    return statSync(d).isDirectory() ? d : null;
-  } catch {
-    return null;
-  }
-}
-
-// ============ 2.2.0 正面指引（一.2）：改动前自动备份 ============
-// 回滚按环境自动选：有 .git → git restore；没有 → 本函数产出的 .ai/backup/ 物理副本覆盖还原。
-// 备份改动前的现状，保留最近 BACKUP_KEEP 份（超出淘汰最旧）。>200KB 的文件有意跳过（避免拖慢大写入，
-// README 已注明此上限）；失败不阻断执法，但一律上 stderr——静默会让 AI 误以为存在可回滚副本（2.5.1 假留痕防线）。
-function backupBeforeEdit(absPath) {
-  try {
-    const dir = projectDir();
-    if (!dir) return;
-    const st = statSync(absPath);
-    if (!st.isFile() || st.size > SHA_LIMIT) return;
-    const rel = relative(dir, absPath);
-    if (!rel || rel.startsWith("..")) return;
-    // 2.5.2 敏感文件不落明文副本：.env/私钥/凭据一旦复制进 .ai/backup/，等于在工作区里多留若干份明文密钥。
-    // 跳过备份并留痕 + 明确告知，避免 AI 误以为存在可回滚副本。
-    if (SECRET_FILE_RE.test(normalize(absPath))) {
-      audit(sid, "backup-skip-secret", { level: null, evidence: `敏感文件不落明文副本 ${rel}（回滚请用版本控制）` });
-      process.stderr.write(`[备份跳过]${rel} 属敏感文件，不复制明文副本；回滚请用版本控制。\n`);
-      return;
-    }
-    const root = join(dir, ".ai", "backup");
-    const dest = join(root, rel + "." + Date.now().toString(36) + process.pid.toString(36) + (backupSeq++).toString(36) + ".bak");
-    mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(absPath, dest);
-    const all = [];
-    (function walk(d) {
-      for (const e of readdirSync(d, { withFileTypes: true })) {
-        const p = join(d, e.name);
-        if (e.isDirectory()) walk(p);
-        else all.push([p, statSync(p).mtimeMs]);
-      }
-    })(root);
-    if (all.length > BACKUP_KEEP) {
-      all.sort((a, b) => a[1] - b[1]);
-      for (let i = 0; i < all.length - BACKUP_KEEP; i++) rmSync(all[i][0], { force: true });
-    }
-  } catch {
-    noteFail(sid, `改动前备份 ${absPath}（无副本可回滚，改动仍会放行）`);
-  }
-}
-
-function quickShellId() {
-  if (process.platform === "win32") {
-    const sh = String(process.env.SHELL || "");
-    // 2.5.2：分别识别，别把 zsh/sh 一律报成 bash——旧写法 /bash|zsh|sh\b/ 命中后硬返回 "bash"，
-    // 于是 bash↔zsh 之间的切换在总纲三的"shell 变化才重检"里永远检测不到。
-    if (/bash/i.test(sh)) return "bash";
-    if (/zsh/i.test(sh)) return "zsh";
-    if (/(^|[\\/])sh(\.exe)?$/i.test(sh)) return "sh";
-    // 2.0.1 修复：PSModulePath 系统级恒存（Windows PowerShell 5.0 起写入机器环境），
-    // 不足以证明当前是 PowerShell 会话；仅认 pwsh7 特征路径 / ComSpec 指向 PowerShell。
-    // 其余一律落 cmd/unknown → 不启用平台禁令（误判宁宽勿严，避免堵死 Git Bash 工作流）。
-    const psm = String(process.env.PSModulePath || "");
-    if (/Program Files[\\/]+PowerShell[\\/]+\d/i.test(psm) || /windowsapps[\\/]+microsoft\.powershell/i.test(psm)) return "powershell";
-    const cs = String(process.env.ComSpec || "");
-    if (/powershell/i.test(cs)) return "powershell";
-    return cs.toLowerCase().includes("cmd") ? "cmd" : "unknown";
-  }
-  return String(process.env.SHELL || "sh").split(/[\\/]/).pop() || "sh";
-}
-
-function detectEnv() {
-  const osName = process.platform;
-  const shellIdKey = quickShellId();
-  let shellVersion = "";
-  try {
-    if (shellIdKey === "powershell")
-      shellVersion = execFileSync("powershell", ["-NoProfile", "-c", "$PSVersionTable.PSVersion.ToString()"], { encoding: "utf8", timeout: 6000 }).trim();
-    else if (shellIdKey === "zsh")
-      shellVersion = (execFileSync("zsh", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/(\S+)\s*$/) || [])[1] || "";
-    else if (shellIdKey === "bash")
-      shellVersion = (execFileSync("bash", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/version\s+(\S+)/) || [])[1] || "";
-  } catch {}
-  let encoding = "UTF-8";
-  if (osName === "win32") {
-    try {
-      const cp = execFileSync("cmd", ["/c", "chcp"], { encoding: "utf8", timeout: 6000 }).match(/(\d+)\s*$/);
-      encoding = cp ? (cp[1] === "65001" ? "UTF-8" : cp[1] === "936" ? "GBK" : "CP" + cp[1]) : "unknown";
-    } catch {}
-  }
-  // 大小写敏感：realpath 返回的盘上真实大小写与请求不同（仅大小写差异）→ 不敏感
-  let caseSensitive = osName !== "win32";
-  try {
-    const probeDir = projectDir() || process.cwd();
-    const real = realpathSync.native(probeDir);
-    if (real !== String(probeDir) && real.toLowerCase() === String(probeDir).toLowerCase()) caseSensitive = false;
-  } catch {}
-  const bsd = osName === "darwin"; // darwin 的 sed/grep/awk 为 BSD 版
-  const cmds = {};
-  const dirs = String(process.env.PATH || "").split(process.platform === "win32" ? ";" : ":").filter(Boolean);
-  for (const name of ["grep", "sed", "awk", "gsed", "greadlink"]) {
-    cmds[name] = dirs.some((d) => {
-      try {
-        return statSync(join(d, name + (osName === "win32" ? ".exe" : ""))).isFile();
-      } catch {
-        return false;
-      }
-    });
-  }
-  return {
-    os: osName,
-    shellIdKey,
-    shell: shellIdKey + (shellVersion ? " " + shellVersion : ""),
-    encoding,
-    pathSep: sep,
-    caseSensitive,
-    bsd,
-    cmds,
-    detectedAt: new Date().toISOString(),
-  };
-}
-
-function platformBashViolation(env, cmd) {
-  if (!env) return null;
-  const c = String(cmd);
-  if (env.os === "win32" && env.shellIdKey === "powershell") {
-    if (/&&/.test(c)) return "Windows PowerShell 会话禁 &&：用 ; 分隔或分开执行";
-    if (/\|\s*(head|grep|wc|sed|awk)\b/.test(c)) return "PowerShell 禁 bash 管道工具：用 Select-String / Measure-Object / Select-Object -First";
-    if (/(^|[;&|]\s*)(cat|type|Get-Content)\s/i.test(c) && !/\|\s*Select-/.test(c) && !/-(TotalCount|First|Tail)\b/.test(c))
-      return "禁裸 cat/type/Get-Content 刷屏：用 Get-Content -TotalCount N -Encoding UTF8";
-  }
-  if (env.os === "darwin") {
-    if (/\bsed\s+-i(?!\s*['"])/.test(c)) return "macOS BSD sed：-i 必须带后缀参数（sed -i '' …）";
-    if (/\bgrep\s+[^|;&]*?-P\b/.test(c)) return "macOS BSD grep 不支持 -P：用 -E";
-    if (/\breadlink\s+-f\b/.test(c) && !/\bgreadlink\b/.test(c)) return "macOS 无 readlink -f：用 greadlink -f";
-  }
-  return null;
-}
-
-function pushHighRiskPending(state, key, cmdBrief) {
-  if (!key) return;
-  state.highRiskQueue = state.highRiskQueue || [];
-  if (state.highRiskQueue.some((x) => x.k === key)) return;
-  if (state.highRiskQueue.length >= HIGH_RISK_QUEUE_MAX) return;
-  state.highRiskQueue.push({ k: key, c: String(cmdBrief || "").slice(0, 80) });
-}
-// 待批队列注记：除当前命令外还有几条在队列里，提示可合并批示
-function queueNote(state, currentBrief) {
-  const q = (state.highRiskQueue || []).filter((x) => x.c !== currentBrief);
-  if (q.length < 1) return "";
-  return `另有 ${q.length} 条待批已合并出示：${q.map((x) => x.c).join("；")}。回复 y 放行全部待批（各一次）、n 全部阻断。`;
-}
-// 授权消费（单条与批量统一）：命中即消费一次，且两槽同时清除——否则批量 y 放行的命令
-// 会在单条槽消费后仍留在批量槽里，同一命令被无声放行两次（一次性语义被破坏）
-function consumeHighRisk(state, key) {
-  // 3.0.5 目标绑定：批示 y 后该目标键本会话内持续有效——同目标重复触达不再重复弹单
-  // （修"一次一 attempt 消费制"被程序性拒绝烧掉批准、同目标反复弹单之痛，《审 2 号》同源）。
-  // 每次命中仍逐一记档 high-risk-executed；n 批示即解除绑定；键为全量哈希，命令变体不受豁免。
-  if (state.highRiskApprovedKeys && state.highRiskApprovedKeys[key]) {
-    // 绑定命中：同步清空单条槽，保持"绑定映射"为唯一授权事实源
-    state.highRiskOk = false;
-    state.highRiskCmd = "";
-    state.highRiskKey = "";
-    return "bound";
-  }
-  let hit = false;
-  if (state.highRiskOk && state.highRiskKey === key) {
-    state.highRiskOk = false;
-    state.highRiskCmd = "";
-    state.highRiskKey = "";
-    hit = true;
-  }
-  const batch = state.highRiskBatch || [];
-  const i = batch.indexOf(key);
-  if (i >= 0) {
-    batch.splice(i, 1);
-    state.highRiskBatch = batch;
-    hit = true;
-  }
-  return hit;
-}
-
-function ladderNote(level) {
-  if (level >= 6) return "L6：已上报人类。";
-  if (level >= 5) return "L5：只读模式直至批示。";
-  if (level >= 4) return "L4：已记档。";
-  if (level >= 3) return "L3：等批示或降级方案。";
-  if (level >= 2) return "L2：下一调用必须取证。";
-  return "";
-}
 
 const mode = process.argv[2] || "";
 const input = readStdinJson();
@@ -297,7 +91,7 @@ if (mode === "start") {
   rmSync(path, { force: true });
   cleanStaleTemp(sid); // 2.5.3（61条落地）：清扫临时目录 30 天未动的残留状态/档案
   // 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）
-  const env = detectEnv();
+  const env = detectEnv(projectDir());
   // 2.0 卷宗载入：重建 readSetCache 与 TTL 表（总纲七）
   const st = loadState(path);
   st.envCache = env;
@@ -415,7 +209,7 @@ if (mode === "reset") {
 
   // 总纲三：仅当明确探测到 shell 变化时重检环境
   if (state.envCache && state.envCache.shellIdKey && state.envCache.shellIdKey !== quickShellId()) {
-    state.envCache = detectEnv();
+    state.envCache = detectEnv(projectDir());
     audit(sid, "env-redetect", { level: null, evidence: `shell 变化 → 重检为 ${state.envCache.shell}` });
   }
 
@@ -864,7 +658,7 @@ if (mode === "pre") {
   }
 
   // 2.2.0 一.2：所有闸通过、本次调用确定执行 → 备份改动前内容到 .ai/backup/（新文件无内容可备份，跳过）
-  if (/^(Write|Edit)$/.test(tool) && !handoff && rawPath) backupBeforeEdit(rawPath);
+  if (/^(Write|Edit)$/.test(tool) && !handoff && rawPath) backupBeforeEdit(rawPath, projectDir());
 
   process.exit(0);
 }

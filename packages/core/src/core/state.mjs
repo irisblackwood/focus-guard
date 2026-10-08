@@ -10,12 +10,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { BUDGET_DEFAULT, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_RECENT, TTL_WEEK, TTL_STABLE, DELEGATE_DEFAULT, CASE_TEMPLATE } from "./constants.mjs";
 import { noteFail, audit } from "./audit.mjs";
-
-// 会话 ID：拆层后由入口显式注入（原为 guard.mjs 模块级常量，被卷宗写入路径共用）
-let sid = "";
-export function bindSession(id) {
-  sid = String(id || "");
-}
+import { sid } from "./session.mjs";
 
 export function statePath(id) {
   return join(tmpdir(), `focus-guard-${id}.json`);
