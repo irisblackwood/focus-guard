@@ -6,17 +6,28 @@
   "engines": {
     "node": ">=18.17"
   },
+  "type": "module",
+  "main": "./src/dsh/index.js",
+  "exports": {
+    ".": "./src/dsh/index.js"
+  },
   "files": [
     "hooks",
     "tools",
     "skills",
-    "docs"
+    "docs",
+    "src"
   ],
   "scripts": {
     "test": "node --test tests/acceptance.test.mjs",
     "eval": "node tests/threat-eval.mjs hooks/guard.mjs",
     "bench": "node tests/token-bench.mjs hooks/guard.mjs",
     "check": "npm run test && npm run eval"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./src/dsh/cordis.patch.yml"
+    }
   },
   "keywords": [
     "dsh",
