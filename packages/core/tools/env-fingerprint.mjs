@@ -6,14 +6,21 @@
 //
 // 用法：node packages/core/tools/env-fingerprint.mjs [--out <路径>]
 
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname, delimiter } from "node:path";
 import { execFileSync } from "node:child_process";
+
+// PATH 补全：宿主进程的 PATH 可能是启动时的旧快照，补上常见安装位置后再探测（只影响本脚本）。
+const EXTRA_PATH_DIRS = [
+  join(process.env.USERPROFILE || "", "scoop", "shims"),
+  join(process.env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links"),
+];
+process.env.PATH = [process.env.PATH || "", ...EXTRA_PATH_DIRS.filter((d) => d && existsSync(d))].join(delimiter);
 
 // map 表：规则来源（与 pipeline.mjs 的硬校验一一对应）
 const MAP = { grep: "rg", find: "fd", ls: "eza", cat: "bat", sed: "sd" };
-// 探测范围：map 的 key 与 value，外加常用运行时
-const PROBE = ["rg", "fd", "eza", "bat", "sd", "grep", "sed", "node", "python", "git"];
+// 探测范围：map 的 key 与 value，外加常用运行时与增强工具
+const PROBE = ["rg", "fd", "eza", "bat", "sd", "grep", "sed", "less", "jq", "yq", "fzf", "zoxide", "node", "python", "git"];
 
 function probe(tool) {
   for (const args of [["--version"], ["-v"], ["--help"]]) {
@@ -27,13 +34,22 @@ function probe(tool) {
   return false;
 }
 
+function shellVersion(exe) {
+  try {
+    return execFileSync(exe, ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"], { encoding: "utf8", timeout: 6000 }).trim();
+  } catch {
+    return "";
+  }
+}
+
 function detectShell() {
   if (process.platform !== "win32") return String(process.env.SHELL || "sh").split(/[\\/]/).pop() || "sh";
-  const sh = String(process.env.SHELL || "");
-  if (/bash/i.test(sh)) return "bash";
-  if (/zsh/i.test(sh)) return "zsh";
+  // Windows：ComSpec 恒指向 cmd.exe，会误判；以实际可用的现代 shell 为准，并带版本号。
+  const pwsh = shellVersion("pwsh");
+  if (pwsh) return `pwsh ${pwsh}`;
+  const ps = shellVersion("powershell");
+  if (ps) return `powershell ${ps}`;
   const cs = String(process.env.ComSpec || "");
-  if (/powershell/i.test(cs)) return "powershell";
   return cs.toLowerCase().includes("cmd") ? "cmd" : "unknown";
 }
 
