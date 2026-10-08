@@ -12,6 +12,7 @@
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
     "check": "npm run test && npm run eval",
     "test:bridges": "node --test packages/extended/tests/bridges.test.mjs",
+    "test:eligibility": "node --test packages/core/tests/eligibility.test.mjs",
     "library": "node packages/core/tools/library-build.mjs",
     "chain": "node packages/core/tools/audit-chain.mjs",
     "sentinel": "node packages/core/tools/sentinel.mjs"
