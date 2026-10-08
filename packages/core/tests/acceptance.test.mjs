@@ -1430,30 +1430,34 @@ describe("3.0.0 协作治理", () => {
     assert.ok(auditOf("kpi-good").includes("优秀"));
   });
 
-  test("静态图书馆：直写积木区被拒并提示 inbox；便签区放行", () => {
+  test("资料分层：直写静态资料区与派生积木区被拒；动态资料区放行", () => {
     const run = makeRunner("library-v3");
     const dir = freshDir();
     const r = run.in(dir);
     mkdirSync(join(dir, ".ai", "library"), { recursive: true });
-    const deny = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "library", "B001-x.md"), content: "x" } });
-    assert.equal(deny.rc, 2, "积木区直写应被拦截");
-    assert.ok(deny.out.includes("library/inbox"), "拦截报文应指向便签区");
+    mkdirSync(join(dir, ".ai", "output", "library"), { recursive: true });
     r("post", { tool_name: "Read", tool_input: { file_path: "a.md" }, tool_response: { content: "evidence" } });
-    const allow = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "library", "inbox", "notes.md"), content: "[勘误] B001 ..." } });
-    assert.equal(allow.rc, 0, "inbox 便签区应放行");
+    const denySrc = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "library", "vendor-pricing.md"), content: "x" } });
+    assert.equal(denySrc.rc, 2, "静态资料区直写应被拦截");
+    assert.ok(denySrc.out.includes("同步三步"), "拦截报文应指向同步三步");
+    const denyBlocks = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "output", "library", "B001-x.md"), content: "x" } });
+    assert.equal(denyBlocks.rc, 2, "派生积木区直写应被拦截");
+    assert.ok(denyBlocks.out.includes("library-build"), "拦截报文应指向 library-build");
+    const allow = r("pre", { tool_name: "Write", tool_input: { file_path: join(dir, ".ai", "notes", "note.md"), content: "就地笔记" } });
+    assert.equal(allow.rc, 0, "动态资料区应放行");
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("动静隔离：积木读不进卷宗【三】（指纹由 INDEX 固化，动态卷宗不记账）", () => {
+  test("动静隔离：派生积木读不进卷宗【三】（指纹由 INDEX 固化，动态卷宗不记账）", () => {
     const run = makeRunner("library-read");
     const dir = freshDir();
     const r = run.in(dir);
-    mkdirSync(join(dir, ".ai", "library"), { recursive: true });
-    writeFileSync(join(dir, ".ai", "library", "B001-x.md"), "block body");
+    mkdirSync(join(dir, ".ai", "output", "library"), { recursive: true });
+    writeFileSync(join(dir, ".ai", "output", "library", "B001-x.md"), "block body");
     r("reset", { prompt: "看看积木" });
-    r("post", { tool_name: "Read", tool_input: { file_path: join(dir, ".ai", "library", "B001-x.md") }, tool_response: { content: "block body" } });
+    r("post", { tool_name: "Read", tool_input: { file_path: join(dir, ".ai", "output", "library", "B001-x.md") }, tool_response: { content: "block body" } });
     const st = stateOf("library-read");
-    const leaked = Object.keys(st.caseCache || {}).filter((k) => k.replace(/\\/g, "/").includes(".ai/library"));
+    const leaked = Object.keys(st.caseCache || {}).filter((k) => k.replace(/\\/g, "/").includes(".ai/output/library"));
     assert.deepEqual(leaked, [], "积木读不应写入卷宗【三】");
     rmSync(dir, { recursive: true, force: true });
   });
