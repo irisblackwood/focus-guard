@@ -982,7 +982,7 @@ describe("子代理委派（v2.3.0）", () => {
 });
 
 describe("高危命令闸（v2.4.0）", () => {
-  test("rm -rf ./dist：拦截 → 审批单格式校验 → y 放行本次（一次性）", () => {
+  test("rm -rf ./dist：拦截 → 审批单格式校验 → y 放行（3.0.5 目标绑定，同目标重试不重复弹单）", () => {
     const run = makeRunner("hr1");
     run("reset", { prompt: "看看情况" });
     run("post", { tool_name: "Read", tool_input: { file_path: "r.txt", limit: 5 }, tool_response: { content: "v" } });
@@ -1002,8 +1002,11 @@ describe("高危命令闸（v2.4.0）", () => {
     run("post", { tool_name: "Read", tool_input: { file_path: "r.txt", limit: 5 }, tool_response: { content: "v3" } }); // 新回合照常先取证
     assert.equal(run("pre", { tool_name: "Bash", tool_input: { command: "rm -rf ./dist" } }).rc, 0); // 逐字一致 → 放行
     assert.ok(auditOf("hr1").includes("high-risk-executed"));
-    assert.equal(stateOf("hr1").highRiskOk, false); // 放行本次（一次性）
-    assert.equal(run("pre", { tool_name: "Bash", tool_input: { command: "rm -rf ./dist" } }).rc, 2); // 再跑要重新批
+    assert.equal(stateOf("hr1").highRiskOk, false); // 单条槽已消费（兼容口径）
+    const approvedKeys = stateOf("hr1").highRiskApprovedKeys || {};
+    assert.equal(Object.keys(approvedKeys).length, 1); // 3.0.5：批示即绑定目标键
+    assert.equal(run("pre", { tool_name: "Bash", tool_input: { command: "rm -rf ./dist" } }).rc, 0); // 目标绑定：同目标重试不再重复弹单
+    assert.ok(auditOf("hr1").split("high-risk-executed").length >= 3); // 每次命中仍逐一记档
   });
 
   test("n 彻底阻断：被否决命令再试不得放行；常规命令零打扰", () => {
