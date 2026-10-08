@@ -375,6 +375,24 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       }
     }
 
+    // ===== 3.0.5 第二步：资格审核闸 —— 高危工具须先调 fg_apply 取得授权 =====
+    // 按需加载适配层模块：本文件不在顶部静态 import，以免与适配层的注入关系形成环形依赖。
+    if (cmd) {
+      try {
+        const { gateToolCall } = await import('../adapters/dsh/eligibility-gate.mjs')
+        const session =
+          (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+        const gate = gateToolCall({ session, tool: String((exec && exec.name) || ''), command: cmd })
+        if (gate.kind === 'deny') {
+          warn('资格审核闸拦截：', gate.reason)
+          auditDeny(exec, cmd)
+          return { kind: 'deny', reason: `focus-guard-native: ${gate.reason}` }
+        }
+      } catch (error) {
+        warn('资格审核闸异常，fail-open 放行：', (error && error.message) || error)
+      }
+    }
+
     // 第 2 层：语义预判（可插拔）。工具调用（write/read 等无命令参数）零打扰透传。
     if (cmd) {
       const tool = String((exec && exec.name) || '')
