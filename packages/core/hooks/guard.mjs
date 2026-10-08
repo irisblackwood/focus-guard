@@ -86,8 +86,10 @@ const TTL_STABLE = 7 * 86400e3; // 自适应：30天未变 7天
 
 const FUSE_PHRASE = "【熔断】无法通过现有资料定位核心问题";
 const FUSE_HINT = "1【最小复现】步骤/实验 2【联网证据】链接+原文 3【卡点记录】写HANDOFF.md"; // 各一行
-// 3.0.0 静态知识图书馆（总纲 3.0.0 十五·二）：积木区只读、便签只进 inbox（R6 记忆更新隔离区的机械化）
-const LIBRARY_RE = /(^|[\\/])\.ai[\\/]library[\\/](?!inbox[\\/])/i;
+// 3.0.5 资料分层（《资料与代码分层总规范》）：.ai/library 为外部原文静态区（只同步不就地改）；
+// 派生积木视图由 library-build 生成到 .ai/output/library（R6 记忆更新隔离区的机械化）
+const LIBRARY_RE = /(^|[\\/])\.ai[\\/]library[\\/]/i;
+const BLOCKS_RE = /(^|[\\/])\.ai[\\/]output[\\/]library[\\/]/i;
 // 3.0.0 解释器黑名单（R5-3 采纳）：解释器 -c/--eval 一类等价任意代码执行，不再判只读侦查（熔断期不放行、不进侦查池）
 const INTERP_EVAL_RE = /\b(?:python3?|py|node|perl|ruby|php|lua|pwsh|powershell)\b[^&|;]*(?:-c|-e|--eval|--command)\b/i;
 // 2.4.0：标准审批单（一行，禁长篇解释）
@@ -1102,11 +1104,11 @@ if (mode === "pre") {
     } catch {} // 哨兵缺失/损坏不影响护栏主流程（降级哲学）
   }
 
-  // ===== 3.0.0 静态图书馆隔离：积木区不得直写（记忆更新隔离区，R6 采纳）=====
-  if (/^(Write|Edit)$/.test(tool) && LIBRARY_RE.test(filePath)) {
-    audit(sid, "library-write-deny", { level: null, evidence: `静态图书馆直写被拒 ${filePath}` });
+  // ===== 3.0.5 资料分层隔离：静态资料区与派生积木区均不得直写（记忆更新隔离区，R6 采纳）=====
+  if (/^(Write|Edit)$/.test(tool) && (LIBRARY_RE.test(filePath) || BLOCKS_RE.test(filePath))) {
+    audit(sid, "library-write-deny", { level: null, evidence: `静态资料区直写被拒 ${filePath}` });
     process.stderr.write(
-      `[图书馆·隔离]${filePath} 属静态知识图书馆积木区，不得直写。追加新知/勘误到 .ai/library/inbox/notes.md，由 library-build 定期合并升级积木（防自我投毒）。`
+      `[图书馆·隔离]${filePath} 属静态资料区/派生积木区，不得直写。外部原文走同步三步（旧版归档 → 覆盖 → 写 frontmatter），派生积木由 library-build 生成到 .ai/output/library（防自我投毒）。`
     );
     process.exit(2);
   }
@@ -1372,8 +1374,8 @@ if (mode === "pre") {
   // 指纹一致（mtime+size+SHA/git）且 TTL 未超 → 免重读放行：拦截本次 Read，复用已有取证。
   // 指纹不一致 / TTL 超时 → 拦截免读资格，放行真重读（post 更新卷宗指纹）。
   // 熔断/强制取证期豁免：降级重建证据需要真重读。offset 增量读永远放行。
-  if (tool === "Read" && rawPath && !ti.offset && !state.fused && !state.forcedInvestigate && !LIBRARY_RE.test(rawPath)) {
-    // （3.0.0：静态图书馆积木免卷宗闸——积木指纹在 INDEX.md 固化且内容不可变，动态卷宗【三】不为其记账）
+  if (tool === "Read" && rawPath && !ti.offset && !state.fused && !state.forcedInvestigate && !BLOCKS_RE.test(rawPath)) {
+    // （3.0.5：派生积木免卷宗闸——积木指纹在 INDEX.md 固化且内容不可变，动态卷宗【三】不为其记账）
     try {
       const rec = (state.caseCache || {})[filePath];
       if (rec) {
@@ -1445,8 +1447,8 @@ if (mode === "post" || mode === "postfail") {
     }
     if (tool === "Grep" && typeof ti.path === "string") state.readSet[normalize(ti.path)] = 1;
     // ===== 2.0 总纲四/七：更新侦查取证记录（指纹 + TTL 依据）=====
-    // 3.0.0：静态图书馆积木不进卷宗【三】——积木内容不可变（指纹固化在 INDEX.md），动态卷宗只管动态工作区
-    if (tool === "Read" && ti.file_path && !LIBRARY_RE.test(String(ti.file_path))) {
+    // 3.0.5：派生积木不进卷宗【三】——积木内容不可变（指纹固化在 INDEX.md），动态卷宗只管动态工作区
+    if (tool === "Read" && ti.file_path && !BLOCKS_RE.test(String(ti.file_path))) {
       try {
         const fp = fingerprint(ti.file_path);
         const key = normalize(ti.file_path);
