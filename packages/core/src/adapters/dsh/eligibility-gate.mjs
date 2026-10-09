@@ -14,7 +14,7 @@ import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVE
 import { redlineExempt } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
-import { AUDIT_FILE } from '../../dsh/audit.mjs'
+import { AUDIT_FILE, appendAudit } from '../../dsh/audit.mjs'
 
 /** 对系统路径的写入类工具：与命令型高危同属"必须先申请"的门槛清单（显式成文）。 */
 export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
@@ -62,13 +62,12 @@ export function resetGrants(session) {
   return TABLES.delete(String(session || 'dsh-native'))
 }
 
-/** 资格审核审计（规格 §七 字段口径）。写失败只 warn，绝不阻断审核结论。 */
+/**
+ * 资格审核审计（规格 §七 字段口径）。统一走 `appendAudit`——由它负责体积轮转，
+ * 并与 auditDeny / auditRedlineExempt 共用同一写入口径（2026-10-09 污染事故的教训）。写失败只 warn。
+ */
 export function auditEligibility(row) {
-  try {
-    appendFileSync(process.env.FG_AUDIT_FILE || AUDIT_FILE, JSON.stringify({ ts: new Date().toISOString(), ...row }) + '\n')
-  } catch (error) {
-    console.warn('[focus-guard-native] 资格审核审计写入失败（不阻断）:', (error && error.message) || error)
-  }
+  return appendAudit({ ts: new Date().toISOString(), ...row })
 }
 
 /**

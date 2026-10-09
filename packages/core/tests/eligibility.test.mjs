@@ -618,3 +618,45 @@ describe("3.0.7 · 误伤申辩（司法救济通道）", () => {
     }
   });
 });
+
+describe("审计日志体积轮转（2026-10-09）", () => {
+  test("超上限 → 归档到 archive/ 且记录不丢、原件重建为空；未超限 → 不轮转", async () => {
+    const { appendAudit, rotateAuditIfNeeded } = await import("../src/dsh/audit.mjs");
+    const { mkdtempSync, writeFileSync, existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "fg-rotate-"));
+    const file = join(dir, "AUDIT.log");
+    const read = (p) => readFileSync(p, "utf8");
+
+    // ① 未超限：不轮转，追加行为与现状一致
+    assert.equal(rotateAuditIfNeeded(file, 64), null, "文件不存在时不应轮转");
+    assert.equal(appendAudit({ n: 1 }, file), true, "追加应成功");
+    assert.equal(rotateAuditIfNeeded(file, 64), null, "未超限不应轮转");
+    assert.match(read(file), /"n":1/);
+
+    // ② 超限：归档 + 重建空文件，归档件含原全部内容（记录不丢）
+    writeFileSync(file, "x".repeat(200));
+    const dest = rotateAuditIfNeeded(file, 64);
+    assert.ok(dest, "超限应轮转");
+    assert.match(dest, /archive/, "归档目标应在 archive/ 下");
+    assert.equal(read(dest).length, 200, "归档件须含原全部内容（执法记录不得丢）");
+    assert.equal(read(file).length, 0, "原文件应重建为空");
+    assert.ok(existsSync(file), "原文件须仍存在（保持 append-only 语义）");
+    console.log("轮转:", dest.replace(dir, "<tmp>").replace(/\\/g, "/"), "| 归档 200B，原件已重建");
+
+    // ③ 轮转后再写入，应落在新的空文件里
+    assert.equal(appendAudit({ n: 2 }, file), true);
+    assert.match(read(file), /"n":2/);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("归档只在其体积超限时发生；FG_AUDIT_FILE 重定向的沙箱文件同样受管", async () => {
+    const { auditFilePath, appendAudit, AUDIT_MAX_BYTES } = await import("../src/dsh/audit.mjs");
+    // 沙箱指向 tmpdir（本文件顶部已设），故 auditFilePath() 必须是沙箱路径而非真实仓库路径
+    assert.equal(auditFilePath(), AUDIT_TMP, "重定向生效：默认目标应是沙箱");
+    assert.ok(AUDIT_MAX_BYTES > 0, "上限应为正数");
+    console.log("沙箱:", auditFilePath().replace(/\\/g, "/"));
+    assert.equal(appendAudit({ n: 3 }), true, "走默认目标应写进沙箱");
+    assert.match(readFileSync(AUDIT_TMP, "utf8"), /"n":3/);
+  });
+});
