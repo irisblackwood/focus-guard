@@ -3,12 +3,21 @@
 // 逻辑层是法官：自己判简单的（状态 / 红线 / 资格 / 前置），复杂的送模型（鉴定科）出信号，
 // 最终 allow / deny / needApproval 一律由本层裁决。模型只出信号，不出裁决。
 //
-// 依赖注入：redlines / model / audit / grants 全部由调用方传入 —— 母版不反向依赖适配层
+// 依赖注入：redlines / model / audit / grants / profile 全部由调用方传入 —— 母版不反向依赖适配层
 // （《资料与代码分层总规范》二·1）。model 未注入时跳过第 5 层，故第一步零模型即可用。
 // 审计一律走注入的 audit：本文件不直接写 AUDIT.log（测试注入 mock，不污染真实审计）。
+//
+// 3.0.5 增补（画像驱动）：
+//   · 接收 profile；每层判定前查 layerEnabled(profile, 层键)，被画像禁用的层整体跳过，
+//     并在 trace 里记 { decision:"skip", reason:"profile:xxx off" }；
+//   · L1 按领导批复拆成两个子判据：1-fuse（stalledFuse，管 fused/probation）、
+//     1-budget（budgetGate，管 taskBudget）；两者同用层号 "1"，全关才整层 skip；
+//   · reasoningWatch / emotionFilter 系已登记未实现，只在 trace 追加 skip（附原因），不参与执行；
+//   · **不传 profile 时行为与 3.0.4 完全一致**（全部层启用、不追加任何 skip 条目）。
 
 import { isMutating } from "./risk.mjs";
 import { createGrantTable } from "./grants.mjs";
+import { layerEnabled, unimplementedSwitches } from "./profileLoader.mjs";
 
 /** 第 5 层语义风险的审批阈值（与 pipeline 的 RISK_ASK_THRESHOLD 同值）。 */
 export const RISK_ASK_THRESHOLD = 0.85;
@@ -53,6 +62,7 @@ export function highRiskOf(command) {
  * @param {Function} [req.audit] 审计写入（注入；本函数不碰真实 AUDIT.log）
  * @param {object} [req.grants] 授权表（默认新建一张）
  * @param {Function} [req.trace] 逐层回调，用于打印/断言每层判定
+ * @param {object|null} [req.profile] 画像对象；缺省 null = 全部层启用（与 3.0.4 行为一致）
  * @returns {Promise<{decision: "allow"|"deny"|"needApproval", layer: string, reason: string, modelSignal: object|null, trace: Array}>}
  */
 export async function checkEligibility({
@@ -68,6 +78,7 @@ export async function checkEligibility({
   audit,
   grants = createGrantTable(),
   trace,
+  profile = null,
 } = {}) {
   const steps = [];
   const mark = (layer, decision, reason) => {
@@ -76,6 +87,7 @@ export async function checkEligibility({
     if (typeof trace === "function") trace(row);
     return row;
   };
+  const skippedRows = () => steps.filter((s) => s.decision === "skip").map((s) => ({ layer: s.layer, reason: s.reason }));
   const settle = (decision, layer, reason, modelSignal = null) => {
     if (typeof audit === "function") {
       audit({
@@ -90,12 +102,13 @@ export async function checkEligibility({
         modelSignal,
         reason,
         evidence: reason,
+        skipped: skippedRows(),
       });
     }
     return { decision, layer, reason, modelSignal, trace: steps };
   };
 
-  // 第 0 层：申请完整性（规格 §五：purpose / scope 必填，空白即 deny）
+  // 第 0 层：申请完整性（规格 §五：purpose / scope 必填，空白即 deny）。无画像开关，永不跳过。
   if (!String(purpose ?? "").trim()) {
     mark("0", "deny", "purpose 缺失");
     return settle("deny", "0", "purpose 缺失：申请必须写明目的");
@@ -106,58 +119,76 @@ export async function checkEligibility({
   }
   mark("0", "pass", "申请完整");
 
-  // 第 1 层：状态
-  if (state.fused) {
-    mark("1", "deny", "熔断中");
-    return settle("deny", "1", "熔断中，仅允许只读");
+  // 第 1 层：状态（拆两个子判据，共用层号 "1"；两者皆关才整层跳过）
+  const fuseOn = layerEnabled(profile, "1-fuse");
+  const budgetOn = layerEnabled(profile, "1-budget");
+  if (!fuseOn && !budgetOn) {
+    mark("1", "skip", "profile: stalledFuse 与 budgetGate 均关闭");
+  } else {
+    if (fuseOn && state.fused) {
+      mark("1", "deny", "熔断中");
+      return settle("deny", "1", "熔断中，仅允许只读");
+    }
+    if (fuseOn && state.probation) {
+      mark("1", "deny", "降权中");
+      return settle("deny", "1", "降权中，资格审核暂停");
+    }
+    const budget =
+      typeof state.taskBudget === "number" ? state.taskBudget : typeof state.budget === "number" ? state.budget : undefined;
+    if (budgetOn && typeof budget === "number" && budget <= 0) {
+      mark("1", "deny", "预算耗尽");
+      return settle("deny", "1", "预算耗尽");
+    }
+    mark("1", "pass", fuseOn && budgetOn ? "状态正常" : `状态正常（${fuseOn ? "budgetGate" : "stalledFuse"} 子判据已关）`);
   }
-  if (state.probation) {
-    mark("1", "deny", "降权中");
-    return settle("deny", "1", "降权中，资格审核暂停");
-  }
-  const budget =
-    typeof state.taskBudget === "number" ? state.taskBudget : typeof state.budget === "number" ? state.budget : undefined;
-  if (typeof budget === "number" && budget <= 0) {
-    mark("1", "deny", "预算耗尽");
-    return settle("deny", "1", "预算耗尽");
-  }
-  mark("1", "pass", "状态正常");
 
   // 第 2 层：绝对红线（命中即 deny，不进第 3 层）
-  const hit = (Array.isArray(redlines) ? redlines : []).find(
-    (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
-  );
-  if (hit) {
-    mark("2", "deny", `绝对红线 ${hit.name}`);
-    return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+  if (!layerEnabled(profile, "2")) {
+    mark("2", "skip", "profile:redlineGate off");
+  } else {
+    const hit = (Array.isArray(redlines) ? redlines : []).find(
+      (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
+    );
+    if (hit) {
+      mark("2", "deny", `绝对红线 ${hit.name}`);
+      return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+    }
+    mark("2", "pass", "未命中绝对红线");
   }
-  mark("2", "pass", "未命中绝对红线");
 
   // 第 3 层：资格（高危且本会话无授权 → needApproval；已有授权则继续）
-  const risky = highRiskOf(command);
-  if (risky && !grants.has(tool)) {
-    mark("3", "needApproval", `高危 ${risky.id} 且无授权`);
-    return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
-  }
-  mark("3", "pass", risky ? `已有授权（${risky.id}）` : "非高危");
-
-  // 第 4 层：前置条件
-  if (target && isMutating(tool, { command }, false)) {
-    const readSet = state.readSet || {};
-    if (!readSet[target]) {
-      mark("4", "deny", "未取证");
-      return settle("deny", "4", `改动 ${target} 前未取证（readSet 无此目标）`);
+  if (!layerEnabled(profile, "3")) {
+    mark("3", "skip", "profile:approvalGate off");
+  } else {
+    const risky = highRiskOf(command);
+    if (risky && !grants.has(tool)) {
+      mark("3", "needApproval", `高危 ${risky.id} 且无授权`);
+      return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
     }
+    mark("3", "pass", risky ? `已有授权（${risky.id}）` : "非高危");
   }
-  if (SYSTEM_PATH_RE.test(String(command || ""))) {
-    mark("4", "deny", "系统路径");
-    return settle("deny", "4", "命令涉及系统路径（C:\\Windows / /etc / /usr 等），禁止");
+
+  // 第 4 层：前置条件（整体受 evidenceGate 控制）
+  if (!layerEnabled(profile, "4")) {
+    mark("4", "skip", "profile:evidenceGate off");
+  } else {
+    if (target && isMutating(tool, { command }, false)) {
+      const readSet = state.readSet || {};
+      if (!readSet[target]) {
+        mark("4", "deny", "未取证");
+        return settle("deny", "4", `改动 ${target} 前未取证（readSet 无此目标）`);
+      }
+    }
+    if (SYSTEM_PATH_RE.test(String(command || ""))) {
+      mark("4", "deny", "系统路径");
+      return settle("deny", "4", "命令涉及系统路径（C:\\Windows / /etc / /usr 等），禁止");
+    }
+    if (SPECIAL_DIR_RE.test(String(command || ""))) {
+      mark("4", "needApproval", "特殊目录");
+      return settle("needApproval", "4", "命令涉及 .git/ 或 node_modules/，需人工审批");
+    }
+    mark("4", "pass", "前置条件通过");
   }
-  if (SPECIAL_DIR_RE.test(String(command || ""))) {
-    mark("4", "needApproval", "特殊目录");
-    return settle("needApproval", "4", "命令涉及 .git/ 或 node_modules/，需人工审批");
-  }
-  mark("4", "pass", "前置条件通过");
 
   // 第 5 层：语义对齐（仅注入了 model 时生效；未注入则跳过，第一步零模型可跑）
   let modelSignal = null;
@@ -186,6 +217,13 @@ export async function checkEligibility({
     mark("5", "pass", "语义一致");
   } else {
     mark("5", "skip", "未注入模型探针");
+  }
+
+  // 已登记未实现的开关：只在传了画像时登记进 trace，不参与执行
+  if (profile) {
+    for (const s of unimplementedSwitches(profile)) {
+      mark(s.name, "skip", s.reason);
+    }
   }
 
   // 第 6 层：通过 → 临时开放该工具 + 审计

@@ -1525,6 +1525,8 @@ describe("3.0.2 尾置批示与外接桥", () => {
       STATE,
       join(dirname(GUARD), "..", "src", "core", "checkEligibility.mjs"),
       join(dirname(GUARD), "..", "src", "core", "grants.mjs"),
+      join(dirname(GUARD), "..", "src", "core", "profileLoader.mjs"),
+      join(dirname(GUARD), "..", "src", "core", "decisionEngine.mjs"),
       join(dirname(GUARD), "..", "tools", "library-build.mjs"),
       join(dirname(GUARD), "..", "tools", "audit-chain.mjs"),
       join(dirname(GUARD), "..", "tools", "sentinel.mjs"),
