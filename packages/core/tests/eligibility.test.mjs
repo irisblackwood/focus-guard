@@ -1,10 +1,19 @@
 // FocusGuard 资格审核引擎 · 第一步（逻辑层）验收用例
 //
 // 覆盖：第 0 层申请完整性 + 六层全分支 + 授权表边界 + 逐层 trace。
-// 审计一律注入 mock：本文件不写真实 AUDIT.log（规格验收细节）。
+// 审计沙箱：本文件不写真实 AUDIT.log —— 由顶部 FG_AUDIT_FILE 重定向保证（2026-10-09 修）。
+// 此前该承诺并不成立：只有两个审计用例设了重定向，其余用例经 auditEligibility / auditDeny
+// 写进了真实 <仓库>/.focus-guard/AUDIT.log（实测污染 2630 行 / 746 个测试 session）。
 // 运行：node --test packages/core/tests/eligibility.test.mjs
 
-import { test, describe } from "node:test";
+import { test, describe, after } from "node:test";
+
+// —— 审计沙箱（必须在任何 audit 调用之前生效）——
+const AUDIT_TMP = join(tmpdir(), `fg-eligibility-audit-${process.pid}-${Date.now()}.log`);
+process.env.FG_AUDIT_FILE = AUDIT_TMP;
+after(() => {
+  rmSync(AUDIT_TMP, { force: true });
+});
 import assert from "node:assert/strict";
 import {
   checkEligibility,
@@ -509,7 +518,7 @@ describe("3.0.6 P0 · 绝对红线上下文豁免（HANDOFF §八）", () => {
       assert.match(line.evidence, /引号字面量/);
       console.log("审计行:", JSON.stringify(line).slice(0, 190));
     } finally {
-      delete process.env.FG_AUDIT_FILE;
+      process.env.FG_AUDIT_FILE = AUDIT_TMP; // 恢复全局沙箱；不可 delete，否则后续用例写真实审计
       rmSync(tmp, { force: true });
     }
   });
@@ -604,7 +613,7 @@ describe("3.0.7 · 误伤申辩（司法救济通道）", () => {
       assert.match(filed.evidence, /反例锚点/);
       console.log("审计 actions:", actions.join(" → "));
     } finally {
-      delete process.env.FG_AUDIT_FILE;
+      process.env.FG_AUDIT_FILE = AUDIT_TMP; // 恢复全局沙箱；不可 delete，否则后续用例写真实审计
       rmSync(tmp, { force: true });
     }
   });

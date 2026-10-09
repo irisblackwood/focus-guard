@@ -1,7 +1,7 @@
 # FocusGuard 聚焦护栏
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.0.4-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.0.6-369eff)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-ffcb47)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
@@ -29,6 +29,11 @@
 | 出了事日志是一笔糊涂账 | 因果链留痕 seq/chain/ref（3.0） | `npm run chain` 渲染因果树/因果图 |
 | 经验库被 AI 自己写坏 | 资料分层 + 派生积木（3.0） | `.ai/library/` 只同步外部原文；积木由 library-build 派生，两区均禁直写 |
 | 云端判定贵且离线不可用 | 本地零成本哨兵（3.0） | `FG_SENTINEL=1` 启用，Needle 2 可插拔外判 |
+| 高危操作**事前**没有审核，出事才拦 | 资格审核六层 + `fg_apply` 申请通道（3.0.5） | 无授权 → 拒，理由指向申请入口 |
+| 被**引用的**危险命令字符串被误拦 | 绝对红线上下文豁免：引号内 / 数据标记 / 只读命令三判据（3.0.6） | 降级到语义预判，不再直接拒 |
+| 拦错了没有程序可走，只能绕过 | `fg_appeal` 误伤申辩（司法救济，3.0.6） | 人类一次性裁决：批准即豁免本次红线 |
+| 大小模型一刀切，贵的模型被过度打扰 | 模型画像五份 + 按画像跳层（3.0.5） | 审核强度随模型调整 |
+| 本机习惯用 `rg`/`fd`，AI 老写 `grep`/`find` | 环境指纹 + 命令硬校验（3.0.5） | 一行替代提示，不依赖模型自觉 |
 
 ## 为什么需要它
 
@@ -38,7 +43,16 @@ AI 智能体最常见的三种失控：
 2. **资源失控**：整读大文件、未过滤刷屏，上下文和 token 被无意义输出撑爆；
 3. **权限失控**：拿不准也硬改，先斩后奏，出了问题无法追溯。
 
-"立法 → 执法 → 监察"三件套把这三类失控变成可拦截的行为事件：**法条**（[packages/core/docs/RULES.md](packages/core/docs/RULES.md)）定标准，**引擎**（[packages/core/hooks/guard.mjs](packages/core/hooks/guard.mjs)）机械执行，**留痕**（`.focus-guard/AUDIT.log`）接受人类复核。
+"立法 → 执法 → 监察"三件套把这三类失控变成可拦截的行为事件：**法条**（[packages/core/docs/RULES.md](packages/core/docs/RULES.md)）定标准，**引擎**机械执行，**留痕**（`.focus-guard/AUDIT.log`）接受人类复核。
+
+引擎按"母版层 → 适配层 → 宿主缝"三层组织（[《资料与代码分层总规范》](packages/core/docs/MASTER-PLAN-3.0.0.md)）：
+
+| 层 | 位置 | 职责 |
+|---|---|---|
+| **母版层** | `packages/core/src/core/` | 零依赖、宿主无关的判定逻辑：六层资格审核 / 模型画像 / 绝对红线与上下文豁免 / 申辩 / 卷宗状态。**不得反向依赖适配层**（有验收用例锁定） |
+| **适配层** | `packages/core/src/adapters/dsh/` | 把母版接进 DSH：`fg_apply` / `fg_appeal` 工具注册 + 资格闸 |
+| **宿主缝** | `packages/core/src/dsh/pipeline.mjs` | DSH 原生插件的三条缝：pre-execute / system-prompt / post-execute |
+| **ZCode 执行壳** | `packages/core/hooks/guard.mjs` | 六事件钩子入口。**已封存**——ZCode 兼容层，版本号独立、不随主版本更新，改动须谨慎 |
 
 ## 快速开始
 
@@ -51,7 +65,14 @@ npm install focus-guard-extended  # 扩展版：按需启用外接集成（自�
 
 **ZCode 插件（推荐）**：克隆本仓库 → 插件市场 → 添加市场（选择含 `marketplace.json` 的**仓库根目录**）→ 插件列表安装 → 新开会话。
 
-**DSH**：用官方桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载本仓库 `packages/core/hooks/hooks.json`，即可获得与 ZCode 同级的硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回）。⚠ **未挂桥时 DSH 端没有拦截**——这不是"装上就生效"的零配置路径，挂桥步骤见 [INSTALL.md](INSTALL.md) 第二节。
+**DSH** 有两条路，**二选一、互斥**（同缝双监听 = 双跑）：
+
+| 路径 | 装什么 | 拿到什么 |
+|---|---|---|
+| **原生插件**（3.0.5 起，推荐） | `dsh plugin --profile <name> add <本仓库 packages/core 目录>` | 三条宿主缝全开：资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线上下文豁免 |
+| **官方桥** | `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json` | 与 ZCode 同级的六事件硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回），但**不含**原生插件独有的资格审核与申辩 |
+
+⚠ 两条路**同时挂载会双跑**；**都不装则 DSH 端没有拦截**。挂桥/装插件的逐行步骤与卸载见 [INSTALL.md](INSTALL.md) 第二、四节。
 
 **验证生效**：新会话开头出现 `<focus-guard AI履职执法模型v3.0 …>` 注入，且工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log`。
 
@@ -130,6 +151,28 @@ npm install focus-guard-extended  # 扩展版：按需启用外接集成（自�
 - **严禁脚本包装**：被拒后写 `push.sh` 再执行 = 对抗审查（从重记档）；高危脚本的**写入本身**也要走审批单；
 - **不设卡**：普通单文件 rm、构建、测试、本地 commit、常规 `curl` GET——零打断。放松日常 + 刚性高危。
 
+### 事前资格审核与司法救济（3.0.5 / 3.0.6 / 3.0.7）
+
+高危命令闸管的是**事后拦截**（命中即拒，再交人类审批）。3.0.5 起在其之前加一道**事前资格审核**：高危工具**先申请、后执行**，无授权直接拒。
+
+- **六层判定**（`packages/core/src/core/checkEligibility.mjs`，母版层、依赖注入、不反向依赖适配层）：
+
+  | 层 | 判什么 |
+  |---|---|
+  | L0 | 申请完整性——`purpose` / `scope` 空白即拒 |
+  | L1 | 状态——熔断 / 降权 / 预算耗尽 |
+  | L2 | 绝对红线（命中即拒，且不进 L3） |
+  | L3 | 高危资格——命中 `HIGH_RISK_TOOLS` 且本会话无授权 → 转人工审批 |
+  | L4 | 前置条件——改动类目标须已取证；系统路径 / 特殊目录（`.git`、`node_modules`）加严 |
+  | L5 | 语义信号——模型探针的 `mismatch` / 高风险分 |
+  | L6 | 授权并留痕 |
+
+- **双入口闭环**：`fg_apply`（申请 → 审核 → 按 session 授权）与 pre-execute 的 `gateToolCall`（无授权 → deny，理由指向 `fg_apply`）。审核期临时授权、未通过立即收回，避免申请通道被自己的 L3 挡死。
+- **模型画像**：`src/profiles/` 五份纯参数画像（`deepseek-flash` / `deepseek-pro` / `glm` / `gpt-astra` / `default`），按画像跳层并把跳过项写入 trace 与审计。不传画像时与 3.0.4 行为一致。**画像不能关闭审批层**（`profileLoader.mjs` 的 `FORCED_ON_SWITCHES` 强制启用 `approvalGate`），也不能放行红线层；`approvalGate.scope` 只决定"哪些类别需审批"（`irreversible` 时非不可逆高危放行、不可逆类仍须审批）。
+- **环境指纹与命令硬校验**：`packages/core/tools/env-fingerprint.mjs` 探测平台 / shell / 工具并产出 `.ai/env-fingerprint.json`；pipeline 第 1.5 层据其 `map` 表做命令硬校验（`grep`→`rg`、`find`→`fd` 等替代提示），不依赖模型自觉。
+- **绝对红线上下文豁免**（3.0.6）：红线在**文本层**匹配，分不清"要执行的命令"与"被引用的命令字符串"。三条判据把后者**降级到第 2 层语义预判**（绝不直接放行）：① 命中片段完整落在引号字面量内；② 片段前有显式数据标记（`示例：`/`例如：`/`测试数据`/`prompt:`/`【假设】`/代码围栏）且命令非变更类；③ 首 token 属只读输出命令。**执行外壳一律不豁免**（`bash -c` / `cmd /c` / `eval` / `iex` / 解释器 `-e`·`-c`）——那些引号里的内容是真执行。豁免写 `AUDIT.log`（`action:"redline-exempt"` + 判据名 + 命中片段）。
+- **误伤申辩（司法救济通道，3.0.6）**：`fg_appeal` 让被拦方能**当场申辩**，不必等修法。参数携带被拦命令原文，故 pipeline 在**所有闸之前**处理它（否则会被同一规则再拦一次），转成 `{kind:"ask"}` 交人类一次性裁决：批准 → 开通该工具一次授权（`ttl=turn`）+ 豁免本次命中红线；拒绝 → 维持拦截。全程留痕 `appeal-filed` / `appeal-granted` / `appeal-denied`。法条依据见 [RULES.md](packages/core/docs/RULES.md) 第八十三条(四)。
+
 ### 子代理委派（v2.3.0：高产出、低污染）
 
 | 机制 | 规则 | 机械化 |
@@ -172,7 +215,7 @@ npm install focus-guard-extended  # 扩展版：按需启用外接集成（自�
 | `CASE_MAX_ROWS` | 200 | 卷宗【三】最大行数（超出淘汰最旧） |
 | `BACKUP_KEEP` | 100 | `.ai/backup/` 最大保留份数 |
 | `TTL_FIRST/RECENT/WEEK/STABLE` | 4h / 2h / 24h / 7天 | 卷宗自适应 TTL 四级 |
-| `ENGINE_VERSION` | 3.0.0 | 42条部署版本核验基准（须与五处清单及引擎头注释一致，有验收用例锁定） |
+| `ENGINE_VERSION` | 3.0.6 | 42条部署版本核验基准。**版本面共 8 处**（根 `package.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json` / `ENGINE_VERSION`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在" |
 
 ## 工作原理
 
@@ -187,13 +230,23 @@ Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 
 
 拦截协议：PreToolUse 以**退出码 2** 拒绝工具调用（原因走 stderr，原文透传给模型）；Stop / PostToolUse 返回 `{"decision":"block","reason":...}` 打回重写。所有打回路径都有一次性保护（`stopBlocked` + 宿主的 `stop_hook_active`），不会因强制续跑变成死循环。
 
-留痕协议：AUDIT.log（JSONL）每条带 `seq`（事件唯一号）/ `chain`（任务链，委派派生 `/dN` 子链）/ `ref`（父事件）三字段——流水账可随时重组为因果树：`node tools/audit-chain.mjs <AUDIT.log> [--mermaid]`。
+DSH 原生插件（`src/dsh/pipeline.mjs`）在**同一条 PreToolUse 缝**上按序叠加（各段独立 fail-open，异常一律放行或原样透传）：
+
+```
+申辩入口(fg_appeal) → 第3层状态/取证校验 → 绝对红线(+上下文豁免/申辩凭据) → 第1.5层命令硬校验
+→ 资格审核闸(fg_apply) → 第2层语义预判(哨兵) → next
+```
+
+- **第 3 层取证校验**只对**已存在文件**的修改要求先读；**新建文件**无目标可读，直接放行（否则死锁）；
+- **L3 不接红线上下文豁免**（闸接、L3 不接）：闸是"无授权即 deny"、无人类环节，必须自判豁免；L3 是"转人工审批"、人类环节本身就是裁决。若 L3 也豁免，"数据形态的高危命令"会无人审批直接放行——风险不对称。判定写在 `checkEligibility.mjs` 第 3 层注释里，防后人当缺陷改回。
+
+留痕协议：AUDIT.log（JSONL）每条带 `seq`（事件唯一号）/ `chain`（任务链，委派派生 `/dN` 子链）/ `ref`（父事件）三字段——流水账可随时重组为因果树：`node packages/core/tools/audit-chain.mjs <AUDIT.log> [--mermaid]`。
 
 落盘全图（写入面共 9 处）：AUDIT.log、卷宗【一】环境声明、【三】侦查记录、【四】额度台账（同 CASE_FILE.md）、会话状态（%TEMP%）、改动前备份（.ai/backup/）、PATTERNS.md 经验库、TEMP 陈旧清扫、派生积木与索引（仅 library-build 写到 .ai/output/library/）。
 
 ### 常驻注入的体量
 
-常驻注入 `SESSION_RULES` 运行期实测 **425 字**（260 全角 + 165 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3404 字 ≈ 2269 tokens**（2.5.3 实测值，3.0 新增报文：哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
+常驻注入 `SESSION_RULES` 运行期实测 **425 字**（246 全角 + 179 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3404 字 ≈ 2269 tokens**（2.5.3 实测值，3.0 新增报文：哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
 
 | 场景 | 引擎实测字符 | 会话内次数 | 加权 |
 |---|---|---|---|
@@ -215,30 +268,33 @@ Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 
 ## 测试与质量闸
 
 ```bash
-npm test        # 验收用例（90 + 3.0 新增）
-npm run eval    # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
-npm run bench   # 报文体量基准
-npm run check   # test + eval
-npm run library                                          # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
-npm run chain -- <AUDIT.log路径> [--mermaid]            # 执法档案因果树渲染
-npm run sentinel -- --check "<命令>"                     # 本地哨兵单条预判
-npm run test:bridges                                     # 扩展包桥测试（单独跑）
+npm test                                             # 验收 101 用例（含版本一致性 / 版本追赶 / 文档-实现口径对齐）
+npm run test:eligibility                             # 资格审核 45 用例（六层 + 红线豁免 + 申辩）
+node --test packages/core/tests/integration.test.mjs  # 端到端 27 用例（画像→审核→授权→闸→取证闸）
+node --test packages/core/tests/profile.test.mjs      # 画像加载 8 用例
+npm run eval                                         # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
+npm run bench                                        # 报文体量基准
+npm run check                                        # test + eval（pre-push 钩子跑的就是它）
+npm run library                                      # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
+npm run chain -- <AUDIT.log路径> [--mermaid]         # 执法档案因果树渲染
+npm run sentinel -- --check "<命令>"                  # 本地哨兵单条预判
+npm run test:bridges                                 # 扩展包桥测试（单独跑）
 ```
 
-### 双包架构（3.0.4）：范本 + 衍生
+### 双包架构（3.0.6）：范本 + 衍生
 
 本仓是 npm monorepo，**一个项目、两个包**：
 
 | 包 | 路径 | 定位 |
 |---|---|---|
-| **`focus-guard`** | `packages/core/` | **零依赖范本**——引擎钩子、技能、核心工具、法条文档。`npm install focus-guard` 只下载本包，不拉任何外接依赖。主分支即从此包发版，可衍生无数变体。 |
-| **`focus-guard-extended`** | `packages/extended/` | **扩展衍生包**——依赖 core（`"dependencies": {"focus-guard": "^3.0.4"}`），承载重型外接三件套：OpenViking 积木同步桥（`viking-bridge.mjs`）、Needle 2 外判运行器（`needle2-sentinel.mjs`）、Semantica LPG 图谱导出（`audit-chain-semantica.mjs`）。 |
+| **`focus-guard`** | `packages/core/` | **零依赖范本**——引擎钩子、技能、核心工具、法条文档、**DSH 原生插件**。`npm install focus-guard` 只下载本包，不拉任何外接依赖。主分支即从此包发版，可衍生无数变体。**DSH 挂载的正是这个包**——它的 `package.json` 版本就是 GUI 里显示的那个。 |
+| **`focus-guard-extended`** | `packages/extended/` | **扩展衍生包**——依赖 core（`"dependencies": {"focus-guard": "^3.0.6"}`），承载重型外接三件套：OpenViking 积木同步桥（`viking-bridge.mjs`）、Needle 2 外判运行器（`needle2-sentinel.mjs`）、Semantica LPG 图谱导出（`audit-chain-semantica.mjs`）。 |
 
 衍生纪律（详见 [packages/extended/bridges/README.md](packages/extended/bridges/README.md)）：桥只依赖主分支**契约**（审计 JSONL 格式、哨兵外判协议、积木 INDEX 格式），禁止 import 主分支源码，禁止被主分支引用（验收用例锁定零反向依赖）；桥故障一律静默回退核心默认行为。新增外接 = 在 extended 包加一个自包含文件 + 一条桥测试。
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵；
 - **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；
-- **覆盖范围**（90 用例）：动态预算与三池分池、进度检测与信用延期、触发①②③④⑤（含审计豁免）、梯度处罚与熔断只读放行、卷宗体系（环境检测 / 环境声明落卷 / 免重读含会话内限定 / SHA 防伪 / TTL 三级覆盖 / 台账落卷 / caseCache 裁剪）、跨平台命令拦截、盲写与抽查A、上下文污染与污染核实闸（含复合命令不误报）、授权识别（伪造引文 → L3 / 合规声明 → 特赦 / 待确认 → 暂停）、高危命令闸（特征库 / 审批单 / y-n 一次性 / 预授权隔离 / 脚本包装端到端 / 熔断期拒绝 / 超长命令）、子代理委派与委托池、极限场景（80KB 命令行、2MB 响应、损坏状态、奇异会话 ID、中文路径）、DSH 桥接自适应，以及工程自检（五处清单版本一致性 / 五处说明互不重复 / 文档-实现口径对齐 / hooks.json ↔ 引擎映射 / 部署漂移核验 / 61条陈旧清理）；
+- **覆盖范围**（101 用例）：动态预算与三池分池、进度检测与信用延期、触发①②③④⑤（含审计豁免）、梯度处罚与熔断只读放行、卷宗体系（环境检测 / 环境声明落卷 / 免重读含会话内限定 / SHA 防伪 / TTL 三级覆盖 / 台账落卷 / caseCache 裁剪）、跨平台命令拦截、盲写与抽查A、上下文污染与污染核实闸（含复合命令不误报）、授权识别（伪造引文 → L3 / 合规声明 → 特赦 / 待确认 → 暂停）、高危命令闸（特征库 / 审批单 / y-n 一次性 / 预授权隔离 / 脚本包装端到端 / 熔断期拒绝 / 超长命令）、子代理委派与委托池、极限场景（80KB 命令行、2MB 响应、损坏状态、奇异会话 ID、中文路径）、DSH 桥接自适应，以及工程自检（七处清单版本一致性 / 版本追赶 / 五处说明互不重复 / 文档-实现口径对齐 / RULES 注入逐字镜像 / hooks.json ↔ 引擎映射 / 部署漂移核验 / 61条陈旧清理）；
 - **对抗评测样本**按"同一危险动作的多种写法"组织（别名、长旗标、传参穿插）并配良性反例，避免用误报换检出。
 
 ## 设计取舍与已知边界
@@ -247,7 +303,7 @@ npm run test:bridges                                     # 扩展包桥测试（
 - **钩子读取的是安装副本**：改源码不会自动生效，需同步安装缓存或经市场更新——"源码已升级但引擎没变"是这套系统最常见的部署事故，[INSTALL.md](INSTALL.md) FAQ 4 有排查步骤；
 - **平台受限暂缓条款**：第 21 条 Token 成本核算、第 37 条思考链监管（钩子层不可见 token 用量与思考时长）、第 64 条(二)(三)(四)限流（无对应信号）；第 48 条子代理继承以留痕方式实现。**完整"未机械化条款清单"见 [packages/core/docs/RULES.md](packages/core/docs/RULES.md) 附注**——凡清单所列，AI 不得声称已由引擎自动执行；
 - **>200KB 文件没有内容级防伪**：见上文卷宗体系边界说明；
-- **引号内的危险字样仍会命中特征库**（如 `echo "git push"`、`grep -rn "delete from users"`）：去引号会引入更危险的漏检，故取保守策略，代价是多一次审批；
+- **引号内的危险字样：按上下文分级**（3.0.6）——`echo "git push"`、`grep -rn "delete from users"` 这类**被引用的数据**经三条判据（引号内 / 数据标记 / 只读命令）降级到语义预判，不再直接拒；**执行外壳内的一律不豁免**（`bash -c "…"`、`node -e "…"`、`eval "…"`），因为那是真执行。仍未覆盖的形态：无引号又无数据标记的裸引用、`rm${IFS}-rf` 类拼接。判据名与命中片段写入 `AUDIT.log` 可复核；
 - **特征库不可能堵完**：`rm${IFS}-rf`、base64 管道、shell 别名等在射程之外，护栏治的是"顺手失控"，不是定向对抗；
 - **免重读的边界**：指纹一致但会话上下文已被压缩时，用 `offset` 增量读或请批示；【二】依赖声明与【三】TTL 列人工标注可按需放宽/收紧；
 - **行业对照（2026-10 系统提示词研究，详见 `docs/analysis/`）**：各大厂商把 Agent 持久性推到极致（"persist until complete"）且提示词层无一设预算机制。FocusGuard 的定位由此清晰：坚持性交给模型自判（厂商已做好），**成本台账与破坏性关卡由宿主侧硬约束承担**——熔断随模型进化从常开保险丝退为断路器，但断路器不拆；
@@ -255,8 +311,10 @@ npm run test:bridges                                     # 扩展包桥测试（
 
 ## 版本与变更
 
-当前 **v3.0.4**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
+当前 **v3.0.6**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
 
+- **3.0.6 绝对红线上下文豁免与司法救济**：`redlineExempt()` 三判据（引号内 / 数据标记 / 只读命令）把"被引用的危险命令字符串"**降级**到语义预判，执行外壳一律不豁免；新增 **误伤申辩程序** `fg_appeal`（司法救济通道，补齐"只有立法救济、没有个案当场申辩"的结构缺口）；画像接入真实 pre-execute 链路 + 画像/豁免在真实入口失效的 4 项修复；审批层不可被画像关闭；`approvalGate.scope` 由死配置变真判定；闸接入红线豁免、红线判据 span 稳定化、取证闸对新建文件不再死锁；条款清理 91→87；**版本面补全为 8 处**（此前漏了 monorepo 子包，导致"清单齐 3.0.4 而代码已 3.0.6"）；
+- **3.0.5 事前资格审核与模型画像**：`checkEligibility` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权留痕）+ `fg_apply` 双入口闭环（申请 → 审核 → 按 session 授权）；`src/profiles/` 五份纯参数模型画像 + `profileLoader` 按画像跳层；环境指纹与命令硬校验（`grep`→`rg`、`find`→`fd`）；`guard.mjs` 三次拆出 `src/core/` 九个模块与 `src/adapters/dsh/protocol.mjs`（1707 → 1142 行）；
 - **3.0.4 双包 monorepo**：`packages/core`（`focus-guard` 零依赖范本包）+ `packages/extended`（`focus-guard-extended` 扩展包，承载外接三件套）；`npm install focus-guard` 永不拉取扩展依赖；中心蜂群强化——调度三分法、派单给目标不给方法脚本、跨任务授权不对称、模型分层蜂群、对抗验证三怀疑者（第八十条增订七～十、第八十一条增订四）；library-build 幂等键改纯内容指纹；
 - **3.0.3 主分支精简版**：外接三件套移出主分支（迁 `packages/extended`），主分支保留哨兵本体与外判契约；
 - **3.0.2 外接三件套**：`viking-bridge`（OpenViking 积木同步）/ `audit-chain --semantica`（Semantica 图谱导出）/ `needle2-sentinel`（Needle 2 外判运行器）+ 批示词尾置容错；
@@ -273,13 +331,16 @@ npm run test:bridges                                     # 扩展包桥测试（
 | 文件 | 给谁看 |
 |---|---|
 | [README.md](README.md) | 人类：这是什么、怎么装、边界在哪（本文件） |
-| [INSTALL.md](INSTALL.md) | 逐行安装 / DSH 挂桥 / FAQ / 卸载 |
+| [INSTALL.md](INSTALL.md) | 逐行安装（ZCode / DSH 两条路）/ FAQ / 卸载 |
+| [docs/HANDOFF-TO-EXTERNAL.md](docs/HANDOFF-TO-EXTERNAL.md) | 外部接手模型：现状依据、任务书、纪律陷阱、环境事实 |
 | [packages/core/docs/RULES.md](packages/core/docs/RULES.md) | 法条原文 + 技术映射明细 + **未机械化条款清单**（永不自动加载） |
 | [packages/core/skills/focus-thinking/SKILL.md](packages/core/skills/focus-thinking/SKILL.md) | AI 运行时镜像：聚焦方法 + 纪律条款 |
-| [docs/MASTER-PLAN-2.0.0.md](packages/core/docs/MASTER-PLAN-2.0.0.md) | 卷宗体系工程总纲 |
-| [docs/MASTER-PLAN-3.0.0.md](packages/core/docs/MASTER-PLAN-3.0.0.md) | 协作治理工程总纲（十大原则 → 十项机制） |
-| [tools/](tools/) | 积木图书馆构建 / 因果链渲染 / 本地哨兵 |
-| [docs/LEGISLATION-LAW.md](packages/core/docs/LEGISLATION-LAW.md) | 立法法：规则怎么立、怎么改、怎么备案 |
+| [packages/core/docs/MASTER-PLAN-2.0.0.md](packages/core/docs/MASTER-PLAN-2.0.0.md) | 卷宗体系工程总纲 |
+| [packages/core/docs/MASTER-PLAN-3.0.0.md](packages/core/docs/MASTER-PLAN-3.0.0.md) | 协作治理工程总纲（十大原则 → 十项机制）+ 分层总规范 |
+| [packages/core/docs/LEGISLATION-LAW.md](packages/core/docs/LEGISLATION-LAW.md) | 立法法：规则怎么立、怎么改、怎么备案 |
+| [packages/core/docs/deepseek-pricing-audit.md](packages/core/docs/deepseek-pricing-audit.md) | 峰谷价目核对（成本台账口径来源） |
+| [packages/core/tools/](packages/core/tools/) | 积木图书馆构建 / 因果链渲染 / 本地哨兵 / 环境指纹 |
+| [packages/extended/bridges/README.md](packages/extended/bridges/README.md) | 外接三件套的契约与衍生纪律 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更 |
 | [packages/core/tests/](packages/core/tests/) | 验收用例、对抗评测、报文基准 |
 

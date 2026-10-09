@@ -2,6 +2,8 @@
 
 > 交接时间：2026-10-09 · 项目版本 **3.0.6** · 交接方：DSH `deepseek-flash` 会话
 > 本文是**唯一**的现状依据。`HANDOFF.md` 是内部备忘（已 gitignore），`packages/core/docs/RULES.md` 是法条正本（91 条→87 条）。
+>
+> **状态：已交回**（2026-10-09 晚）——任务 A / B / C 全部落地并验收，交回结论见文末第七节。本文保留为**交接时的原始快照**，其中"二、当前状态"的用例数是交回**前**的数字，交回**后**的数字见第七节。
 
 ---
 
@@ -20,7 +22,7 @@ packages/core/docs/RULES.md    法条正本（立法文本，改它=修法，需
 
 **分层铁律**：母版**不得**反向依赖适配层（有验收用例锁定，破坏即失败）。
 
-## 二、当前状态（已验收，可直接复现）
+## 二、当前状态（交接时快照 · 已验收，可直接复现）
 
 ```powershell
 npm test                                            # 101/101  验收（含版本一致性 + 版本追赶）
@@ -97,3 +99,46 @@ npm run eval                                        # 61/61 高危 + 34/34 良�
 1. 三条命令的**实际输出**（不接受"应该通过"）。
 2. 新增/改写的测试用例清单（用例名 + 断言意图）。
 3. 若判断某缺陷**不应修**，给出理由——本项目接受"这是设计选择而非缺陷"的结论，但**要求论证**（已有先例：`c4` 的"未传 profile 按最严 mutating"就是被判定为安全默认而非缺陷）。
+
+---
+
+## 七、交回结论（2026-10-09 晚）
+
+任务 A / B / C 全部落地。改动 5 个文件 / `+171 −20`（`git diff --numstat`）。
+
+| 文件 | +/− | 内容 |
+|---|---|---|
+| `packages/core/src/adapters/dsh/eligibility-gate.mjs` | +13 −1 | 任务 A |
+| `packages/core/src/core/redlines.mjs` | +20 −1 | 任务 B |
+| `packages/core/src/dsh/pipeline.mjs` | +10 −5 | 任务 C |
+| `packages/core/tests/eligibility.test.mjs` | +26 −0 | 缺陷 6 对照表用例 |
+| `packages/core/tests/integration.test.mjs` | +102 −13 | d1/d3 改写 + d5–d7、g1–g4 新增 |
+
+**交回后各套件实测**（与"二"的快照对比；2026-10-09 20:35 于 DSH 宿主实跑，非"应该通过"）：
+
+```powershell
+npm test                                              # 101/101
+npm run eval                                          # 高危 61/61 · 良性 34/34 → [PASS]
+npm run test:eligibility                              # 45/45   （44 → 45，新增缺陷 6 对照表）
+node --test packages/core/tests/integration.test.mjs  # 27/27   （20 → 27）
+node --test packages/core/tests/profile.test.mjs      # 8/8
+npm run test:bridges                                  # 3/3
+```
+
+> 前置：跑前须 `Remove-Item Env:CLAUDE_PROJECT_DIR, Env:ZCODE_PROJECT_DIR`（见下"环境事实 2"）。
+
+- **任务 A**：`gatedReasonOf` 命中 `HIGH_RISK_TOOLS` 后先问 `redlineExempt`，成立则返回 `null`；`write-system-path` 分支未动。依赖方向为适配层→母版层，无环。
+- **任务 B**：新增 `redlineSpan()`，裁掉 `m[0]` 尾部属于 `[\s"']` 的字符（**不裁 `/`**），全裁空时回退原区间。
+- **任务 C**：`layer3Check` 取证判定加 `existsSync` 门——目标不存在（新建）直接放行。
+- **L3 是否接豁免**：判定为**不接**（闸无人类环节须自判、L3 有人类环节即裁决；L3 若豁免会让"数据形态的高危命令"无人审批直接放行，风险不对称）。判定已写入 `checkEligibility.mjs` 第 3 层注释。
+
+### 两处必须知道的行为/环境事实
+
+1. **任务 B 不只是判据名变化**：判据 1 的适用面按设计意图扩大了一档——形如 `foo "rm -rf /"`（head 既非只读命令、也无数据标记）由"不豁免"变为 `quoted-literal`。已反证真执行未被放过：`rm -rf "/"` 裁剪后 span 与引号内容区间不相交，仍不豁免。
+2. **跑测试前必须清掉 `CLAUDE_PROJECT_DIR` / `ZCODE_PROJECT_DIR`**（本机实测宿主注入了 `CLAUDE_PROJECT_DIR=<工作区>`）。
+   `audit.mjs::auditTarget()` 优先落 `<工作区>/.focus-guard/AUDIT.log`，而验收用例从 `os.tmpdir()` 读
+   `focus-guard-<sid>-AUDIT.log` → 22 个用例整片 `ENOENT`。**剥离该变量后 101/101**。
+   已用 `git worktree` 起 HEAD~1 基线复核：22 个失败在改动前**逐条一致**，非本次回归。
+   副产物（须留意）：测试会把审计流水写进真实工作区的 `.focus-guard/AUDIT.log`（本次累计追加 2613 行 / 743 个测试会话）。
+   根治办法是让 `acceptance.test.mjs::makeRunner` 显式把这两个变量置空（`env: { ...process.env, ZCODE_PROJECT_DIR: "", CLAUDE_PROJECT_DIR: "", ...env }`），
+   使套件自带隔离、不依赖宿主环境；**本次未改**，留待裁决。

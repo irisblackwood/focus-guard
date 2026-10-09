@@ -37,6 +37,8 @@
 - fix: **缺陷 6（判据名不稳定）**——新增 `redlineSpan()`：裁掉命中片段尾随的空白与收尾引号（**不含 `/`**，`rm -rf /` 的 `/` 是目标路径本体），使 span 稳定落在危险片段本体上。**注意：这不只是判据名变化，判据 1 的适用面按设计意图扩大了一档**——形如 `foo "rm -rf /"`（head 既非只读命令、也无数据标记）从"不豁免"变为 `quoted-literal`。已反证真执行未被放过：`rm -rf "/"` 裁剪后 span 与引号内容区间不相交仍不豁免，执行外壳仍由 `SHELL_EXEC_WRAPPER_RE` 拦。
 - fix: **FG 自身缺陷：取证闸对"新建文件"死锁**——`layer3Check` 的取证判定加 `existsSync` 门：目标不存在（新建）直接放行，仅对**已存在**文件的修改要求先读。此前新建文件无既有内容可读 → 永远进不了 readSet → 只能靠"拒一次后豁免"逃生。
 - docs: **L3 是否接豁免的判定**（外部接手模型提出）——**不接**：闸是"无授权即 deny"（无人类环节，须自判豁免），L3 是"转人工审批"（人类环节即裁决）。若 L3 也豁免，"数据形态的高危命令"会无人审批直接放行，风险不对称。判定已写入 `checkEligibility.mjs` 第 3 层注释，防后人当缺陷改回。
+- fix: **测试污染真实工作区**——跑测试时审计流水写进真实 `<仓库>/.focus-guard/AUDIT.log`（实测 2630 行 / 746 个测试 session）。三处根因：① `auditDeny` 写死 `AUDIT_FILE`，而**同一文件**的 `auditRedlineExempt` 支持 `FG_AUDIT_FILE`（一文件两种口径）；② `acceptance.test.mjs::makeRunner` 直接透传 `process.env`，宿主设的 `CLAUDE_PROJECT_DIR` 让 `guard.mjs` 定位到真实工作区（原注释"无 ZCODE_PROJECT_DIR 即退回临时目录"的假设失效）；③ `eligibility.test.mjs` 只在两个审计用例内设重定向，且 `finally` 里 `delete` 掉它、把沙箱一并删除（该文件顶部"审计一律注入 mock"的承诺从未成立）。现：`auditDeny` 补重定向 · `makeRunner` 显式置空两个工作区根变量（`...env` 保持最后，用例覆盖仍生效）· `eligibility.test.mjs` 顶部统一沙箱、用例内改为"恢复"而非 delete。**验证：跑全套后 AUDIT.log 零增长**（历史污染已清理，备份于 `.ai/archive/`）。
+- docs: 文档同步（外部接手交付，Lead 审计通过）——`README.md`（badge 3.0.4→3.0.6 · 问题→能力对照表 · 母版/适配/宿主缝三层表 · DSH 两条路互斥对比 · `ENGINE_VERSION` 从 **3.0.0** 修正为 3.0.6 并补 8 处版本面）· `INSTALL.md`（新增「2A. 原生插件（推荐）」节、卸载命令区分原生插件/官方桥）· `skills/focus-thinking/SKILL.md`（"生效版本"从 `hooks/guard.mjs v3.0.0` **修正为** `ENGINE_VERSION`——guard.mjs 已封存，不该再代表生效版本；并修正 monorepo 后的 `docs/RULES.md` 路径）· `docs/HANDOFF-TO-EXTERNAL.md`（补交付验证与 ENOENT 踩坑记录）。
 
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 

@@ -29,7 +29,11 @@ function makeRunner(sid) {
     const p = spawnSync("node", [GUARD, mode], {
       input: JSON.stringify({ ...obj, session_id: `${obj.session_id || sid}-${RUN}` }),
       encoding: "utf8",
-      env: { ...process.env, ...env },
+      // 2026-10-09 修：显式置空两个"工作区根"变量，套件自带隔离、不再依赖宿主环境。
+      // 原先只靠"不传 ZCODE_PROJECT_DIR"退回临时目录，但宿主（DSH）在环境里设了
+      // CLAUDE_PROJECT_DIR，guard.mjs 会读它 → 审计流水写进真实 <仓库>/.focus-guard/AUDIT.log
+      // （实测污染 2630 行 / 746 个测试 session）。...env 必须放最后，让具体用例的覆盖仍生效。
+      env: { ...process.env, ZCODE_PROJECT_DIR: "", CLAUDE_PROJECT_DIR: "", ...env },
     });
     return { rc: p.status, out: ((p.stdout || "") + (p.stderr || "")).trim() };
   };

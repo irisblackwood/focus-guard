@@ -25,7 +25,11 @@ export function caseFilePath() {
 export function auditDeny(exec, cmd) {
   try {
     appendFileSync(
-      AUDIT_FILE,
+      // 2026-10-09 修：补 FG_AUDIT_FILE 重定向。此前本函数写死 AUDIT_FILE，而同文件的
+      // auditRedlineExempt 支持重定向 —— 同一文件两种口径，导致跑测试时经
+      // preExecuteListener → auditDeny 的拦截记录写进真实 <仓库>/.focus-guard/AUDIT.log。
+      // 测试用 FG_AUDIT_FILE 指向 tmpdir 即完全隔离（与 caseFilePath 的 FG_CASE_FILE 同思路）。
+      process.env.FG_AUDIT_FILE || AUDIT_FILE,
       JSON.stringify({
         ts: new Date().toISOString(),
         session:
