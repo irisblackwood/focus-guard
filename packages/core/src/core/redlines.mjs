@@ -176,6 +176,25 @@ export function quotedSpans(s) {
   return spans;
 }
 
+/** span 尾部要裁掉的字符：尾随空白与收尾引号（分隔符）。不含 `/`——`rm -rf /` 的 `/` 是目标路径本体。 */
+const SPAN_TAIL_TRIM_RE = /[\s"']/;
+
+/**
+ * 命中片段的本体区间 [start, end)。
+ *
+ * 3.0.7（HANDOFF §十一 缺陷 6）：红线正则尾部常带 `[\/\s"']*` 这类收尾类，贪婪匹配会
+ * 连同尾随空白与收尾引号一起吃掉，使 span 越过引号内容区间 → 判据 1（quoted-literal）
+ * 判空，改由判据 3（readonly-head）命中。豁免结果虽然相同，但审计记录的判据名不稳定。
+ * 裁掉尾随的空白与引号后，span 稳定落在危险片段本体上。
+ * 全裁空时回退原文区间，避免产生零宽 span 引出误判。
+ */
+function redlineSpan(c, m) {
+  const start = m.index;
+  let end = start + m[0].length;
+  while (end > start && SPAN_TAIL_TRIM_RE.test(c[end - 1])) end -= 1;
+  return end > start ? [start, end] : [start, start + m[0].length];
+}
+
 /**
  * 红线上下文豁免判定。
  * @param {string} cmd 待检命令原文
@@ -187,7 +206,7 @@ export function redlineExempt(cmd, hit) {
   if (!c || !hit || !(hit.re instanceof RegExp)) return null;
   const m = hit.re.exec(c);
   if (!m) return null;
-  const span = [m.index, m.index + m[0].length];
+  const span = redlineSpan(c, m);
 
   // 安全前提：执行外壳一律不豁免（引号内也能被真正执行）
   if (SHELL_EXEC_WRAPPER_RE.test(c)) return null;

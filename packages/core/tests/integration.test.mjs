@@ -13,7 +13,7 @@ import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readFileSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, rmSync, existsSync, writeFileSync, mkdtempSync } from "node:fs";
 
 // —— 审计沙箱：必须在任何 applyEligibility 调用之前生效 ——
 const AUDIT_TMP = join(tmpdir(), `fg-integration-audit-${process.pid}-${Date.now()}.log`);
@@ -294,20 +294,20 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
     const QUOTED = "$samples = @('" + RM_RF_ROOT + "', 'ls -la')";
     const HIT = REDLINES[0];
 
-    test("d1. L2 红线在引号内 → redlineExempt 判为 quoted-literal", () => {
+    test("d1. L2 红线在引号内 → redlineExempt 判为 quoted-literal（缺陷 6 已修：判据名稳定）", () => {
       assert.ok(HIT.re.test(QUOTED), "命令应命中 rm-rf-root 红线");
       const ex = redlineExempt(QUOTED, HIT);
       console.log("[d1] 豁免:", JSON.stringify(ex));
       assert.ok(ex, "引号内字面量应被豁免");
       assert.equal(ex.basis, "quoted-literal");
 
-      // 观测记录（判据归属不稳定）：同一段引号内数据若以 `echo "…"` 形式出现，
-      // 红线正则的尾随 `[\/\s"']*` 会吃掉收尾引号，判据1（quoted-literal）落空，
-      // 最终由判据3（readonly-head）豁免。豁免结果相同，判据名不同。
+      // 缺陷 6 已修：span 不再被红线正则尾部的 `[\/\s"']*` 撑过收尾引号，
+      // 同一段数据的 `echo "…"` 写法判据 1 得以成立——两种写法判据一致
+      //（修复前此处漂移到判据 3 readonly-head，判据名随写法而变，污染审计可读性）。
       const echoed = 'echo "' + RM_RF_ROOT + '"';
       const ex2 = redlineExempt(echoed, HIT);
       console.log("[d1] 同一数据的 echo 形式:", ex2 && ex2.basis);
-      assert.equal(ex2.basis, "readonly-head");
+      assert.equal(ex2.basis, "quoted-literal");
     });
 
     test("d2. 母版 L2 已接 redlineExempt（缺陷 2 已修）→ 引号内数据不再被 L2 拦", async () => {
@@ -322,27 +322,57 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
       const l2 = r.trace.find((x) => x.layer === "2");
       assert.equal(l2.decision, "pass", "L2 命中后应因豁免而降级（不 deny）");
       assert.match(l2.reason, /红线豁免降级（quoted-literal）/);
-      // 降级后继续往下：命令文本仍命中 HIGH_RISK_TOOLS 的 rm-rf 且无授权 → L3 转人工审批（缺陷 3 未修，属预期）
+      // 降级后继续往下：命令文本仍命中 HIGH_RISK_TOOLS 的 rm-rf 且无授权 → L3 转人工审批。
+      // 注意 L3 是**审批层**（只问人，不做文本豁免），与闸（入口二）的"直接 deny"是两种裁决；
+      // 缺陷 3 修的是闸，故本行结论不变（详见 d3）。
       assert.equal(r.decision, "needApproval");
       assert.equal(r.layer, "3");
     });
 
-    test("d3. pre-execute 闸也不接豁免 → 同一命令被拦（命中 rm-rf，指向 fg_apply）", () => {
+    test("d3. pre-execute 闸已接豁免（缺陷 3 已修）→ 同一命令不再被闸拦", () => {
       const s = freshSession("it-d3");
       const reason = gatedReasonOf("Bash", QUOTED);
       const gate = gateToolCall({ session: s, tool: "Bash", command: QUOTED });
       console.log("[d3] 门槛:", reason, "| 闸:", gate.kind, "|", gate.reason);
-      assert.equal(reason, "rm-rf", "HIGH_RISK_TOOLS 只看文本，不看引号");
+      assert.equal(reason, null, "豁免成立 → 不进门槛清单");
+      assert.equal(gate.kind, "pass", "闸放行，交回原有判定链");
+      resetGrants(s);
+    });
+
+    test("d4. 对照：无引号的真执行命令不豁免，且闸仍拦", () => {
+      assert.equal(redlineExempt(RM_RF_ROOT, HIT), null, "真执行不得豁免");
+      assert.equal(gatedReasonOf("Bash", RM_RF_ROOT), "rm-rf", "裸危险命令仍进门槛清单");
+      assert.equal(gateToolCall({ session: freshSession("it-d4"), tool: "Bash", command: RM_RF_ROOT }).kind, "deny");
+      console.log("[d4] 真执行: 不豁免 + 闸 deny（一致）");
+    });
+
+    test("d5. 闸与红线层同口径：echo \"…\" 形式同样放行（判据名不影响闸结论）", () => {
+      const echoed = 'echo "' + RM_RF_ROOT + '"';
+      const s = freshSession("it-d5");
+      assert.ok(redlineExempt(echoed, HIT), "echo 形式应被豁免");
+      assert.equal(gatedReasonOf("Bash", echoed), null, "豁免成立 → 不进门槛清单");
+      assert.equal(gateToolCall({ session: s, tool: "Bash", command: echoed }).kind, "pass");
+      console.log("[d5] echo 形式：闸放行");
+      resetGrants(s);
+    });
+
+    test("d6. 安全前提：执行外壳包装的危险命令仍被闸拦（豁免不成立）", () => {
+      const wrapped = 'bash -c "' + RM_RF_ROOT + '"';
+      const s = freshSession("it-d6");
+      assert.equal(redlineExempt(wrapped, HIT), null, "执行外壳不得豁免");
+      assert.equal(gatedReasonOf("Bash", wrapped), "rm-rf", "外壳包装仍进门槛清单");
+      const gate = gateToolCall({ session: s, tool: "Bash", command: wrapped });
+      console.log("[d6] 执行外壳:", gate.kind, "|", gate.reason);
       assert.equal(gate.kind, "deny");
-      assert.match(gate.reason, /fg_apply/);
       assert.match(gate.reason, /rm-rf/);
       resetGrants(s);
     });
 
-    test("d4. 对照：无引号的真执行命令同样不豁免，且闸拦", () => {
-      assert.equal(redlineExempt(RM_RF_ROOT, HIT), null, "真执行不得豁免");
-      assert.equal(gateToolCall({ session: freshSession("it-d4"), tool: "Bash", command: RM_RF_ROOT }).kind, "deny");
-      console.log("[d4] 真执行: 不豁免 + 闸 deny（一致）");
+    test("d7. 边界：write-system-path 是路径检查，不套命令豁免", () => {
+      const sysPath = "C:" + "\\Windows\\System32\\drivers\\etc\\hosts";
+      assert.equal(gatedReasonOf("Write", sysPath), "write-system-path", "系统路径写入仍进门槛清单");
+      assert.equal(gatedReasonOf("Bash", sysPath), null, "非写入类工具不因路径进门槛");
+      console.log("[d7] write-system-path 未受命令豁免影响");
     });
   });
 
@@ -461,5 +491,64 @@ describe("f. 最后一公里 · 画像经 exec 在真实 pre-execute 生效", ()
     assert.equal(out.kind, "deny", "红线层不含画像开关（不可被画像放行）");
     assert.match(out.reason, /绝对红线/);
     resetGrants(s);
+  });
+});
+
+// ───────────────────────── g. 取证闸对新建文件的死锁 ─────────────────────────
+describe("g. 取证闸：新建文件不死锁（任务 C 已修）", () => {
+  const loadPipeline = () => import("../src/dsh/pipeline.mjs");
+  const allowNext = () => ({ kind: "allow" });
+
+  // 造一个"有会话状态、但本会话无任何取证记录"的 guard 状态文件。
+  // 用 statePath 注入，既不碰真实 tmpdir 状态，也不依赖 guard.mjs。
+  const stateFile = join(tmpdir(), `fg-state-${process.pid}-${Date.now()}.json`);
+  writeFileSync(stateFile, JSON.stringify({ fused: false, probation: false, readSet: {} }), "utf8");
+
+  const dir = mkdtempSync(join(tmpdir(), "fg-evidence-"));
+  const existing = join(dir, "exists.txt");
+  writeFileSync(existing, "v1", "utf8");
+  const fresh = join(dir, "brand-new.txt"); // 故意不创建：模拟"新建文件"
+
+  after(() => {
+    rmSync(stateFile, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("g1. 新建文件（目标不存在）→ 直接放行，不要求先取证", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const listener = preExecuteListener({ warn: () => {}, statePath: stateFile });
+    assert.equal(existsSync(fresh), false, "前提：目标文件不存在");
+    const out = await listener({ name: "Write", arguments: { file_path: fresh } }, allowNext);
+    console.log("[g1] 新建文件:", JSON.stringify(out));
+    assert.equal(out.kind, "allow", "新建文件无目标可读 → 不得要求先取证（否则死锁）");
+  });
+
+  test("g2. 既有文件未取证 → 仍拒一次（避免盲写，原行为不变）", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const listener = preExecuteListener({ warn: () => {}, statePath: stateFile });
+    const out = await listener({ name: "Write", arguments: { file_path: existing } }, allowNext);
+    console.log("[g2] 既有文件未读:", JSON.stringify(out).slice(0, 130));
+    assert.equal(out.kind, "deny");
+    assert.match(out.reason, /卷宗无取证记录/);
+  });
+
+  test("g3. 既有文件：拒一次后重试放行（逃生通道仍在）", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const listener = preExecuteListener({ warn: () => {}, statePath: stateFile });
+    const out = await listener({ name: "Write", arguments: { file_path: existing } }, allowNext);
+    console.log("[g3] 同文件重试:", out.kind);
+    assert.equal(out.kind, "allow");
+  });
+
+  test("g4. 先 Read 取证后，既有文件首次即放行", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const listener = preExecuteListener({ warn: () => {}, statePath: stateFile });
+    const other = join(dir, "other.txt");
+    writeFileSync(other, "v1", "utf8");
+    const readOut = await listener({ name: "Read", arguments: { file_path: other } }, allowNext);
+    assert.equal(readOut.kind, "allow", "Read 属只读工具，第 3 层不适用");
+    const out = await listener({ name: "Write", arguments: { file_path: other } }, allowNext);
+    console.log("[g4] 取证后写入:", out.kind);
+    assert.equal(out.kind, "allow");
   });
 });

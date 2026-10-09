@@ -11,6 +11,7 @@
  */
 import { appendFileSync } from 'node:fs'
 import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
+import { redlineExempt } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
 import { AUDIT_FILE } from '../../dsh/audit.mjs'
@@ -25,8 +26,19 @@ export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 export function gatedReasonOf(tool, command = '') {
   const cmd = String(command ?? '')
   const hit = HIGH_RISK_TOOLS.find((r) => r.re.test(cmd))
-  if (hit) return hit.id
+  if (hit) {
+    // 3.0.7（HANDOFF §十一 缺陷 3）：与红线层 / 母版 L2 同口径。
+    // HIGH_RISK_TOOLS 只做文本匹配，无法区分「要执行的命令」与「被引用的命令字符串」，
+    // 于是引号内的危险数据虽已被红线层与母版 L2 豁免，却仍进门槛清单被闸直接 deny——
+    // 三方口径不一致。此处对命令型条目先问一次上下文豁免：豁免成立则不进门槛清单，
+    // 交回原有判定链（pipeline 文本层 → 硬校验 → 本闸 → 语义预判），由下游按正常语义裁决。
+    // 豁免不成立（裸危险命令、执行外壳包装）时行为不变，仍按门槛拦。
+    if (redlineExempt(cmd, hit)) return null
+    return hit.id
+  }
   const name = String(tool ?? '').toLowerCase()
+  // 注意：本支由 SYSTEM_PATH_RE 判定的**路径检查**，不是命令红线，不套命令豁免
+  //（豁免函数只对 HIGH_RISK_TOOLS 中的命令型条目有意义）。
   if (GATED_WRITE_TOOLS.some((t) => t.toLowerCase() === name) && SYSTEM_PATH_RE.test(cmd)) return 'write-system-path'
   return null
 }

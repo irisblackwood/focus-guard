@@ -184,6 +184,11 @@ export async function checkEligibility({
   // 第 3 层：资格（高危且本会话无授权 → needApproval；已有授权则继续）
   // 3.0.6 修正（HANDOFF §十 缺陷 4/5 + 安全项）：审批层**不可被画像关闭**（否则闸只剩授权表
   // 一道防线），故不再查 layerEnabled(profile,"3")；scope 是唯一可调维度。
+  // 3.0.7 判定（回应外部接手模型提问「L3 是否也该接 redlineExempt」）：**不接，是设计决策而非口径遗漏**。
+  //   闸（gateToolCall）与 L3 语义不同——
+  //   · 闸：「无授权即 deny」，无人类环节，所以它必须自判上下文豁免，否则引号内数据被直接拒绝；
+  //   · L3：「命中高危 → 转人工审批」，人类环节本身就是裁决，且人看得到完整命令。
+  //   若 L3 也接豁免，"数据形态的高危命令"会无人审批直接放行 —— 风险不对称，故保留转审批。
   {
     const scope = profileScope(profile);
     const risky = highRiskOf(command);

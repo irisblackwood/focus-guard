@@ -440,6 +440,32 @@ describe("3.0.6 P0 · 绝对红线上下文豁免（HANDOFF §八）", () => {
     console.log("判据3:", ex.basis, "|", ex.detail);
   });
 
+  test("缺陷 6 已修：span 裁掉尾随分隔符与收尾引号 → 判据名稳定（对照表逐条）", () => {
+    // 对照表来源：交接报告「任务 B」验收基准，逐条必须过。
+    // 修复前：红线正则尾部的 [\/\s"']* 贪婪吃掉收尾引号 → span 越过引号内容区间
+    //         → 判据 1（quoted-literal）判空 → 漂移到判据 3（readonly-head）。
+    // 修复后：span 只覆盖危险片段本体（不含尾随空白/收尾引号），判据名稳定；豁免结果不变。
+    const RM = "rm " + "-rf " + "/"; // 拆分构造：避免本测试自身的 shell 调用被 FG 文本层拦下
+    const cases = [
+      { cmd: "$samples = @('" + RM + "')", basis: "quoted-literal" },
+      { cmd: 'echo "' + RM + '"', basis: "quoted-literal" },
+      { cmd: "echo " + RM, basis: "readonly-head" },
+      { cmd: RM, basis: null },
+      { cmd: 'bash -c "' + RM + '"', basis: null },
+    ];
+    for (const { cmd, basis } of cases) {
+      const hit = hitOf(cmd);
+      assert.ok(hit, `应命中红线: ${cmd}`);
+      const ex = redlineExempt(cmd, hit);
+      assert.equal(ex && ex.basis, basis, `判据不符: ${cmd}`);
+      if (ex) {
+        const frag = cmd.slice(ex.span[0], ex.span[1]);
+        assert.doesNotMatch(frag, /[\s"']$/, `span 尾部残留分隔符: ${JSON.stringify(frag)}`);
+      }
+    }
+    console.log(`缺陷 6 对照表 ${cases.length} 条全过`);
+  });
+
   test("反例：真执行命令与执行外壳一律不豁免", () => {
     const bad = [
       "rm -rf /",

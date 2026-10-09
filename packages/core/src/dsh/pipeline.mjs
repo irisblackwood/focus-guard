@@ -15,7 +15,7 @@ import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
 import { redlineExempt } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
-import { statSync, readFileSync, readdirSync } from 'node:fs'
+import { statSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -273,11 +273,16 @@ function layer3Check(exec, warn, statePathOverride) {
   if (EVIDENCE_GATE.effective) {
     const fp = pathOfTool(exec && exec.arguments)
     if (fp) {
+      const key = String(fp)
       const known =
-        nativeReadSet.has(String(fp)) ||
-        (state.readSet && typeof state.readSet === 'object' && Object.hasOwn(state.readSet, String(fp)))
-      if (!known && !evidenceBlockedOnce.has(String(fp))) {
-        evidenceBlockedOnce.add(String(fp))
+        nativeReadSet.has(key) ||
+        (state.readSet && typeof state.readSet === 'object' && Object.hasOwn(state.readSet, key))
+      // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
+      // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
+      // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
+      // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
+      if (!known && existsSync(key) && !evidenceBlockedOnce.has(key)) {
+        evidenceBlockedOnce.add(key)
         return {
           kind: 'deny',
           reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
