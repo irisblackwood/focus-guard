@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// focus-guard 护栏脚本 v3.0.4 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
+// focus-guard 护栏脚本 v3.0.4【已封存·版本独立，不随 FG 主版本更新；见 HANDOFF §九】 — 卷宗体系（总纲 2.0.0）+ 《AI 履职执法模型 v3.0》+ 动态预算 + 协作治理（总纲 3.0.0）
 // v3.0.0 增补：①因果链留痕（audit 带 seq/chain/ref，tools/audit-chain.mjs 渲染因果图）②KPI 兑现闭环
 //   （收尾结算等次→委托池奖惩，二十七~三十二条部分机械化）③静态知识图书馆隔离（.ai/library/ 积木区
 //   只读、便签只进 inbox/，读不占卷宗【三】）④本地哨兵（FG_SENTINEL=1 启用 tools/sentinel.mjs 离线预判，

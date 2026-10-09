@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 
 /** 每次改动本文件递增；用于磁盘/内存版本一致性提示 */
-const PIPELINE_VERSION = '3.0.5-m1'
+const PIPELINE_VERSION = '3.0.6-m1'
 
 /**
  * 运行实例的"内存版本时间戳"：模块加载（DSH 启动）时采一次。

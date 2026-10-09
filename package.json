@@ -1,6 +1,6 @@
 {
   "name": "focus-guard-monorepo",
-  "version": "3.0.4",
+  "version": "3.0.6",
   "private": true,
   "description": "FocusGuard 聚焦护栏 monorepo：packages/core（focus-guard，零依赖范本）+ packages/extended（focus-guard-extended，外接三件套衍生包）。下载核心包永不拉取扩展依赖。",
   "workspaces": [

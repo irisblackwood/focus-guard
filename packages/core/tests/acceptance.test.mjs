@@ -1252,13 +1252,21 @@ describe("工程自检（防版本与文档漂移）", () => {
   // 测试位于 packages/core/tests/：ROOT 相对测试文件上溯三级到仓库根，调用方传 "../x" 形式时剥掉前缀
   const ROOT = (p) => fileURLToPath(new URL("../../../" + p.replace(/^\.\.\//, ""), import.meta.url));
 
-  test("版本一致性：五处清单 + ENGINE_VERSION + 引擎头注释完全相同", () => {
+  test("版本一致性：五处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
     const guard = readFileSync(GUARD, "utf8");
     const consts = readFileSync(CONSTANTS, "utf8");
     const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
-    const header = (guard.match(/focus-guard 护栏脚本 v(\d+\.\d+\.\d+)/) || [])[1];
     assert.ok(engine, "未找到 ENGINE_VERSION");
-    assert.equal(header, engine, "引擎头注释版本与 ENGINE_VERSION 漂移");
+    // 2026-10-09：guard.mjs 为封存的 ZCode 兼容层，版本号独立（不随 FG 主版本更新）。
+    // 原断言要求「头注释 == ENGINE_VERSION」，与封存决策直接冲突，故改为锁定「封存标注存在」——
+    // 保护不丢（封存状态一旦被静默取消即失败），只是不再要求两者版本相等。
+    const header = (guard.match(/focus-guard 护栏脚本 v(\d+\.\d+\.\d+)/) || [])[1];
+    assert.ok(header, "引擎头注释须保留版本号");
+    assert.match(
+      guard,
+      /【已封存·版本独立，不随 FG 主版本更新/,
+      "guard.mjs 头注释须带封存标注（防止封存状态被静默取消）",
+    );
     const manifests = [
       "../package.json",
       "../marketplace.json",
@@ -1270,6 +1278,37 @@ describe("工程自检（防版本与文档漂移）", () => {
       const j = JSON.parse(readFileSync(ROOT(rel), "utf8"));
       const v = j.version || (j.plugins && j.plugins[0] && j.plugins[0].version);
       assert.equal(v, engine, `${rel} 版本与引擎 ${engine} 不一致`);
+    }
+  });
+
+  test("版本追赶：六处版本号 == CHANGELOG 最新条目版本（防「一致地落后」）", () => {
+    // 缺口背景：原「版本一致性」用例只校验六处彼此相等，不校验是否跟上 CHANGELOG，
+    // 于是 3.0.5/3.0.6 已落地而六处齐刷刷停在 3.0.4 时测试全绿、漂移藏了整轮。
+    const consts = readFileSync(CONSTANTS, "utf8");
+    const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
+    const changelog = readFileSync(ROOT("../CHANGELOG.md"), "utf8");
+    const versions = [...changelog.matchAll(/^## (\d+\.\d+\.\d+) · /gm)].map((m) => m[1]);
+    assert.ok(versions.length > 0, "CHANGELOG 未找到版本条目（形如 ## X.Y.Z · 标题）");
+    const cmp = (a, b) => {
+      const pa = a.split(".").map(Number);
+      const pb = b.split(".").map(Number);
+      for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+      return 0;
+    };
+    const latest = versions.slice().sort(cmp).pop();
+    console.log(`CHANGELOG 条目: ${versions.join(" / ")} → 最新 ${latest}；ENGINE_VERSION ${engine}`);
+    assert.equal(engine, latest, `版本落后：ENGINE_VERSION ${engine} ≠ CHANGELOG 最新 ${latest}`);
+    const manifests = [
+      "../package.json",
+      "../marketplace.json",
+      "../.zcode-plugin/plugin.json",
+      "../.claude-plugin/plugin.json",
+      "../.claude-plugin/marketplace.json",
+    ];
+    for (const rel of manifests) {
+      const j = JSON.parse(readFileSync(ROOT(rel), "utf8"));
+      const v = j.version || (j.plugins && j.plugins[0] && j.plugins[0].version);
+      assert.equal(v, latest, `${rel} 版本 ${v} ≠ CHANGELOG 最新 ${latest}`);
     }
   });
 
