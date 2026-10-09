@@ -11,7 +11,8 @@
  *   - dsh-hooks-claude-code/lib/index.js:255-258  deny 形状 {kind:"deny", reason}；
  *   - dsh-tools/lib/index.js:3504  post-execute 三参瀑布 (exec, result, next)。
  */
-import { auditDeny, appendCostRow } from './audit.mjs'
+import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
+import { redlineExempt } from '../core/redlines.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -348,11 +349,23 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       if (cmd) {
         const redline = redlineOf(cmd)
         if (redline) {
-          warn(`已拦截绝对红线（${redline.name}）：`, cmd.slice(0, 120))
-          auditDeny(exec, cmd)
-          return {
-            kind: 'deny',
-            reason: `focus-guard-native: 命中绝对红线「${redline.name}」，直接拒绝（不弹审批）；如确需执行请说明理由后人工处理`,
+          // 3.0.6 P0：上下文豁免——命中片段是被引用的命令字符串（数据）而非要执行的命令。
+          // 纪律：豁免只降级到第 2 层语义预判，绝不直接放行；判据写审计（HANDOFF §八）。
+          const exempt = redlineExempt(cmd, redline)
+          if (exempt) {
+            warn(`红线上下文豁免（${exempt.basis}）：`, `${redline.name} — ${exempt.detail}`)
+            auditRedlineExempt(exec, cmd, {
+              redline: redline.name,
+              basis: exempt.basis,
+              detail: exempt.detail,
+            })
+          } else {
+            warn(`已拦截绝对红线（${redline.name}）：`, cmd.slice(0, 120))
+            auditDeny(exec, cmd)
+            return {
+              kind: 'deny',
+              reason: `focus-guard-native: 命中绝对红线「${redline.name}」，直接拒绝（不弹审批）；如确需执行请说明理由后人工处理`,
+            }
           }
         }
       }

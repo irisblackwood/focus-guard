@@ -43,6 +43,32 @@ export function auditDeny(exec, cmd) {
   }
 }
 
+/**
+ * 红线上下文豁免留痕（3.0.6 P0，HANDOFF §八）。
+ * 命中绝对红线但被判为"被引用的命令字符串"而豁免时调用——豁免不是静默放行，必须可审计。
+ */
+export function auditRedlineExempt(exec, cmd, detail = {}) {
+  try {
+    appendFileSync(
+      process.env.FG_AUDIT_FILE || AUDIT_FILE,
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        session:
+          (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) ||
+          'dsh-native',
+        action: 'redline-exempt',
+        trigger: detail.redline || 'absolute-redline',
+        level: null,
+        basis: detail.basis || null,
+        evidence: `${detail.detail || ''} | ${String(cmd).slice(0, 120)}`.slice(0, 300),
+        pardon: false,
+      }) + '\n',
+    )
+  } catch (error) {
+    console.warn('[focus-guard-native] 红线豁免留痕失败（不阻断放行）:', (error && error.message) || error)
+  }
+}
+
 const COST_MARK = '【五】成本台账'
 
 /** 成本台账落卷：卷宗无该章节则先补表头，再逐行追加；失败只 warn 不阻塞 */

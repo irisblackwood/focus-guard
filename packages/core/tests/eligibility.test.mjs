@@ -15,6 +15,10 @@ import {
   RISK_ASK_THRESHOLD,
 } from "../src/core/checkEligibility.mjs";
 import { createGrantTable, TTL_KINDS } from "../src/core/grants.mjs";
+import { redlineExempt } from "../src/core/redlines.mjs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { readFileSync, rmSync } from "node:fs";
 
 // 复刻适配层 ABSOLUTE_REDLINES 的形状（母版测试不反向依赖适配层）
 const REDLINES = [
@@ -395,5 +399,92 @@ describe("第二步 · 双入口闭环（fg_apply 授权 + pre-execute 闸）", 
     assert.equal(g.gateToolCall({ session: "z", tool: "Bash", command: "ls -la" }).kind, "pass");
     assert.equal(g.gatedReasonOf("Write", "C:\\Windows\\System32\\drivers\\etc\\hosts"), "write-system-path");
     assert.equal(g.gateToolCall({ session: "z", tool: "Write", command: "C:\\Windows\\x.txt" }).kind, "deny");
+  });
+});
+
+describe("3.0.6 P0 · 绝对红线上下文豁免（HANDOFF §八）", () => {
+  const RL = [
+    { name: "rm-rf-root", re: /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\s+["']?[\/~][\/\s"']*(?=\s|["']|$)/ },
+    { name: "drop-database", re: /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i },
+    { name: "git-push-force", re: /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i },
+  ];
+  const hitOf = (c) => RL.find((r) => r.re.test(c)) || null;
+
+  test("判据1：命中片段落在引号字面量内 → 豁免（quoted-literal）", () => {
+    const c = "$samples = @('rm -rf /', 'ls -la')";
+    const hit = hitOf(c);
+    assert.ok(hit, "应命中 rm-rf-root");
+    const ex = redlineExempt(c, hit);
+    assert.ok(ex, "引号内字面量应豁免");
+    assert.equal(ex.basis, "quoted-literal");
+    console.log("判据1:", ex.basis, "|", ex.detail);
+  });
+
+  test("判据2：片段前有数据标记且命令非变更类 → 豁免（data-marker）", () => {
+    const c = "Select-String notes.md 示例：drop database";
+    const hit = hitOf(c);
+    assert.ok(hit, "应命中 drop-database");
+    const ex = redlineExempt(c, hit);
+    assert.ok(ex, "数据标记 + 非变更命令应豁免");
+    assert.equal(ex.basis, "data-marker");
+    console.log("判据2:", ex.basis, "|", ex.detail);
+  });
+
+  test("判据3：只读输出命令 → 豁免（readonly-head）", () => {
+    const c = "echo rm -rf /";
+    const hit = hitOf(c);
+    assert.ok(hit, "应命中 rm-rf-root");
+    const ex = redlineExempt(c, hit);
+    assert.ok(ex, "只读输出命令应豁免");
+    assert.equal(ex.basis, "readonly-head");
+    console.log("判据3:", ex.basis, "|", ex.detail);
+  });
+
+  test("反例：真执行命令与执行外壳一律不豁免", () => {
+    const bad = [
+      "rm -rf /",
+      "git push -f origin main",
+      "DROP DATABASE prod;",
+      'bash -c "rm -rf /"',
+      "sh -c 'git push -f origin main'",
+      "node -e \"require('child_process').execSync('rm -rf /')\"",
+      "python -c \"import os; os.system('rm -rf /')\"",
+      'eval "rm -rf /"',
+    ];
+    for (const c of bad) {
+      const hit = hitOf(c);
+      assert.ok(hit, `反例应命中红线: ${c}`);
+      assert.equal(redlineExempt(c, hit), null, `不得豁免: ${c}`);
+    }
+    console.log(`反例 ${bad.length} 条全部正确拒绝豁免`);
+  });
+
+  test("未命中红线或空参时不误报豁免", () => {
+    assert.equal(hitOf("ls -la"), null);
+    assert.equal(redlineExempt("ls -la", null), null);
+    assert.equal(redlineExempt("", RL[0]), null);
+  });
+
+  test("验收③：豁免写 redline-exempt 审计（重定向 tmpdir，不碰真实审计）", async () => {
+    const { auditRedlineExempt } = await import("../src/dsh/audit.mjs");
+    const tmp = join(tmpdir(), `fg-exempt-${Date.now()}.log`);
+    process.env.FG_AUDIT_FILE = tmp;
+    try {
+      auditRedlineExempt({ sessionId: "test-session" }, "$samples = @('rm -rf /')", {
+        redline: "rm-rf-root",
+        basis: "quoted-literal",
+        detail: "命中片段位于引号字面量内",
+      });
+      const line = JSON.parse(readFileSync(tmp, "utf8").trim());
+      assert.equal(line.action, "redline-exempt");
+      assert.equal(line.basis, "quoted-literal");
+      assert.equal(line.trigger, "rm-rf-root");
+      assert.equal(line.session, "test-session");
+      assert.match(line.evidence, /引号字面量/);
+      console.log("审计行:", JSON.stringify(line).slice(0, 190));
+    } finally {
+      delete process.env.FG_AUDIT_FILE;
+      rmSync(tmp, { force: true });
+    }
   });
 });

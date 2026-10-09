@@ -113,3 +113,107 @@ export function isDangerousCmd(cmd) {
   if (gitHighRisk(c)) return true;
   return DANGEROUS_PATTERNS.test(c) || sqlNowhere(c) || CURL_DATA_RE.test(c);
 }
+
+// ───────── 3.0.6 P0 · 绝对红线的上下文豁免（HANDOFF §八 立项）─────────
+// 问题：绝对红线在**文本层**匹配，无法区分「要执行的命令」与「被引用的命令字符串」。
+//   后者是把危险命令当数据——写回归测试、构造安全评测集、引用文献、教学示例——
+//   却会被直接拒绝，护栏因此在伤害它自己的开发。
+// 纪律：豁免只把裁决**降级到第 2 层语义预判**，绝不直接放行；豁免判据必须可审计
+//   （AUDIT.log 记 redline-exempt + 判据名 + 命中片段）。
+// 安全前提（§八 未列、但缺了就是绕过通道）：内容落在引号内**不足以**豁免——
+//   `bash -c "rm -rf /"`、`node -e "...execSync('rm -rf /')"` 的危险内容同样在引号里，
+//   那是真执行。故凡检出执行外壳（shell -c / eval / iex / 解释器 -e|-c 等）一律不豁免。
+//   （解释器一并排除，口径与 R5-3 解释器黑名单一致。）
+
+/** 执行外壳：会把引号内字符串真正执行掉的写法。命中即不得豁免。 */
+export const SHELL_EXEC_WRAPPER_RE =
+  /(?:\b(?:ba|z|k|da|a)?sh\s+-[a-z]*c\b|\b(?:pwsh|powershell)(?:\.exe)?\s+[^|;]*-(?:[a-z]*c|Command)\b|\bcmd(?:\.exe)?\s+\/[ck]\b|\beval\b|\bexec\b|\biex\b|Invoke-Expression|\b(?:node|deno|bun)\s+(?:-e|--eval)\b|\bpython[0-9.]*\s+-c\b|\b(?:perl|ruby|php)\s+-[er]\b)/i;
+
+/** 数据用途标记：命中片段之前出现，表明内容是"被引用的数据"。 */
+export const DATA_MARKER_RES = [
+  /示例[：:]/,
+  /例如[：:]/,
+  /测试数据/,
+  /\btest\s+data\b/i,
+  /\bprompt\s*[:=]/i,
+  /【假设】/,
+  /```/,
+];
+
+/** 只读输出命令：首 token 属此类时，命令本身不产生变更。 */
+export const READONLY_HEAD_RE =
+  /^(?:echo|printf|Write-Output|Write-Host|Write-Verbose|Out-String|Out-Host|Out-File\s+[^|;]*-WhatIf|Get-Content|type|cat|Select-String|findstr)\b/i;
+
+/** 列出字符串中被引号包裹的内容区间 [start, end)。处理反斜杠转义。 */
+export function quotedSpans(s) {
+  const spans = [];
+  const str = String(s || "");
+  let i = 0;
+  while (i < str.length) {
+    const ch = str[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      const start = i + 1;
+      i += 1;
+      while (i < str.length) {
+        if (str[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (str[i] === quote) break;
+        i += 1;
+      }
+      spans.push([start, i]);
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return spans;
+}
+
+/**
+ * 红线上下文豁免判定。
+ * @param {string} cmd 待检命令原文
+ * @param {{name: string, re: RegExp}} hit 命中的红线条目
+ * @returns {{basis: string, detail: string, span: number[]}|null} 豁免依据；不豁免返回 null
+ */
+export function redlineExempt(cmd, hit) {
+  const c = String(cmd || "");
+  if (!c || !hit || !(hit.re instanceof RegExp)) return null;
+  const m = hit.re.exec(c);
+  if (!m) return null;
+  const span = [m.index, m.index + m[0].length];
+
+  // 安全前提：执行外壳一律不豁免（引号内也能被真正执行）
+  if (SHELL_EXEC_WRAPPER_RE.test(c)) return null;
+
+  // 判据 1：命中片段完整落在某个引号字面量内 → 内容是字符串数据
+  const inside = quotedSpans(c).find(([s, e]) => s <= span[0] && span[1] <= e);
+  if (inside) {
+    return {
+      basis: "quoted-literal",
+      detail: `命中片段位于引号字面量内 [${inside[0]},${inside[1]})`,
+      span,
+    };
+  }
+
+  // 判据 2：命中片段之前有显式数据标记，且命令本身非变更类
+  const before = c.slice(0, m.index);
+  const marker = DATA_MARKER_RES.find((re) => re.test(before));
+  if (marker && !isMutatingBashCmd(c)) {
+    return { basis: "data-marker", detail: `片段前有数据标记 ${String(marker)}，且命令非变更类`, span };
+  }
+
+  // 判据 3：首 token 是只读输出命令
+  const head = c.trim().replace(CMD_PREFIX_RE, "").trim();
+  if (READONLY_HEAD_RE.test(head)) {
+    return { basis: "readonly-head", detail: `只读输出命令：${head.split(/\s+/)[0]}`, span };
+  }
+
+  return null;
+}
