@@ -488,3 +488,98 @@ describe("3.0.6 P0 · 绝对红线上下文豁免（HANDOFF §八）", () => {
     }
   });
 });
+
+describe("3.0.7 · 误伤申辩（司法救济通道）", () => {
+  const load = () => import("../src/adapters/dsh/eligibility-gate.mjs");
+  const RM_ROOT = "rm -rf " + "/"; // 拆分构造：避免本测试自身的 shell 调用被 FG 拦截
+
+  test("表单不完整 → deny（tool / reason 必填）", async () => {
+    const g = await load();
+    const r = await g.appealAsk({ sessionId: "ap-1", arguments: { tool: "Bash" } }, () => {});
+    assert.equal(r.kind, "deny");
+    assert.match(r.reason, /表单不完整/);
+    console.log("表单校验:", r.reason.slice(0, 90));
+  });
+
+  test("完整申辩 → 产出 ask，理由含反例锚点与申辩指引", async () => {
+    const g = await load();
+    const r = await g.appealAsk(
+      {
+        sessionId: "ap-2",
+        arguments: {
+          tool: "Bash",
+          command: RM_ROOT,
+          reason: "该片段是喂给本地模型的测试数据，不是要执行的命令",
+          counterExample: "tests/eligibility.test.mjs:412",
+        },
+      },
+      () => {},
+    );
+    assert.equal(r.kind, "ask", "申辩须转成 ask 交人类裁决");
+    assert.match(r.reason, /误判申辩/);
+    assert.match(r.reason, /反例锚点/);
+    assert.match(r.reason, /tests\/eligibility\.test\.mjs:412/);
+    assert.match(r.reason, /批准/);
+    console.log("ask 产出:", r.reason.replace(/\n/g, " | ").slice(0, 160));
+  });
+
+  test("获批后双记：工具授权 + 红线凭据，红线层可查到", async () => {
+    const g = await load();
+    g.resetGrants("ap-3");
+    const { entry, redline } = await g.grantFromAppeal({ session: "ap-3", tool: "Bash", command: RM_ROOT });
+    assert.equal(entry.ttl, "turn");
+    assert.equal(redline, "rm-rf-root", "应识别出命中的红线名");
+    assert.equal(g.grantsFor("ap-3").has("Bash"), true, "工具授权应生效");
+    assert.equal(await g.hasRedlineGrant({ sessionId: "ap-3" }, "rm-rf-root"), true, "红线凭据应可查到");
+    console.log("双记:", JSON.stringify({ ttl: entry.ttl, redline }));
+    g.resetGrants("ap-3");
+  });
+
+  test("回收后凭据失效（hasRedlineGrant=false，资格闸重新拦截）", async () => {
+    const g = await load();
+    g.resetGrants("ap-4");
+    await g.grantFromAppeal({ session: "ap-4", tool: "Bash", command: RM_ROOT });
+    assert.equal(await g.hasRedlineGrant({ sessionId: "ap-4" }, "rm-rf-root"), true);
+    g.resetGrants("ap-4");
+    assert.equal(await g.hasRedlineGrant({ sessionId: "ap-4" }, "rm-rf-root"), false, "回收后凭据须失效");
+    assert.equal(g.gateToolCall({ session: "ap-4", tool: "Bash", command: "npm publish" }).kind, "deny");
+  });
+
+  test("会话隔离：A 会话的申辩凭据不惠及 B 会话", async () => {
+    const g = await load();
+    g.resetGrants("ap-a");
+    g.resetGrants("ap-b");
+    await g.grantFromAppeal({ session: "ap-a", tool: "Bash", command: RM_ROOT });
+    assert.equal(await g.hasRedlineGrant({ sessionId: "ap-a" }, "rm-rf-root"), true);
+    assert.equal(await g.hasRedlineGrant({ sessionId: "ap-b" }, "rm-rf-root"), false);
+    g.resetGrants("ap-a");
+    g.resetGrants("ap-b");
+  });
+
+  test("申辩审计：filed / granted 留痕（tmpdir 重定向）", async () => {
+    const g = await load();
+    const tmp = join(tmpdir(), `fg-appeal-${Date.now()}.log`);
+    process.env.FG_AUDIT_FILE = tmp;
+    try {
+      await g.appealAsk(
+        {
+          sessionId: "ap-5",
+          arguments: { tool: "Bash", command: RM_ROOT, reason: "误伤", counterExample: "x.mjs:1" },
+        },
+        () => {},
+      );
+      await g.grantFromAppeal({ session: "ap-5", tool: "Bash", command: RM_ROOT });
+      const rows = readFileSync(tmp, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      const actions = rows.map((r) => r.action);
+      assert.ok(actions.includes("appeal-filed"), "须记 appeal-filed");
+      assert.ok(actions.includes("appeal-granted"), "须记 appeal-granted");
+      const filed = rows.find((r) => r.action === "appeal-filed");
+      assert.equal(filed.decision, "needApproval");
+      assert.match(filed.evidence, /反例锚点/);
+      console.log("审计 actions:", actions.join(" → "));
+    } finally {
+      delete process.env.FG_AUDIT_FILE;
+      rmSync(tmp, { force: true });
+    }
+  });
+});

@@ -140,3 +140,139 @@ export const FG_APPLY_TOOL_SPEC = {
     target: { type: 'string', required: false, description: '目标路径（改动类可选，供第 4 层取证比对）' },
   },
 }
+
+// ═══════════ 3.0.7 · 误伤申辩（司法救济通道）═══════════
+// 缺口背景（外部审计指出、并经逐字复核成立）：原体系只有"立法救济"（事后改规则），
+// 没有"司法救济"（个案当场申辩）。HANDOFF §八 的红线误伤即实证——被拦后AI无程序可走，
+// 只能绕过（[char]47 拼接）或等修法（3.0.6 上下文豁免），成本差两个数量级。
+// 本机制复用既有审批骨架：申辩 → {kind:"ask"} → 人类一次性裁决 → 留痕。
+// 注意：第八十三条(三) 原写"拦截申诉…仍走第十二章"，而第十二章是【反规避与纪律审查】（处罚章），
+// 属条文错配——本机制即为该错配补上的实体程序。
+
+/** 红线豁免凭据的授权键前缀：申辩获批后按 `redline:<名称>` 记账，供 pipeline 红线层查询。 */
+export const REDLINE_GRANT_PREFIX = 'redline:'
+
+/** 取会话标识（与 audit.mjs 的 auditDeny 口径一致）。 */
+function sessionOf(exec) {
+  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+}
+
+/**
+ * 查该红线是否已有"申辩获批"凭据（3.0.7）。
+ * pipeline 红线层在上下文豁免判据之外追加查这一道。
+ * @returns {Promise<boolean>}
+ */
+export async function hasRedlineGrant(exec, redlineName) {
+  if (!redlineName) return false
+  return grantsFor(sessionOf(exec)).has(`${REDLINE_GRANT_PREFIX}${redlineName}`)
+}
+
+/**
+ * 申辩入口（3.0.7）：把 fg_appeal 的这次调用转成 `{kind:"ask"}`，交 DSH approval seam 由人类裁决。
+ * 由 pipeline 在**所有闸之前**调用——申辩参数携带被拦命令原文，走后续闸会被同一规则再拦一次。
+ * @returns {Promise<{kind:"ask", reason:string}|{kind:"deny", reason:string}|null>}
+ */
+export async function appealAsk(exec, warn) {
+  const args = (exec && exec.arguments) || {}
+  const target = String(args.tool ?? '').trim()
+  const blocked = String(args.command ?? '')
+  const counterExample = String(args.counterExample ?? '').trim()
+  const reason = String(args.reason ?? '').trim()
+  const session = sessionOf(exec)
+
+  if (!target || !reason) {
+    const msg = '申辩表单不完整：tool 与 reason 必填；建议附 counterExample 反例锚点（文件:行号 或原文引用）'
+    auditEligibility({
+      session,
+      action: 'appeal-denied',
+      tool: target || '(missing)',
+      command: blocked.slice(0, 120),
+      layer: 'appeal',
+      decision: 'deny',
+      modelSignal: null,
+      evidence: msg,
+    })
+    if (typeof warn === 'function') warn('申辩表单不完整：', msg)
+    return { kind: 'deny', reason: `focus-guard-native: ${msg}` }
+  }
+
+  auditEligibility({
+    session,
+    action: 'appeal-filed',
+    tool: target,
+    command: blocked.slice(0, 120),
+    layer: 'appeal',
+    decision: 'needApproval',
+    modelSignal: null,
+    evidence: `反例锚点：${counterExample.slice(0, 200) || '(未提供)'} | 理由：${reason.slice(0, 200)}`,
+  })
+  if (typeof warn === 'function') warn('申辩已提交人类裁决：', `${target} ${blocked.slice(0, 80)}`)
+
+  return {
+    kind: 'ask',
+    reason:
+      `focus-guard-native:【误判申辩】\n` +
+      `工具：${target}\n` +
+      `被拦命令：${blocked.slice(0, 200) || '(未提供)'}\n` +
+      `反例锚点：${counterExample.slice(0, 300) || '(未提供)'}\n` +
+      `理由：${reason.slice(0, 300)}\n\n` +
+      `批准 → 为该工具开通一次授权（ttl=turn），并豁免本次命中的红线；拒绝 → 维持拦截。`,
+  }
+}
+
+/**
+ * 申辩获批后的授予（3.0.7）：由 fg_appeal 的执行体调用（人类批准后才轮到 execute 运行）。
+ * 同时记"工具授权"与"红线凭据"，使原被拦命令的下次调用能过红线层与资格闸。
+ */
+export async function grantFromAppeal({ session, tool, command = '' } = {}) {
+  const grants = grantsFor(session)
+  const entry = grants.grant(String(tool), {
+    ttl: 'turn',
+    reason: `申辩获批：${String(command).slice(0, 80)}`,
+  })
+  let redline = null
+  try {
+    // 路径相对本文件（src/adapters/dsh/）：上溯两级到 src/，再进 dsh/
+    const { ABSOLUTE_REDLINES } = await import('../../dsh/pipeline.mjs')
+    const hit = (ABSOLUTE_REDLINES || []).find((r) => r && r.re && r.re.test(String(command)))
+    if (hit) {
+      grants.grant(`${REDLINE_GRANT_PREFIX}${hit.name}`, { ttl: 'turn', reason: '申辩获批红线豁免' })
+      redline = hit.name
+    }
+  } catch (error) {
+    // 不静默：红线凭据拿不到时工具授权仍生效，但必须留痕（对齐 2.5.1「假留痕防线」）
+    console.warn(
+      '[focus-guard-native] 申辩红线凭据授予失败（工具授权仍生效）:',
+      (error && error.message) || error,
+    )
+    redline = null
+  }
+  auditEligibility({
+    session,
+    action: 'appeal-granted',
+    tool,
+    command: String(command).slice(0, 120),
+    layer: 'appeal',
+    decision: 'allow',
+    modelSignal: null,
+    evidence: `获批授权 ttl=${entry.ttl}${redline ? `；红线豁免：${redline}` : ''}`,
+  })
+  return { entry, redline }
+}
+
+/** fg_appeal 的工具注册规格（与 fg_apply 同构；执行体只在人类批准后运行）。 */
+export const FG_APPEAL_TOOL_SPEC = {
+  name: 'fg_appeal',
+  description:
+    '对被 FocusGuard 拦截的命令提出【误判申辩】。仅当认为拦截属误伤时使用（例如被引用的危险命令字符串被当成了要执行的命令）。须给出 reason，并尽量附 counterExample 反例锚点（文件:行号 或原文引用）。提交后由人类一次性裁决：批准则开通该工具一次授权并豁免对应红线，拒绝则维持拦截。',
+  parameters: {
+    tool: { type: 'string', required: true, description: '被拦的工具名，如 Bash / Write' },
+    command: { type: 'string', required: true, description: '被拦的命令或操作原文' },
+    reason: { type: 'string', required: true, description: '申辩理由（必填，不得空白）' },
+    counterExample: {
+      type: 'string',
+      required: false,
+      description: '反例锚点：证明该片段只是数据的证据，如 文件:行号 或原文引用',
+    },
+  },
+}

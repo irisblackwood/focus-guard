@@ -336,6 +336,21 @@ export function hardCheck(cmd, map, warn) {
 export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION, statePath } = {}) {
   return async (exec, next) => {
     rememberReads(exec)
+
+    // ===== 3.0.7：误伤申辩入口（必须最先处理）=====
+    // 申辩参数必然携带被拦的危险命令原文，若走后续红线/资格闸会被同一规则再拦一次（死循环）。
+    // DSH 契约：返回 {kind:"ask"} 经 approval seam 交人类一次性裁决（dsh-tools/lib/index.js:3226）。
+    // 这是"司法救济"通道——个案当场申辩，不必等修法（见 RULES 第八十三条(四)）。
+    if (String((exec && exec.name) || '') === 'fg_appeal') {
+      try {
+        const { appealAsk } = await import('../adapters/dsh/eligibility-gate.mjs')
+        const ask = await appealAsk(exec, warn)
+        if (ask) return ask
+      } catch (error) {
+        warn('申辩处理异常，fail-open 放行：', (error && error.message) || error)
+      }
+    }
+
     const layer3 = layer3Check(exec, warn, statePath)
     if (layer3) {
       auditDeny(exec, layer3.reason)
@@ -350,21 +365,30 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         const redline = redlineOf(cmd)
         if (redline) {
           // 3.0.6 P0：上下文豁免——命中片段是被引用的命令字符串（数据）而非要执行的命令。
-          // 纪律：豁免只降级到第 2 层语义预判，绝不直接放行；判据写审计（HANDOFF §八）。
+          // 3.0.7 追加：申辩获批凭据——人类就该红线的某次申辩批准后，本会话内放行该红线。
           const exempt = redlineExempt(cmd, redline)
-          if (exempt) {
-            warn(`红线上下文豁免（${exempt.basis}）：`, `${redline.name} — ${exempt.detail}`)
-            auditRedlineExempt(exec, cmd, {
-              redline: redline.name,
-              basis: exempt.basis,
-              detail: exempt.detail,
-            })
+          let granted = null
+          if (!exempt) {
+            try {
+              const { hasRedlineGrant } = await import('../adapters/dsh/eligibility-gate.mjs')
+              granted = await hasRedlineGrant(exec, redline.name)
+            } catch {
+              granted = null
+            }
+          }
+          if (exempt || granted) {
+            const basis = exempt ? exempt.basis : 'appeal-granted'
+            const detail = exempt ? exempt.detail : `申辩获批凭据（红线 ${redline.name}）`
+            warn(`红线放行（${basis}）：`, `${redline.name} — ${detail}`)
+            auditRedlineExempt(exec, cmd, { redline: redline.name, basis, detail })
           } else {
             warn(`已拦截绝对红线（${redline.name}）：`, cmd.slice(0, 120))
             auditDeny(exec, cmd)
             return {
               kind: 'deny',
-              reason: `focus-guard-native: 命中绝对红线「${redline.name}」，直接拒绝（不弹审批）；如确需执行请说明理由后人工处理`,
+              reason:
+                `focus-guard-native: 命中绝对红线「${redline.name}」，直接拒绝（不弹审批）。` +
+                `如认为误判（例如危险片段只是被引用的数据），调用 fg_appeal 提交反例锚点（文件:行号或原文引用），由人类一次性裁决。`,
             }
           }
         }
