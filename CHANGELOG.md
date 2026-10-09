@@ -4,6 +4,20 @@
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`）
 > 及引擎 `ENGINE_VERSION`、引擎头注释完全一致——该一致性由验收用例锁定。
 
+## 勘误 · 历史 commit message 的行数口径（2026-10-09）
+
+三条 `refactor(core)` 提交的 message 中，`guard.mjs` 行数与实际不符。**不改写历史**（不 force push），正确数字以下表为准：
+
+| commit | message 声称 | 实际 | 差额 |
+|---|---|---|---|
+| `1f630c8` | 159 | **1707** | +1548（来源不明，疑为误抄） |
+| `3aaf56d` | 1228 | **1348** | +120（≈ 该文件空行数） |
+| `71199e7` | 1042 | **1142** | +100（≈ 该文件空行数） |
+
+实测口径：已提交版本 `git grep -c '' <commit> -- packages/core/hooks/guard.mjs`；工作区版本 `(Get-Content <file>).Count`。父提交链 `1893 → 1707 → 1348 → 1142` 与三次拆分的 `git diff --numstat` 互相印证。
+
+后两条差额与空行数吻合，说明当时用了**不数空行**的计数方式（如 `Measure-Object -Line`）。故立口径纪律：**`Measure-Object -Line` 禁止用于行数报告**（它漏数空行），一律用 `git grep -c ''`（已提交）或 `(Get-Content).Count`（工作区），改动量引用 `git diff --numstat`。
+
 ## 3.0.4 · 双包 monorepo 与中心蜂群强化
 
 - feat: 仓库重构为 npm monorepo——`packages/core`（`focus-guard`，零依赖范本包）+ `packages/extended`（`focus-guard-extended`，依赖 core，承载外接三件套）；`npm install focus-guard` 只下载核心，永不拉取扩展依赖。
