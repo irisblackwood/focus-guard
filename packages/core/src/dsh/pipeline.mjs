@@ -13,6 +13,7 @@
  */
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
 import { redlineExempt } from '../core/redlines.mjs'
+import { loadProfile } from '../core/profileLoader.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -333,6 +334,19 @@ export function hardCheck(cmd, map, warn) {
   return null
 }
 
+/**
+ * 从 exec 提取模型标识（最后一公里）。
+ * 取值顺序与 postExecuteListener 的成本行模型同源（exec.agent.model / modelId / exec.model），
+ * 另加 FG_MODEL_ID 作显式兜底。取不到时返回 null → 画像为 null → 闸按最严 mutating（安全默认）。
+ */
+function modelIdOf(exec) {
+  return (
+    (exec && ((exec.agent && (exec.agent.model || exec.agent.modelId)) || exec.model)) ||
+    process.env.FG_MODEL_ID ||
+    null
+  )
+}
+
 export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION, statePath } = {}) {
   return async (exec, next) => {
     rememberReads(exec)
@@ -419,7 +433,16 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         const { gateToolCall } = await import('../adapters/dsh/eligibility-gate.mjs')
         const session =
           (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
-        const gate = gateToolCall({ session, tool: String((exec && exec.name) || ''), command: cmd })
+        // 最后一公里：把 exec 里的模型标识翻成画像交闸，使画像在真实 pre-execute 生效
+        //（此前 pipeline 不传 profile，画像只在 decide()/applyEligibility 那两条路可达）。
+        // 取不到模型时为 null → 闸按最严 mutating，是安全默认而非缺陷。
+        const modelId = modelIdOf(exec)
+        const gate = gateToolCall({
+          session,
+          tool: String((exec && exec.name) || ''),
+          command: cmd,
+          profile: modelId ? loadProfile(modelId) : null,
+        })
         if (gate.kind === 'deny') {
           warn('资格审核闸拦截：', gate.reason)
           auditDeny(exec, cmd)

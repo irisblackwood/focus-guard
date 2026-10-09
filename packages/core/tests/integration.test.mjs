@@ -397,3 +397,69 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
     });
   });
 });
+
+describe("f. 最后一公里 · 画像经 exec 在真实 pre-execute 生效", () => {
+  const loadPipeline = () => import("../src/dsh/pipeline.mjs");
+  const allowNext = () => ({ kind: "allow" });
+
+  test("f1. exec.agent.model=gpt-astra → 闸按 scope 放行 publish（画像真生效）", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const s = freshSession("it-f1");
+    const listener = preExecuteListener({ warn: () => {} });
+    const exec = {
+      name: "Bash",
+      arguments: { command: PUBLISH },
+      agent: { model: "gpt-astra" },
+      sessionId: s,
+    };
+    const out = await listener(exec, allowNext);
+    console.log("[f1] astra 经 exec:", JSON.stringify(out));
+    assert.equal(out.kind, "allow", "画像生效 → publish 超出 irreversible 范围 → 放行到 next");
+    resetGrants(s);
+  });
+
+  test("f2. exec 无模型字段 → 最严 mutating，仍拦（安全默认）", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const s = freshSession("it-f2");
+    const listener = preExecuteListener({ warn: () => {} });
+    const exec = { name: "Bash", arguments: { command: PUBLISH }, sessionId: s };
+    const out = await listener(exec, allowNext);
+    console.log("[f2] 无模型:", JSON.stringify(out));
+    assert.equal(out.kind, "deny", "取不到画像 → 最严 mutating");
+    assert.match(out.reason, /fg_apply/);
+    resetGrants(s);
+  });
+
+  test("f3. FG_MODEL_ID 作显式兜底同样生效", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const s = freshSession("it-f3");
+    process.env.FG_MODEL_ID = "gpt-astra";
+    try {
+      const listener = preExecuteListener({ warn: () => {} });
+      const exec = { name: "Bash", arguments: { command: PUBLISH }, sessionId: s };
+      const out = await listener(exec, allowNext);
+      console.log("[f3] FG_MODEL_ID 兜底:", JSON.stringify(out));
+      assert.equal(out.kind, "allow");
+    } finally {
+      delete process.env.FG_MODEL_ID;
+      resetGrants(s);
+    }
+  });
+
+  test("f4. 红线层不受画像影响：gpt-astra 下裸危险命令照样 deny", async () => {
+    const { preExecuteListener } = await loadPipeline();
+    const s = freshSession("it-f4");
+    const listener = preExecuteListener({ warn: () => {} });
+    const exec = {
+      name: "Bash",
+      arguments: { command: RM_RF_ROOT },
+      agent: { model: "gpt-astra" },
+      sessionId: s,
+    };
+    const out = await listener(exec, allowNext);
+    console.log("[f4] astra + 红线:", JSON.stringify(out).slice(0, 140));
+    assert.equal(out.kind, "deny", "红线层不含画像开关（不可被画像放行）");
+    assert.match(out.reason, /绝对红线/);
+    resetGrants(s);
+  });
+});
