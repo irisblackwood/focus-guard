@@ -29,6 +29,14 @@
       "patch": "./src/dsh/cordis.patch.yml"
     }
   },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
   "keywords": [
     "dsh",
     "zcode",
