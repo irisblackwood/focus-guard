@@ -1,4 +1,4 @@
-// FocusGuard Semantica 图谱导出桥 v3.0.4（bridges/ 衍生区 / 总纲 3.0.0 十五·二）
+// FocusGuard Semantica 图谱导出桥 v3.0.6（bridges/ 衍生区 / 总纲 3.0.0 十五·二）
 //
 // 偷师 Semantica（图原生记忆层）：把执法档案因果链导出为 LPG 图谱 JSON（nodes/edges），
 // 供 Semantica Knowledge Explorer 导入做因果追溯与可视化。
@@ -65,7 +65,7 @@ export function toGraph(recs, chainFilter) {
       if (childFirst && parentFirst) edges.push({ src: parentFirst.seq, dst: childFirst.seq, label: "spawned", directed: true });
     }
   }
-  return { format: "lpg-v1", generator: "focus-guard audit-chain-semantica 3.0.4", node_count: nodes.length, edge_count: edges.length, nodes, edges };
+  return { format: "lpg-v1", generator: "focus-guard audit-chain-semantica 3.0.6", node_count: nodes.length, edge_count: edges.length, nodes, edges };
 }
 
 const args = parse(process.argv.slice(2));

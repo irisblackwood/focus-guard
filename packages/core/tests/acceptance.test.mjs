@@ -1252,7 +1252,7 @@ describe("工程自检（防版本与文档漂移）", () => {
   // 测试位于 packages/core/tests/：ROOT 相对测试文件上溯三级到仓库根，调用方传 "../x" 形式时剥掉前缀
   const ROOT = (p) => fileURLToPath(new URL("../../../" + p.replace(/^\.\.\//, ""), import.meta.url));
 
-  test("版本一致性：五处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
+  test("版本一致性：七处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
     const guard = readFileSync(GUARD, "utf8");
     const consts = readFileSync(CONSTANTS, "utf8");
     const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
@@ -1273,6 +1273,10 @@ describe("工程自检（防版本与文档漂移）", () => {
       "../.zcode-plugin/plugin.json",
       "../.claude-plugin/plugin.json",
       "../.claude-plugin/marketplace.json",
+      // 2026-10-09 补：monorepo 子包版本同属版本面——DSH 挂载的正是 packages/core，
+      // 它的 package.json 就是用户在 GUI 里看到的那一个。此前遗漏，导致"六处齐 3.0.4"而代码已 3.0.6。
+      "../packages/core/package.json",
+      "../packages/extended/package.json",
     ];
     for (const rel of manifests) {
       const j = JSON.parse(readFileSync(ROOT(rel), "utf8"));
@@ -1281,9 +1285,10 @@ describe("工程自检（防版本与文档漂移）", () => {
     }
   });
 
-  test("版本追赶：六处版本号 == CHANGELOG 最新条目版本（防「一致地落后」）", () => {
-    // 缺口背景：原「版本一致性」用例只校验六处彼此相等，不校验是否跟上 CHANGELOG，
-    // 于是 3.0.5/3.0.6 已落地而六处齐刷刷停在 3.0.4 时测试全绿、漂移藏了整轮。
+  test("版本追赶：七处版本号 == CHANGELOG 最新条目版本（防「一致地落后」）", () => {
+    // 缺口背景：原「版本一致性」用例只校验清单彼此相等，不校验是否跟上 CHANGELOG，
+    // 于是 3.0.5/3.0.6 已落地而清单齐刷刷停在 3.0.4 时测试全绿、漂移藏了整轮。
+    // 2026-10-09 二次补漏：清单本身也漏了 monorepo 子包（packages/core 是 DSH 实际挂载的那个）。
     const consts = readFileSync(CONSTANTS, "utf8");
     const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
     const changelog = readFileSync(ROOT("../CHANGELOG.md"), "utf8");
@@ -1304,6 +1309,10 @@ describe("工程自检（防版本与文档漂移）", () => {
       "../.zcode-plugin/plugin.json",
       "../.claude-plugin/plugin.json",
       "../.claude-plugin/marketplace.json",
+      // 2026-10-09 补：monorepo 子包版本同属版本面——DSH 挂载的正是 packages/core，
+      // 它的 package.json 就是用户在 GUI 里看到的那一个。此前遗漏，导致"六处齐 3.0.4"而代码已 3.0.6。
+      "../packages/core/package.json",
+      "../packages/extended/package.json",
     ];
     for (const rel of manifests) {
       const j = JSON.parse(readFileSync(ROOT(rel), "utf8"));
