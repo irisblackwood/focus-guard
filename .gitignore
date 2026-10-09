@@ -23,3 +23,9 @@ __pycache__/
 # 本地研读精华（正文私有，不入库；仅保留空壳清单做版本保护）
 /docs/vault-notes/*
 !/docs/vault-notes/README.md
+
+# 插件与工具产物（本地自动维护 / 可再生，不入库）
+.archify/
+.workbuddy-ai/
+self-improvement/
+
