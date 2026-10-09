@@ -20,7 +20,7 @@ const AUDIT_TMP = join(tmpdir(), `fg-integration-audit-${process.pid}-${Date.now
 process.env.FG_AUDIT_FILE = AUDIT_TMP;
 
 import { loadProfile } from "../src/core/profileLoader.mjs";
-import { checkEligibility } from "../src/core/checkEligibility.mjs";
+import { checkEligibility, profileScope } from "../src/core/checkEligibility.mjs";
 import { decide } from "../src/core/decisionEngine.mjs";
 import { applyEligibility, gateToolCall, grantsFor, resetGrants, gatedReasonOf } from "../src/adapters/dsh/eligibility-gate.mjs";
 import { redlineExempt } from "../src/core/redlines.mjs";
@@ -155,28 +155,56 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
       assert.match(r.trace.find((s) => s.layer === "1").reason, /stalledFuse 子判据已关/);
     });
 
-    test("b4. 【缺陷】适配层 fg_apply 入口无 profile 入参 → 画像在真实入口完全失效", async () => {
-      // applyEligibility 形参里没有 profile，也没有向 checkEligibility 透传 profile，
-      // 因此 fg_apply 实际执行时 profile=null（全层启用），与 b2/b3 的 decide() 结论分叉。
-      const s = freshSession("it-b4");
-      const r = await applyEligibility({
-        session: s,
+    test("b4. 适配层入口已接画像（缺陷 1 已修）→ 与 decide() 同结论", async () => {
+      // 3.0.6 修复：applyEligibility 新增 profile / modelId 形参并透传给 checkEligibility。
+      // 此前画像差异只在 decide() 可达，真实 fg_apply 入口 profile=null、画像全失效。
+      const s1 = freshSession("it-b4a");
+      const noProfile = await applyEligibility({
+        session: s1,
         ...WRITE_REQ,
         ttl: "turn",
         redlines: REDLINES,
         model: null,
       });
-      console.log("[b4] 适配层入口（无法传画像）:", r.decision, r.layer, "|", layerLine(r));
-      assert.equal(r.decision, "deny", "适配层入口在两种画像下都会 deny —— 画像未被读取");
-      assert.equal(r.layer, "4");
-      resetGrants(s);
+      console.log("[b4] 不传画像:", noProfile.decision, noProfile.layer, "|", layerLine(noProfile));
+      assert.equal(noProfile.decision, "deny", "不传画像 = 全层启用（最严）");
+      assert.equal(noProfile.layer, "4");
+
+      const s2 = freshSession("it-b4b");
+      const withModelId = await applyEligibility({
+        session: s2,
+        ...WRITE_REQ,
+        ttl: "turn",
+        redlines: REDLINES,
+        model: null,
+        modelId: "gpt-astra",
+      });
+      console.log("[b4] 传 modelId=gpt-astra:", withModelId.decision, withModelId.layer, "|", layerLine(withModelId));
+      assert.equal(withModelId.decision, "allow", "画像透传后 L4 应被跳过（与 decide() 同结论）");
+      assert.equal(withModelId.layer, "6");
+      assert.equal(withModelId.trace.find((x) => x.layer === "4").decision, "skip");
+
+      const s3 = freshSession("it-b4c");
+      const byObject = await applyEligibility({
+        session: s3,
+        ...WRITE_REQ,
+        ttl: "turn",
+        redlines: REDLINES,
+        model: null,
+        profile: loadProfile("deepseek-flash"),
+      });
+      console.log("[b4] 直接传 profile 对象（deepseek-flash）:", byObject.decision, byObject.layer);
+      assert.equal(byObject.decision, "deny", "也可直接传 profile 对象");
+      assert.equal(byObject.layer, "4");
+      resetGrants(s1);
+      resetGrants(s2);
+      resetGrants(s3);
     });
   });
 
   // ───────────────────────── c. 画像关掉审批层 ─────────────────────────
-  describe("c. approvalGate 关闭时资格闸是否被绕过", () => {
-    // 前提核对：任务描述称 gpt-astra 有 approvalGate.enabled=false —— 与源码不符，如实记录。
-    test("c1. 前提核对：出厂 gpt-astra 的 approvalGate.enabled 实为 true（只有 scope 收窄）", () => {
+  describe("c. 审批层不可被画像关闭 + scope 真判定（缺陷 4/5 已修）", () => {
+    test("c1. 前提核对：出厂 gpt-astra 的 approvalGate.enabled 为 true，只有 scope 收窄", () => {
       const astra = loadProfile("gpt-astra");
       console.log("[c1] gpt-astra.approvalGate =", JSON.stringify(astra.approvalGate));
       assert.equal(astra.approvalGate.enabled, true, "出厂画像并未关闭审批层");
@@ -185,8 +213,8 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
       assert.equal(astra.stalledFuse.enabled, false);
     });
 
-    test("c2. 出厂 gpt-astra 下 npm publish → L3 未被跳过，needApproval", async () => {
-      const r = await decide({
+    test("c2. scope='irreversible'：非不可逆高危放行，不可逆类仍须审批", async () => {
+      const allow = await decide({
         modelId: "gpt-astra",
         tool: "Bash",
         command: PUBLISH,
@@ -194,57 +222,68 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
         scope: "npm registry",
         redlines: REDLINES,
       });
-      console.log("[c2] gpt-astra + publish:", r.decision, r.layer, "| skipped:", skipNames(r), "|", layerLine(r));
-      assert.equal(r.decision, "needApproval");
-      assert.equal(r.layer, "3");
-      assert.equal(r.skipped.some((s) => s.layer === "3"), false, "L3 未被跳过");
-      // scope:'irreversible' 是死配置：引擎只读 .enabled，任何高危命中一律 needApproval
-      assert.equal(r.trace.find((s) => s.layer === "3").reason.includes("publish"), true);
+      console.log("[c2] astra + publish（非不可逆）:", allow.decision, allow.layer, "|", layerLine(allow));
+      assert.equal(allow.decision, "allow", "publish 可撤销，超出 irreversible 审批范围");
+      assert.equal(allow.layer, "6");
+      assert.match(allow.trace.find((x) => x.layer === "3").reason, /超出审批范围/);
+
+      // 样本选择说明：git push -f 本身是绝对红线，会先被 L2 拦（deny）而到不了 L3，
+      // 测不到 scope。Format-Volume 属不可逆类别但不在红线表内，适合验 scope。
+      const blocked = await decide({
+        modelId: "gpt-astra",
+        tool: "Bash",
+        command: "Format-Volume -DriveLetter D",
+        purpose: "格式化 D 盘",
+        scope: "D 盘整卷",
+        redlines: REDLINES,
+      });
+      console.log("[c2] astra + Format-Volume（不可逆）:", blocked.decision, blocked.layer);
+      assert.equal(blocked.decision, "needApproval", "不可逆类仍在审批范围内");
+      assert.equal(blocked.layer, "3");
     });
 
-    // 合成画像：出厂 5 份画像**没有任何一份**关闭 approvalGate，故手工构造以压测该分支。
-    const ASTRA_NO_APPROVAL = { ...loadProfile("gpt-astra"), approvalGate: { enabled: false } };
+    test("c3. 画像试图关闭审批层 → 引擎侧不再绕过（安全项已修）", async () => {
+      // 两条防线：① loadProfile 的 enforcePolicy 会强制启用（见 profileLoader 单测）；
+      //          ② 母版 L3 已不查 layerEnabled，只认 scope —— 即使画像对象被改坏也拦得住。
+      assert.equal(profileScope({ approvalGate: { enabled: false } }), "mutating", "缺 scope 时按最严");
+      assert.equal(profileScope({ approvalGate: { enabled: false, scope: "irreversible" } }), "irreversible");
 
-    test("c3. 合成「approvalGate off」画像 → L3 跳过 + 闸放行：审批被端到端绕过", async () => {
       const s = freshSession("it-c3");
-      const r = await decide({
-        profile: ASTRA_NO_APPROVAL,
+      const r = await checkEligibility({
         tool: "Bash",
         command: PUBLISH,
         purpose: "发布包",
         scope: "npm registry",
         redlines: REDLINES,
-        grants: grantsFor(s),
+        profile: { id: "broken", approvalGate: { enabled: false } }, // 被改坏的画像
       });
-      console.log("[c3] 合成画像 decide:", r.decision, r.layer, "| skipped:", skipNames(r), "|", layerLine(r));
-      assert.equal(r.decision, "allow", "L3 跳过 → 直落 L6 授权");
-      assert.equal(r.layer, "6");
-      assert.equal(r.skipped.some((x) => x.layer === "3"), true);
-
-      const gate = gateToolCall({ session: s, tool: "Bash", command: PUBLISH });
-      console.log("[c3] 闸:", JSON.stringify(gate));
-      assert.equal(gate.kind, "pass", "闸只认授权表，不认门槛清单 —— L3 一关，闸即放行");
-      assert.equal(gate.granted, true);
-      assert.equal(gatedReasonOf("Bash", PUBLISH), "publish", "publish 仍在门槛清单里，但被授权覆盖");
+      console.log("[c3] 被改坏的画像（enabled:false，无 scope）:", r.decision, r.layer);
+      assert.equal(r.decision, "needApproval", "审批层不可被画像关闭");
+      assert.equal(r.layer, "3");
       resetGrants(s);
     });
 
-    test("c4. 【缺陷】同一请求同一 session：decide 放行、gateToolCall 拒绝（两条路径不同源）", async () => {
+    test("c4. 闸与母版同源：传 profile 后结论一致，未传则按最严", async () => {
       const s = freshSession("it-c4");
-      const r = await decide({
-        profile: ASTRA_NO_APPROVAL,
+      const astra = loadProfile("gpt-astra");
+
+      const decideRes = await decide({
+        profile: astra,
         tool: "Bash",
         command: PUBLISH,
         purpose: "发布包",
         scope: "npm registry",
         redlines: REDLINES,
       });
-      const gate = gateToolCall({ session: s, tool: "Bash", command: PUBLISH });
-      console.log("[c4] decide:", r.decision, r.layer, "| gateToolCall:", gate.kind, "|", gate.reason);
-      // 注意：decide 未注入 grantsFor(s)，故未在会话表里落授权；这正是"未申请"的等价现场。
-      assert.equal(r.decision, "allow", "资格审核路径不看 gate 的门槛清单");
-      assert.equal(gate.kind, "deny", "pre-execute 闸不看画像");
-      assert.match(gate.reason, /fg_apply/);
+      const gateWith = gateToolCall({ session: s, tool: "Bash", command: PUBLISH, profile: astra });
+      console.log("[c4] 传画像：decide =", decideRes.decision, "| 闸 =", JSON.stringify(gateWith));
+      assert.equal(decideRes.decision, "allow");
+      assert.equal(gateWith.kind, "pass", "闸接线后与母版同源（publish 超出 irreversible 范围）");
+      assert.equal(gateWith.outOfScope, true);
+
+      const gateWithout = gateToolCall({ session: s, tool: "Bash", command: PUBLISH });
+      console.log("[c4] 不传画像：闸 =", JSON.stringify(gateWithout));
+      assert.equal(gateWithout.kind, "deny", "未传 profile → 默认最严 mutating（安全默认，非缺陷）");
       resetGrants(s);
     });
   });
@@ -271,7 +310,7 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
       assert.equal(ex2.basis, "readonly-head");
     });
 
-    test("d2. 【缺陷】母版 L2 根本不调用 redlineExempt → 同一命令仍 deny（layer 2）", async () => {
+    test("d2. 母版 L2 已接 redlineExempt（缺陷 2 已修）→ 引号内数据不再被 L2 拦", async () => {
       const r = await checkEligibility({
         tool: "Bash",
         command: QUOTED,
@@ -279,10 +318,13 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
         scope: "仅终端输出",
         redlines: REDLINES,
       });
-      console.log("[d2] 母版 L2:", r.decision, r.layer, "|", r.reason);
-      assert.equal(r.decision, "deny", "豁免只在 pipeline 文本层生效，母版 L2 未接");
-      assert.equal(r.layer, "2");
-      assert.match(r.reason, /rm-rf-root/);
+      console.log("[d2] 母版 L2:", r.decision, r.layer, "|", layerLine(r));
+      const l2 = r.trace.find((x) => x.layer === "2");
+      assert.equal(l2.decision, "pass", "L2 命中后应因豁免而降级（不 deny）");
+      assert.match(l2.reason, /红线豁免降级（quoted-literal）/);
+      // 降级后继续往下：命令文本仍命中 HIGH_RISK_TOOLS 的 rm-rf 且无授权 → L3 转人工审批（缺陷 3 未修，属预期）
+      assert.equal(r.decision, "needApproval");
+      assert.equal(r.layer, "3");
     });
 
     test("d3. pre-execute 闸也不接豁免 → 同一命令被拦（命中 rm-rf，指向 fg_apply）", () => {

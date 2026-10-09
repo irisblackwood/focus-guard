@@ -18,6 +18,7 @@
 import { isMutating } from "./risk.mjs";
 import { createGrantTable } from "./grants.mjs";
 import { layerEnabled, unimplementedSwitches } from "./profileLoader.mjs";
+import { redlineExempt } from "./redlines.mjs";
 
 /** 第 5 层语义风险的审批阈值（与 pipeline 的 RISK_ASK_THRESHOLD 同值）。 */
 export const RISK_ASK_THRESHOLD = 0.85;
@@ -39,6 +40,22 @@ export const HIGH_RISK_TOOLS = [
   { id: "global-install", re: /\b(?:npm|pnpm)\s+(?:i|install|add)\b[^\n]*\s-g(?:\s|$)|\byarn\s+global\s+add\b/i },
   { id: "chmod-wide", re: /\bchmod\s+[^\n]*\b777\b|\bchmod\s+-R\b/i },
 ];
+
+/**
+ * 不可逆高危类别：用于 approvalGate.scope='irreversible' 时的审批范围判定。
+ * 执行后无法回滚的才计入；publish / global-install / chmod 属可逆或可撤销，不计入。
+ */
+export const IRREVERSIBLE_IDS = ["rm-rf", "format-volume", "drop-database", "git-push-force", "write-system-path"];
+
+/**
+ * 取画像的审批范围。缺字段或非法值一律按最严 'mutating'（保守优先）。
+ * 注意：本函数只决定"哪些类别需审批"，**不决定审批层是否启用**——审批层不可被画像关闭。
+ */
+export function profileScope(profile) {
+  const entry = profile && profile.approvalGate;
+  const scope = entry && typeof entry === "object" ? entry.scope : undefined;
+  return scope === "irreversible" ? "irreversible" : "mutating";
+}
 
 /** 命中哪条高危特征（未命中返回 null）。 */
 export function highRiskOf(command) {
@@ -143,6 +160,8 @@ export async function checkEligibility({
   }
 
   // 第 2 层：绝对红线（命中即 deny，不进第 3 层）
+  // 3.0.6 补口（HANDOFF §十 缺陷 2）：命中后先过上下文豁免，与 pipeline 文本层同口径。
+  // 豁免成立则**降级**（不 deny，继续往下走），绝不直接放行。
   if (!layerEnabled(profile, "2")) {
     mark("2", "skip", "profile:redlineGate off");
   } else {
@@ -150,22 +169,32 @@ export async function checkEligibility({
       (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
     );
     if (hit) {
-      mark("2", "deny", `绝对红线 ${hit.name}`);
-      return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+      const exempt = redlineExempt(String(command || ""), hit);
+      if (exempt) {
+        mark("2", "pass", `红线豁免降级（${exempt.basis}）：${hit.name}`);
+      } else {
+        mark("2", "deny", `绝对红线 ${hit.name}`);
+        return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+      }
+    } else {
+      mark("2", "pass", "未命中绝对红线");
     }
-    mark("2", "pass", "未命中绝对红线");
   }
 
   // 第 3 层：资格（高危且本会话无授权 → needApproval；已有授权则继续）
-  if (!layerEnabled(profile, "3")) {
-    mark("3", "skip", "profile:approvalGate off");
-  } else {
+  // 3.0.6 修正（HANDOFF §十 缺陷 4/5 + 安全项）：审批层**不可被画像关闭**（否则闸只剩授权表
+  // 一道防线），故不再查 layerEnabled(profile,"3")；scope 是唯一可调维度。
+  {
+    const scope = profileScope(profile);
     const risky = highRiskOf(command);
-    if (risky && !grants.has(tool)) {
-      mark("3", "needApproval", `高危 ${risky.id} 且无授权`);
+    const inScope = Boolean(risky) && (scope === "mutating" || IRREVERSIBLE_IDS.includes(risky.id));
+    if (inScope && !grants.has(tool)) {
+      mark("3", "needApproval", `高危 ${risky.id} 且无授权（scope=${scope}）`);
       return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
     }
-    mark("3", "pass", risky ? `已有授权（${risky.id}）` : "非高危");
+    if (!risky) mark("3", "pass", "非高危");
+    else if (!inScope) mark("3", "pass", `超出审批范围（scope=${scope}）：${risky.id}`);
+    else mark("3", "pass", `已有授权（${risky.id}）`);
   }
 
   // 第 4 层：前置条件（整体受 evidenceGate 控制）

@@ -10,7 +10,8 @@
  * 审计默认写 .focus-guard/AUDIT.log；FG_AUDIT_FILE 可重定向——自检**只写 tmpdir()**，绝不碰真实工作区。
  */
 import { appendFileSync } from 'node:fs'
-import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE } from '../../core/checkEligibility.mjs'
+import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
+import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
 import { AUDIT_FILE } from '../../dsh/audit.mjs'
 
@@ -78,10 +79,15 @@ export async function applyEligibility({
   state = {},
   redlines = [],
   model = null,
+  profile = null,
+  modelId,
 }) {
   const grants = grantsFor(session)
   const preGranted = grants.has(tool)
   if (!preGranted) grants.grant(tool, { ttl, reason: 'fg_apply 审核中（临时）' })
+  // 3.0.6 补口（HANDOFF §十 缺陷 1）：画像必须透传到母版，否则真实 fg_apply 路径 profile=null，
+  // 画像对所有层失效——此前画像差异只在 decide() 那条路可达。
+  const resolved = profile ?? (modelId ? loadProfile(modelId) : null)
   const result = await checkEligibility({
     tool,
     command,
@@ -92,6 +98,7 @@ export async function applyEligibility({
     state,
     redlines,
     model,
+    profile: resolved,
     grants,
     audit: (row) => auditEligibility({ session, ...row }),
   })
@@ -104,9 +111,15 @@ export async function applyEligibility({
  * @returns {{kind:"pass", granted?: boolean}} 不属门槛清单、或已有授权 → 交回原有判定链
  *          {{kind:"deny", reason: string}} 属门槛且无授权 → 拦截
  */
-export function gateToolCall({ session, tool, command = '', state } = {}) {
+export function gateToolCall({ session, tool, command = '', state, profile = null } = {}) {
   const reason = gatedReasonOf(tool, command)
   if (!reason) return { kind: 'pass' }
+  // 3.0.6（HANDOFF §十 缺陷 5）：与母版 L3 同源——审批层**不可被画像关闭**（只受 scope 约束），
+  // 否则会出现"decide 放行而闸拦截"或"闸放行而母版拦截"的路径分叉。
+  const scope = profileScope(profile)
+  if (scope === 'irreversible' && !IRREVERSIBLE_IDS.includes(reason)) {
+    return { kind: 'pass', outOfScope: true }
+  }
   const grants = grantsFor(session)
   if (grants.has(tool)) return { kind: 'pass', granted: true }
   const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）`

@@ -26,6 +26,9 @@
 - docs: CHANGELOG 补勘误小节，记录历史三条 `refactor(core)` 提交的行数口径与正确数字（不改写历史）。
 - feat: **误伤申辩程序**（司法救济通道，补齐外部审计指出的结构缺口）——新增 `fg_appeal` 工具（`adapters/dsh/fg-appeal-tool.mjs`）与 `appealAsk` / `grantFromAppeal` / `hasRedlineGrant`；`pipeline.mjs` 在**所有闸之前**处理申辩（否则申辩参数携带的被拦命令原文会被同一规则再拦一次，形成死锁），返回 `{kind:"ask"}` 经 DSH approval seam 交人类**一次性裁决**。批准 → 开通该工具一次授权（`ttl=turn`）+ 豁免本次命中红线（`redline:<name>` 凭据，红线层可查）；拒绝 → 维持拦截。全程留痕 `appeal-filed` / `appeal-granted` / `appeal-denied`。条文见 `RULES.md` 第八十三条(四)——同时**更正**该条(三)「仍走第十二章」的条文错配（第十二章为「反规避与纪律审查」，非申请执行流程）。
 - test: 画像链路端到端集成测试 `tests/integration.test.mjs`（16 用例）——验证 fg_apply→授权→闸放行闭环、画像跳层、红线豁免与资格闸的边界、授权回收与会话隔离。
+- fix: **画像与豁免在真实入口失效**（集成测试挖出、逐条修复）——① `applyEligibility` 新增 `profile` / `modelId` 形参并透传，此前真实 fg_apply 路径 `profile=null`、画像全失效（差异只在 `decide()` 可达）；② 母版 L2 命中红线后接入 `redlineExempt`，与 pipeline 文本层同口径（豁免则**降级**不 deny），此前"文本层豁免、母版仍 deny"；③ `gateToolCall` 接入 `profile` 并按同一 `scope` 判定，消除"闸与母版不同源"。
+- fix: **审批层不可被画像关闭**（安全项）——`profileLoader` 新增 `FORCED_ON_SWITCHES` / `enforcePolicy`，画像试图关闭 `approvalGate` 时强制启用并告警；母版 L3 不再查 `layerEnabled`，只认 `scope`。此前"画像关 L3 + 闸只认授权表"可让审批端到端绕过。
+- feat: **`approvalGate.scope` 由死配置变为真判定**——新增 `IRREVERSIBLE_IDS`（rm-rf / format-volume / drop-database / git-push-force / 系统路径写入）与 `profileScope()`；`scope:'irreversible'` 时非不可逆高危放行、不可逆类仍须审批。
 
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 

@@ -56,22 +56,46 @@ export function normalizeModelId(modelId) {
 }
 
 /**
+ * 画像**不可关闭**的开关：审批层（L3）是最后防线。
+ * 若允许画像关掉它，则"decide 跳过 L3 + 闸只认授权表"会把审批端到端绕过
+ * （HANDOFF §十 安全项，子代理实测）。加载时强制启用并留痕，不静默接受。
+ */
+export const FORCED_ON_SWITCHES = ['approvalGate']
+
+/**
+ * 落地画像：浅拷贝 + 标注来源 + 强制不可关闭的开关保持启用。
+ */
+function enforcePolicy(base, source) {
+  const profile = { ...base, profileSource: source }
+  for (const key of FORCED_ON_SWITCHES) {
+    const entry = profile[key]
+    if (entry && typeof entry === 'object' && entry.enabled === false) {
+      console.warn(
+        `[focus-guard] 画像「${profile.id}」试图关闭 ${key} → 已强制启用（审批层不可关，见 HANDOFF §十 安全项）`,
+      )
+      profile[key] = { ...entry, enabled: true, forcedOn: true }
+    }
+  }
+  return profile
+}
+
+/**
  * modelId → 画像对象（浅拷贝 + 标注来源，避免调用方改到画像本体）。
  * 匹配顺序：空值 → 显式别名 → 画像 id 精确 → 画像 id 前缀 → default 兜底。
  */
 export function loadProfile(modelId) {
   const id = normalizeModelId(modelId)
-  if (!id) return { ...defaultProfile, profileSource: 'default:empty-model-id' }
+  if (!id) return enforcePolicy(defaultProfile, 'default:empty-model-id')
 
   const alias = PROFILE_ALIASES[id]
-  if (alias && PROFILES[alias]) return { ...PROFILES[alias], profileSource: `alias:${id}` }
+  if (alias && PROFILES[alias]) return enforcePolicy(PROFILES[alias], `alias:${id}`)
 
-  if (PROFILES[id]) return { ...PROFILES[id], profileSource: `exact:${id}` }
+  if (PROFILES[id]) return enforcePolicy(PROFILES[id], `exact:${id}`)
 
   const prefixed = Object.keys(PROFILES).find((key) => key !== 'default' && id.startsWith(key))
-  if (prefixed) return { ...PROFILES[prefixed], profileSource: `prefix:${prefixed}` }
+  if (prefixed) return enforcePolicy(PROFILES[prefixed], `prefix:${prefixed}`)
 
-  return { ...defaultProfile, profileSource: `default:unmatched:${id}` }
+  return enforcePolicy(defaultProfile, `default:unmatched:${id}`)
 }
 
 /**
