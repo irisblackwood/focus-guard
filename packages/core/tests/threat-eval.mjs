@@ -9,6 +9,7 @@
 //
 // 退出码：以最后一个引擎（受测引擎）为准——有漏检或良性误报即 exit 1，可直接做 CI 闸门。
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const engines = process.argv.slice(2);
 if (!engines.length) {
@@ -69,7 +70,10 @@ function runOne(engine, sid, mode, obj) {
 }
 
 function evalEngine(engine) {
-  const sid = "eval-" + Math.random().toString(36).slice(2);
+  // 2026-10-09：改用 crypto.randomUUID()（原为 Math.random()）。
+  // sid 只是每次运行唯一的隔离标识、并非安全凭据，但测试代码也不该出现在安全扫描告警里——
+  // 假阳性会淹掉真警报（CodeQL js/insecure-randomness）。行为不变：仍是每次运行唯一的隔离标识。
+  const sid = "eval-" + randomUUID();
   const R = (mode, obj) => runOne(engine, sid, mode, obj);
   R("reset", { prompt: "看看情况" });
   R("post", { tool_name: "Read", tool_input: { file_path: "r.txt", limit: 5 }, tool_response: { content: "v" } }); // 取证，隔离触发①

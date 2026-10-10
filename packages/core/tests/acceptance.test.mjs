@@ -212,7 +212,10 @@ describe("履职纪律", () => {
   test("变更类命令识别：sudo/xargs 前缀与 cp 不再被当成只读侦查", () => {
     const run = makeRunner("mut-base");
     for (const c of ["mv a b", "sudo mv a b", "cp a b", "sudo cp a b", "xargs mv a b", "rm x", "echo hi > out.txt"]) {
-      const sid = "mut-" + Math.random().toString(36).slice(2);
+      // 2026-10-09：改用本文件既有的「pid + 时间戳 + 序号」隔离模式（原为 Math.random()），
+      // 与 L16 的 RUN 同思路——它不是安全凭据，但测试代码不该出现在安全扫描告警里
+      //（CodeQL js/insecure-randomness 的假阳性会淹掉真警报）。
+      const sid = `mut-${process.pid}-${Date.now()}-${seq++}`;
       run("reset", { session_id: sid, prompt: "看看情况" });
       assert.equal(run("pre", { session_id: sid, tool_name: "Bash", tool_input: { command: c } }).rc, 2, `${c} 应触发①（未取证就改）`);
     }
