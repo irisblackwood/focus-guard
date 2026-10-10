@@ -102,6 +102,10 @@
   - 现改为健壮提取：**优先只取 `role === 'user'` 的消息**（排除 pre-step 追加的 context），并对 `content[]` 文本块 / `content` 字符串 / `text` / `parts[]` / 裸字符串逐层兜底；无 role 信息时退回全量。`reset-fired` 增加文本长度诊断（`prompt:有(N字)`），下次真实回合即可确认。
 - test: `seams.test.mjs` 扩到 14 用例（新增 5 种载荷形状 · **非 user 消息不得被当批示** · 无 role 退回全量）。CI 闸门 **10 套 / 286 个断言**。
 
+- fix: **子代理分流（避免对 subagent 做无意义且有副作用的初始化）**——实测（hermes-loop 的复盘子代理，`ctx.agents.create({ meta: { origin: 'subagent' } })`）会**同样触发 `agent/created` 与 `agent/pre-step`**，而 FG 未加区分，于是对一个只跑几十秒的子代理：① 做完整环境检测、载入 **39 条卷宗记录**（实测白占 20KB 状态文件）；② **重写工作区 `.ai/CASE_FILE.md` 的卷宗【一】**（每次 agent 创建写一次 → 文件抖动、并发时可能互相覆盖）；③ 把它**由父 agent 生成的 prompt 当成人类批示**去识别（实测复盘 prompt 命中 `KEY50_RE` → 额度误判为 50，并记了无意义的 `goal-preauth`）。现按 `origin === 'subagent'`（兜底 `delegationDepth > 0`）分流：子代理只落一份最小状态、只做回合重置，跳过环境检测 / 卷宗读写 / 规则备案 / 巡视 / 批示识别。
+- fix: **42 条版本核验误报**——核验把 `packages/core/hooks/guard.mjs` 的版本号与 `ENGINE_VERSION` 比较，但该文件是**封存版、版本号独立**（header 写明不随 FG 主版本更新，见 `HANDOFF.md` §九），于是**每次会话都误报"部署漂移 v3.0.6 ≠ v3.0.4"**。现将其列入 `SEALED` 排除清单。
+- test: `seams.test.mjs` 扩到 17 用例（新增子代理轻量初始化 · 子代理跳过批示识别 · 主会话分流不受影响）。CI 闸门 **10 套 / 289 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

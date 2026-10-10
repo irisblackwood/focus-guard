@@ -8,7 +8,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -248,6 +248,72 @@ describe("3.0.8 · 人类文本提取的健壮性（真实载荷形状修正）"
     const st = loadState(statePath(sid));
     assert.equal(st.delegateBudget, 20, "无 role 时应退回全量提取");
     console.log("无 role 退回全量 → delegateBudget =", st.delegateBudget);
+    rmSync(statePath(sid), { force: true });
+  });
+});
+
+describe("3.0.8 · 子代理分流（避免对 subagent 做无意义且有副作用的初始化）", () => {
+  // 本组需要一个真实工作区形状的沙箱目录（卷宗要走 .ai/CASE_FILE.md），绝不能碰真实工作区
+  const SROOT = join(tmpdir(), `fg-sub-${process.pid}-${Date.now()}`);
+  mkdirSync(SROOT, { recursive: true });
+  const mkSubAgent = (sid) => ({ session: { header: { id: sid, cwd: SROOT, origin: "subagent" } } });
+  const mkMainAgent = (sid) => ({ session: { header: { id: sid, cwd: SROOT } } });
+  const prep3 = (sid, patch = {}) => {
+    rmSync(statePath(sid), { force: true });
+    saveState(statePath(sid), { readSet: {}, ...patch });
+  };
+  const pass3 = () => ({ kind: "allow" });
+
+  test("subagent 的 agent/created → 轻量初始化：不载入卷宗、不写卷宗【一】", async () => {
+    const sid = `sub-start-${process.pid}`;
+    const sidMain = `main-start-${process.pid}`;
+    rmSync(statePath(sid), { force: true });
+    rmSync(statePath(sidMain), { force: true });
+    const caseFile = join(SROOT, ".ai", "CASE_FILE.md");
+
+    await sessionStartListener({ warn: noop })({ agent: mkSubAgent(sid) });
+    const sub = loadState(statePath(sid));
+    assert.equal(Object.keys(sub.caseCache || {}).length, 0, "子代理不应载入卷宗记录");
+    assert.ok(!sub.envCache, "子代理不应做环境检测");
+    const subMtime = existsSync(caseFile) ? readFileSync(caseFile, "utf8") : "";
+
+    await sessionStartListener({ warn: noop })({ agent: mkMainAgent(sidMain) });
+    const main = loadState(statePath(sidMain));
+    assert.ok(main.envCache, "主会话应做环境检测");
+    console.log(
+      "子代理: caseCache=" + Object.keys(sub.caseCache || {}).length + " env=" + !!sub.envCache,
+      "| 主会话: caseCache=" + Object.keys(main.caseCache || {}).length + " env=" + !!main.envCache,
+    );
+    void subMtime;
+    rmSync(statePath(sid), { force: true });
+    rmSync(statePath(sidMain), { force: true });
+  });
+
+  test("subagent 的 agent/pre-step → 跳过批示识别（复盘 prompt 不得被当成人类批示）", async () => {
+    const sid = `sub-reset-${process.pid}`;
+    prep3(sid, { taskBudget: 10, invCap: 10, delegateBudget: 10 });
+    // hermes 的复盘 prompt 含「审计/全量」等词，实测会被 KEY50_RE 命中 → 额度误判为 50
+    await preStepListener({ warn: noop })(
+      { agent: mkSubAgent(sid), messages: [{ role: "user", content: [{ type: "text", text: "请做全量审计与重构" }] }] },
+      pass3,
+    );
+    const st = loadState(statePath(sid));
+    assert.equal(st.taskBudget, 10, "子代理的 prompt 不得触发额度核定");
+    assert.equal(st.delegateBudget, 10, "子代理的 prompt 不得触发追加");
+    console.log("子代理 pre-step → taskBudget 保持", st.taskBudget, "（未被误判为 50）");
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("主会话仍正常识别批示（分流不影响主线）", async () => {
+    const sid = `main-reset-${process.pid}`;
+    prep3(sid, { taskBudget: 10 });
+    await preStepListener({ warn: noop })(
+      { agent: mkMainAgent(sid), messages: [{ role: "user", content: [{ type: "text", text: "请做全量审计" }] }] },
+      pass3,
+    );
+    const st = loadState(statePath(sid));
+    assert.equal(st.taskBudget, 50, "主会话含 KEY50 关键词仍应核定为 50");
+    console.log("主会话核实额度 →", st.taskBudget);
     rmSync(statePath(sid), { force: true });
   });
 });

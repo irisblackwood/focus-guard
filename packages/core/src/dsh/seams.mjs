@@ -64,6 +64,25 @@ function projDirOf(agent) {
 }
 
 /**
+ * 是否为子代理会话（`origin === 'subagent'`）。
+ *
+ * 2026-10-10 实测必要性：hermes-loop 的复盘子代理走 `ctx.agents.create({ meta: { origin: 'subagent' } })`，
+ * 它会**同样触发 `agent/created` 与 `agent/pre-step`**。若不加区分，FG 会对一个只跑几十秒的复盘子代理：
+ *   · 做完整环境检测、载入 39 条卷宗记录（实测白占 20KB 状态文件）
+ *   · **重写工作区 `.ai/CASE_FILE.md` 的卷宗【一】**（每个 agent 创建都写一次 → 文件抖动、并发时可能互相覆盖）
+ *   · 把 hermes 自己生成的复盘 prompt **当成人类批示**去识别（实测命中 KEY50_RE → 额度误判为 50、并记了无意义的 goal）
+ * 子代理的 prompt 由父 agent 生成、不是人类输入，故这些一律应跳过。
+ */
+function isSubagent(agent) {
+  const s = agent && agent.session
+  const origin = (s && ((s.header && s.header.origin) || s.origin)) || (agent && agent.origin)
+  if (origin === 'subagent') return true
+  // 兜底：委派深度 > 0 亦视为子代理
+  const depth = (s && ((s.header && s.header.delegationDepth) || s.delegationDepth)) || agent?.delegationDepth
+  return typeof depth === 'number' && depth > 0
+}
+
+/**
  * 从 `agent/pre-step` 的 messages 提取人类提示原文。
  *
  * ⚠ 2026-10-10 实际运行修正（真实会话审计里出现 `prompt:无`）：
@@ -147,6 +166,16 @@ export function sessionStartListener({ warn } = {}) {
       const state = loadState(file)
       const first = !existsSync(file)
 
+      // ── 子代理：只落一份最小状态，跳过环境检测 / 卷宗读写 / 规则备案 / 巡视 ──
+      // （理由见 isSubagent 注释：这些对短命的子代理没有意义，且会重写工作区卷宗、误读其 prompt）
+      if (isSubagent(agent)) {
+        if (first) {
+          saveState(file, state)
+          auditRow(sid, 'subagent-start', `子代理会话（轻量初始化，跳过卷宗与环境检测）：${file}`)
+        }
+        return
+      }
+
       // 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）
       try {
         state.envCache = detectEnv(projDir)
@@ -184,7 +213,10 @@ export function sessionStartListener({ warn } = {}) {
           /* 无 HANDOFF 属正常 */
         }
         // 42条 部署版本核验：运行引擎 vs 工作区源码
-        for (const rel of ['packages/core/hooks/guard.mjs', 'hooks/guard.mjs', 'focus-guard/hooks/guard.mjs']) {
+        // ⚠ 排除 `packages/core/hooks/guard.mjs`——它是**封存版、版本号独立**（header 写明不随 FG 主版本更新，
+        // 见 HANDOFF §九）。拿它的 v 号与 ENGINE_VERSION 比较会**每次会话误报部署漂移**（2026-10-10 实测）。
+        const SEALED = ['packages/core/hooks/guard.mjs']
+        for (const rel of ['hooks/guard.mjs', 'focus-guard/hooks/guard.mjs', ...SEALED]) {
           try {
             const m = readFileSync(join(projDir, rel), 'utf8').slice(0, 400).match(/v(\d+\.\d+\.\d+)/)
             if (m && m[1] !== ENGINE_VERSION) {
@@ -253,6 +285,15 @@ export function preStepListener({ warn } = {}) {
   return async ({ agent, messages } = {}, next) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
+      // ── 子代理：只做回合重置，跳过批示识别 ──
+      // 子代理的 prompt 由父 agent 生成、不是人类输入。实测（hermes-loop 复盘子代理）：
+      // 其复盘 prompt 含"审计/全量"等词 → 命中 KEY50_RE → 额度被误判为 50，还记了无意义的 goal-preauth。
+      if (isSubagent(agent)) {
+        state.turnCount = 0
+        state.stopBlocked = false
+        saveState(file, state)
+        return next()
+      }
       const promptText = humanTextOf(messages)
       const short = promptText.trim()
 
