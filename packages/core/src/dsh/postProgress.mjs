@@ -21,6 +21,7 @@ import { statSync } from 'node:fs'
 import { statePath as guardStateFile, loadState, saveState, fingerprint, gitDirty, casePath, loadCaseRecords, saveCaseRecords } from '../core/state.mjs'
 import { auditChainInit } from '../core/audit.mjs'
 import { collectStrings, callHash, isInvestigation } from '../core/risk.mjs'
+import { zcodeToolName } from './toolName.mjs'
 import { isDangerousCmd, SCRIPT_FILE_RE } from '../core/redlines.mjs'
 import { appendAudit } from './audit.mjs'
 
@@ -164,7 +165,10 @@ export function postProgressListener({ warn } = {}) {
         state.lastInput = inputSig
       }
 
-      const inv = isInvestigation(tool, ti)
+      // ⚠ 母版 isInvestigation 按 ZCode 命名判定（Read/Grep/Glob/Bash），DSH 传小写 → 必须归一化。
+      // 未归一化时只读调用恒被判为"非侦查"，于是全部计入 effectiveCalls：侦查池永不满、
+      // 执行池被只读调用提前耗尽（2026-10-10 由批 5 的用例连带抓出本批缺陷）。
+      const inv = isInvestigation(zcodeToolName(tool), ti)
       if (progress) {
         if (RE_AGENT.test(tool)) {
           state.stalledStreak = 0 // 委派不占主会话执行池（委托池在 pre 核算）

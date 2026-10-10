@@ -14,6 +14,7 @@ import { postExecuteListener, preExecuteListener, systemPromptListener } from '.
 import { preStepListener, sessionStartListener, systemPromptRulesListener, turnStoppingListener } from './seams.mjs'
 import { postProgressListener } from './postProgress.mjs'
 import { stopGuardListener } from './stopGuard.mjs'
+import { preGuardListener } from './preGuard.mjs'
 
 export const name = 'focus-guard'
 
@@ -31,6 +32,8 @@ export function apply(ctx) {
   }
 
   register('tools/pre-execute', preExecuteListener, 'tools/pre-execute')
+  // 3.0.8 移植批 5：结构性执法（图书馆隔离/环境规则/大小写冲突/子代理闸/熔断白名单/L2·L5）
+  register('tools/pre-execute', preGuardListener, 'tools/pre-execute(structural)')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
   // 3.0.8 移植批 4：常驻规则注入（guard.mjs 的 SESSION_RULES，原文走 stdout，原生改走注入缝）
   register('system-prompt/assemble', systemPromptRulesListener, 'system-prompt/assemble(rules)')

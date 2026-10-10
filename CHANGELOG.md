@@ -85,6 +85,11 @@
   - **验证**：连续两次全量 `npm run check`，`own-` / `gate-` / `post-` / `seams-` / `lc-` / `eval-` 增量**全部为 0**；总增量 15 条经查全为 `deny`（本会话被护栏拦截的真实执法记录，属设计内）。
 - test: 新增 `tests/lifecycle.test.mjs`（11 用例）。CI 闸门至此 **9 套 / 268 个断言**。
 
+- feat: **移植批 5：pre 结构性执法（102 行）**——新增 `src/dsh/preGuard.mjs`（与 `preExecuteListener` **同事件并列监听**）：**资料分层隔离**（静态资料区/派生积木区不得直写，防自我投毒）· **环境规则检查**（`platformBashViolation`：平台不兼容命令；与第 1.5 层"环境指纹替换"**不是同一机制**——前者管平台本身，后者管本机替代）· **大小写不敏感文件系统的重名冲突**（不可用 `existsSync` 豁免：不敏感 FS 上大小写变体目标恒存在）· **子代理闸**（熔断期委派 = 越权绕行 L4/L5 · 48 条继承留痕 · 蜂群因果子链 `/dN` · **委托池消耗**）· **熔断期白名单**（只读放行/改动拒绝，且**熔断期不是高危命令的免检通道**）· **L2 强制取证 / L5 降权**（改动类一律拒绝）。
+  - **委托池至此闭环**：追加侧在批 1 的 `preStepListener`（人类批示『追加额度』三池各 +10），消耗侧在本批（每次委派 −1）与 KPI 结算（委托池奖惩）。
+- fix: **工具名口径（适配层缺失，跨批次影响）**——母版 `risk.mjs` 的 `isMutating` / `isInvestigation` 按 **ZCode 命名**精确判定（`tool === "Write"`、`["Read","Grep","Glob",…]`），而 DSH 传**小写**（`write` / `read` / `pwsh` / `subagent`）→ 恒不匹配。后果不是"漏拦一次"而是**静默判错**：`isMutating('write') === false` 使 L2/L5 期间改动类**不被拦**；`isInvestigation('read') === false` 使**只读调用被计入执行池**，侦查池永不满、执行池被只读调用提前耗尽（**批 3 的 `postProgress` 已带此缺陷**）。新增 `src/dsh/toolName.mjs` 做归一化——修在**适配层**而非母版：母版要同时服务 ZCode 与 DSH，翻译是适配层职责；改母版会把 DSH 命名泄漏进母版、破坏"母版零宿主依赖"的分层约定。
+- test: 新增 `tests/preGuard.test.mjs`（10 用例，含委托池**闭环**用例：追加侧补池 → 消耗侧委派）。CI 闸门至此 **10 套 / 278 个断言**，测试污染零增量。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。
