@@ -11,6 +11,7 @@
  */
 
 import { postExecuteListener, preExecuteListener, systemPromptListener } from './pipeline.mjs'
+import { preStepListener, sessionStartListener, turnStoppingListener } from './seams.mjs'
 
 export const name = 'focus-guard'
 
@@ -30,4 +31,9 @@ export function apply(ctx) {
   register('tools/pre-execute', preExecuteListener, 'tools/pre-execute')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
   register('tools/post-execute', postExecuteListener, 'tools/post-execute')
+  // 3.0.8：补上 guard.mjs 六缝中 DSH 侧缺失的三条。映射照官方桥
+  //（@deepseek-ai/dsh-hooks-claude-code）的实测代码，不是猜测。
+  register('agent/created', sessionStartListener, 'agent/created')
+  register('agent/pre-step', preStepListener, 'agent/pre-step')
+  register('agent/turn-stopping', turnStoppingListener, 'agent/turn-stopping')
 }

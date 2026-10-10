@@ -50,6 +50,9 @@
 - test: 新增 `tests/state-ownership.test.mjs`（6 用例）——落盘、判定、**抗他人状态干扰**、会话隔离、无状态 fail-open 且留痕、真实工作区零写入。
 - docs: **孤儿机制审计结论**（本次定级修复级的缘起）——DSH 侧另有两条**互斥**接入路径：**原生插件**（`pipeline.mjs`，在跑）提供资格审核／申辩／画像／命令硬校验／红线豁免；**官方桥**（`hooks.json` → `guard.mjs`，**未装**）承载 KPI／三预算池／高危审批单／抽查／污染检测／因果链／积木图书馆／降级／绝境／卷宗指纹等机制。`constants.mjs` 的 42 个导出常量中 **28 个在 DSH 侧零消费者、9 个仅被 `state.mjs` 引用（只存不判）**——它们**不是死代码**（由 `guard.mjs` 消费、经桥调用），但当前 profile 未装桥故此刻不生效。**两条路互斥意味着能力二选一**，而 README/INSTALL 只声明了单向差异（"桥不含资格审核"），未声明反向。后续按「移植 + 退役、先搬后删」把机制搬进原生插件，再退役 `guard.mjs`。另注：`selftest.mjs` 曾有 **6 项失败**（4 项是资格闸加入后的过期断言、1 项是本项目环境指纹硬校验的预期拦截、1 项用了不存在的目标文件因而测不到"未取证"），本次一并修正；同时**把它与其余散落的测试纳入 CI 闸**——`npm run check` 由 `test && eval`（2 套）扩为 `test:all + eval + selftest + bridges`（5 套，230 个断言），此前 `integration` / `state-ownership` / `profile` / `eligibility` / `bridges` / `selftest` 都不在闸内，红了无人知晓。
 
+- feat: **原生插件补上缺失的三条宿主缝 + KPI 兑现移植**（孤儿机制移植第一步）——新增 `src/dsh/seams.mjs`，按官方桥（`@deepseek-ai/dsh-hooks-claude-code`）的**实测映射**接上三条缝：`agent/created` → SessionStart（建立本会话状态）· `agent/pre-step` → UserPromptSubmit（回合重置；**waterfall 必须 `return next()`**，否则吞掉下游决策）· `agent/turn-stopping` → Stop（**KPI 兑现结算**：本任务 KPI → 等次 → 委托池奖惩，跨任务累计入 `kpiCarry`，留痕 `kpi-settle` / `kpi-low`）。映射来源是桥的已验证代码、非猜测。`constants.mjs` 的 `BUDGET_CAP` / `DELEGATE_DEFAULT` 由此在 DSH 侧**首次被真正消费**——此前它们属于那 28 个零消费者常量。
+- test: 新增 `tests/seams.test.mjs`（6 用例）——start 建状态并留痕 · reset 必须 `return next()` · KPI 优秀 +5 且跨任务累计 · 不称职 −5 且 `kpi-low` 只提醒一次 · 三条缝异常一律不阻塞 · 真实工作区零写入。CI 闸门至此为 **6 套 / 235 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

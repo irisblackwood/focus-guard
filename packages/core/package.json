@@ -23,7 +23,7 @@
     "eval": "node tests/threat-eval.mjs hooks/guard.mjs",
     "bench": "node tests/token-bench.mjs hooks/guard.mjs",
     "check": "npm run test:all && npm run eval && npm run selftest",
-    "test:all": "node --test tests/acceptance.test.mjs tests/eligibility.test.mjs tests/integration.test.mjs tests/profile.test.mjs tests/state-ownership.test.mjs",
+    "test:all": "node --test tests/acceptance.test.mjs tests/eligibility.test.mjs tests/integration.test.mjs tests/profile.test.mjs tests/state-ownership.test.mjs tests/seams.test.mjs",
     "selftest": "node src/dsh/selftest.mjs"
   },
   "dsh": {
