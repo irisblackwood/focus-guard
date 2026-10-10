@@ -14,6 +14,7 @@
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
 import { redlineExempt } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
+import { statePath, loadState, saveState } from '../core/state.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -240,25 +241,87 @@ export function readGuardState(target = tmpdir()) {
   }
 }
 
-const nativeReadSet = new Set()
-const evidenceBlockedOnce = new Set()
+// 3.0.8：按【会话身份】分表（原为模块级单一 Set，跨会话共享）。
+// DSH 单进程里多个会话共用同一份 pipeline 模块，共享 Set 会让"会话 A 读过的文件"
+// 被判成"会话 B 也读过"——违反取证的本会话语义（新增用例「会话隔离」锁定了这一点）。
+const nativeReadSet = new Map() // sid → Set<path>
+const evidenceBlockedOnce = new Map() // sid → Set<path>
+/** 取某会话的集合（不存在则建）。 */
+const setOf = (m, sid) => {
+  let s = m.get(sid)
+  if (!s) {
+    s = new Set()
+    m.set(sid, s)
+  }
+  return s
+}
 
-/** 记录本会话内已读过的文件（第 3 层取证判定的原生侧证据） */
+/**
+ * 记录本会话内已读过的文件（第 3 层取证判定的原生侧证据）。
+ *
+ * 3.0.8（孤儿机制审计）：除内存 Set 外**同时落盘**到本会话状态文件。
+ * 为什么必须落盘：内存 Set 随模块重载（HMR）与进程重启清零，而 DSH 侧此前**没有 state 写入者**
+ * （唯一的写者 guard.mjs 在 DSH 下未挂载）——于是取证记录会凭空消失，表现为"明明读过却被判未取证"。
+ * 这是"原生插件自持状态"的第一处写权；KPI / 预算池等机制后续也依赖它。
+ * 仅在**新增**记录时落盘，避免每次 Read 都写一次盘。
+ */
 function rememberReads(exec) {
-  if (READ_TOOL.test(String((exec && exec.name) || ''))) {
-    const p = pathOfTool(exec && exec.arguments)
-    if (p) nativeReadSet.add(String(p))
+  if (!READ_TOOL.test(String((exec && exec.name) || ''))) return
+  const p = pathOfTool(exec && exec.arguments)
+  if (!p) return
+  const key = String(p)
+  const sid = sessionIdOf(exec)
+  const seen = setOf(nativeReadSet, sid)
+  if (seen.has(key)) return
+  seen.add(key)
+  try {
+    const file = statePath(sid)
+    // loadState 在文件不存在时返回默认结构（含 readSet: {}），无需先判存在
+    const state = loadState(file)
+    state.readSet = state.readSet && typeof state.readSet === 'object' ? state.readSet : {}
+    state.readSet[key] = Date.now()
+    saveState(file, state)
+  } catch (error) {
+    // 落盘失败不阻断（内存 Set 仍有效）；但必须留痕——静默丢取证记录属"假留痕"
+    console.warn('[focus-guard-native] 取证记录落盘失败（内存记录仍有效）:', (error && error.message) || error)
   }
 }
 
 /** 第 3 层判定：返回 deny 决策或 null（放行到下游）；读失败一律 fail-open + warn */
+/** 本会话身份：与 audit / grant 口径一致（DSH 交来的 sessionId 优先）。 */
+function sessionIdOf(exec) {
+  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+}
+
+/**
+ * 本会话状态读取器（3.0.8 · 孤儿机制审计的修复）。
+ * 用 exec 的会话身份**精确定位** `statePath(sessionId)`，**绝不做目录扫描**。
+ *
+ * 为什么必须这样：原实现走 `readGuardState(undefined)` → 退化成"扫 os.tmpdir() 取 mtime 最新"，
+ * 于是会读到**别的会话或测试的残留**，拿它们（往往是空的）readSet 去判你的真实改动。
+ * 实测 os.tmpdir() 里有 199 个 `focus-guard-eval-*`（被过滤掉）外加 acceptance/selftest 写的
+ * `focus-guard-<测试sid>-<RUN>.json`（**过滤不掉**），于是"拦不拦你"取决于最近跑没跑测试。
+ * 自检可传具体文件路径覆盖（statePathOverride）。
+ */
+function readGuardStateExact(exec, override) {
+  const file =
+    override && /\.json$/i.test(String(override)) ? String(override) : statePath(sessionIdOf(exec))
+  try {
+    if (!existsSync(file)) return null
+    const state = JSON.parse(readFileSync(file, 'utf8'))
+    return state && typeof state === 'object' ? { file, state } : null
+  } catch {
+    return null
+  }
+}
+
 function layer3Check(exec, warn, statePathOverride) {
   const tool = String((exec && exec.name) || '')
   if (!MUTATING_TOOL.test(tool)) return null
 
-  const gs = readGuardState(statePathOverride)
+  const gs = readGuardStateExact(exec, statePathOverride)
   if (gs === null) {
-    warn('第3层：读不到 guard 会话状态（fail-open 放行；目录内无 15 分钟内更新的 focus-guard-*.json）')
+    warn('第3层：本会话尚无状态文件（fail-open 放行；无读写记录时不做取证判定）')
     return null
   }
   const { state } = gs
@@ -274,15 +337,16 @@ function layer3Check(exec, warn, statePathOverride) {
     const fp = pathOfTool(exec && exec.arguments)
     if (fp) {
       const key = String(fp)
+      const sid = sessionIdOf(exec)
       const known =
-        nativeReadSet.has(key) ||
+        setOf(nativeReadSet, sid).has(key) ||
         (state.readSet && typeof state.readSet === 'object' && Object.hasOwn(state.readSet, key))
       // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
       // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
       // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
       // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
-      if (!known && existsSync(key) && !evidenceBlockedOnce.has(key)) {
-        evidenceBlockedOnce.add(key)
+      if (!known && existsSync(key) && !setOf(evidenceBlockedOnce, sid).has(key)) {
+        setOf(evidenceBlockedOnce, sid).add(key)
         return {
           kind: 'deny',
           reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
