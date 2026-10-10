@@ -96,6 +96,12 @@
   - **子代理继承不再另接缝**：批 5 已在 `pre` 侧以 `Agent` 工具名判定并留痕 `subagent-spawn`（父状态随派单移交），批 3 的 `postProgress` 已在 `post` 侧按 `subagent` 处理摘要校验——`subagent/start|end` 两条缝**无增量价值，不接**（避免重复实现）。
 - test: `tests/preGuard.test.mjs` 扩到 15 用例（新增卷宗免重读 · 继承放行 · offset 放行 · 内容变化放行 · 改动前备份）。CI 闸门 **10 套 / 283 个断言**。
 
+- fix: **人类文本提取的健壮性（真实载荷形状修正，P0）**——重启后的实弹验收里，真实会话审计的 `reset-fired` 出现 `prompt:无`，即 `humanTextOf(messages)` 取不到人类文本。根因两条：
+  - **形状不止一种**：原实现只认 `messages[].content[]` 的 text 块（照官方桥 `blocksToText` 的假设），真实载荷对不上 → 人类文本恒为空 → **批示识别全部失效**（`追加额度` / `停止令` / 特批 / 额度核定 50·15 全都拿不到输入，额度永远按默认 10 走）。**测试发现不了，因为测试造的就是自己假设的形状**——"单元测试全绿 ≠ 真实载荷正确"的典型。
+  - **messages 里混有非人类消息**：DSH 的 pre-step 默认 next 是 `{ messages: [...claimed, context] }`（`dsh-agent-loop/lib/index.js:911-918`），**渲染后的系统提示也会作为一条消息追加进来**。若无条件拼接，会把系统提示当成人类批示——**比"取不到"更危险的方向**。
+  - 现改为健壮提取：**优先只取 `role === 'user'` 的消息**（排除 pre-step 追加的 context），并对 `content[]` 文本块 / `content` 字符串 / `text` / `parts[]` / 裸字符串逐层兜底；无 role 信息时退回全量。`reset-fired` 增加文本长度诊断（`prompt:有(N字)`），下次真实回合即可确认。
+- test: `seams.test.mjs` 扩到 14 用例（新增 5 种载荷形状 · **非 user 消息不得被当批示** · 无 role 退回全量）。CI 闸门 **10 套 / 286 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

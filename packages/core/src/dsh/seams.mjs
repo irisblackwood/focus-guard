@@ -63,14 +63,47 @@ function projDirOf(agent) {
   return (agent && agent.session && agent.session.header && agent.session.header.cwd) || process.cwd()
 }
 
-/** 从 agent/pre-step 的 messages 提取人类提示原文（与桥的 blocksToText 同口径）。 */
+/**
+ * 从 `agent/pre-step` 的 messages 提取人类提示原文。
+ *
+ * ⚠ 2026-10-10 实际运行修正（真实会话审计里出现 `prompt:无`）：
+ *  ① **形状不止一种**。原实现只认 `messages[].content[]` 的 text 块（照桥的 `blocksToText` 假设），
+ *     真实载荷对不上 → 人类文本恒为空 → **批示识别全部失效**（追加额度/停止令/特批/额度核定 50·15
+ *     全都拿不到输入，额度永远按默认 10 走）。测试发现不了，因为测试造的就是自己假设的形状。
+ *  ② **messages 里混有非人类消息**。DSH 的 pre-step 默认 next 是
+ *     `{ messages: [...claimed, context] }`（dsh-agent-loop/lib/index.js:911-918），
+ *     即**渲染后的系统提示也会作为一条消息追加进来**。若无条件拼接，会把系统提示当成人类批示——
+ *     那是比"取不到"更危险的方向，所以这里**优先只取 user 角色的消息**，取不到才退回全量。
+ */
 function humanTextOf(messages) {
   if (!Array.isArray(messages)) return ''
-  const blocks = messages.flatMap((m) => (m && Array.isArray(m.content) ? m.content : []))
-  return blocks
-    .filter((b) => b && b.type === 'text')
-    .map((b) => b.text || '')
-    .join('')
+  /** 单条消息 → 文本（逐层兜底，覆盖常见的几种载荷形状）。 */
+  const pick = (m) => {
+    if (typeof m === 'string') return m
+    if (!m || typeof m !== 'object') return ''
+    if (typeof m.text === 'string') return m.text
+    if (typeof m.content === 'string') return m.content
+    if (Array.isArray(m.content)) {
+      return m.content
+        .filter((b) => b && (b.type === 'text' || typeof b.text === 'string'))
+        .map((b) => b.text || '')
+        .join('')
+    }
+    if (Array.isArray(m.parts)) {
+      return m.parts
+        .filter((b) => b && (b.type === 'text' || typeof b.text === 'string'))
+        .map((b) => b.text || '')
+        .join('')
+    }
+    if (typeof m.message === 'string') return m.message
+    return ''
+  }
+  const isUser = (m) =>
+    m && typeof m === 'object' && (m.role === 'user' || m.author === 'user' || m.type === 'user')
+  const users = messages.filter(isUser)
+  // 有明确的 user 消息就只用它（排除 pre-step 追加的 context 消息，防把系统提示当批示）
+  const pool = users.length ? users : messages
+  return pool.map(pick).join('\n')
 }
 
 /** 载入本会话状态；文件不存在时 loadState 返回默认结构（含 readSet: {}）。 */
@@ -309,7 +342,7 @@ export function preStepListener({ warn } = {}) {
       auditRow(
         sid,
         'reset-fired',
-        `prompt:${promptText ? '有' : '无'} kw=${kw} budget=${state.taskBudget} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} stall=${state.stalledStreak || 0}${creditGranted ? ' 信用延期' : ''}${mercy ? ' 特赦' : ''}`,
+        `prompt:${promptText ? '有' : '无'}(${promptText.length}字) kw=${kw} budget=${state.taskBudget} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} stall=${state.stalledStreak || 0}${creditGranted ? ' 信用延期' : ''}${mercy ? ' 特赦' : ''}`,
       )
     } catch (error) {
       if (typeof warn === 'function') warn('回合重置缝异常（不阻塞）:', (error && error.message) || error)
