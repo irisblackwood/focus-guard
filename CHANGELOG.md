@@ -57,6 +57,10 @@
 - fix: **会话标识取值口径**——`agent/created` 等缝的会话 id 应取 `agent.session.header.id`（与官方桥 `lib/index.js:349-354` 同源）；此前误写为 `agent.session.id` 会取不到，于是**所有会话退化成同一个 `'dsh-native'`、状态互相覆盖**（与刚修掉的跨会话泄漏同类）。`projDir` 同步改用 `session.header.cwd`。
 - test: `seams.test.mjs` 扩到 11 用例（新增停止令熔断 · 三池追加 · 额度核定 · y/n 授权与目标绑定 · 非批示文本不误判）。CI 闸门至此 **6 套 / 240 个断言**。
 
+- feat: **移植批 2：体积刺客三闸 + 污染核实闸 + 风险文件留痕（约 48 行）**——`preExecuteListener` 新增三段（插在资格闸之后、第 2 层语义预判之前）：① **Read 整读体积闸**（超 `OUTPUT_GATE_BYTES` 拦，并**保留 2.5.3 的审计任务豁免**——法典把审计定为 50 预算重大专项，体积闸却拦审计最需要的整读，属制度性误伤）；② **Grep content 无 `head_limit` 闸**；③ **裸 `cat`/`type` 刷屏闸**（在本环境**不可达**：第 1.5 层环境指纹 `cat`→`bat` 先拦，保留作兜底）；④ **污染核实闸**（上轮输出与参数矛盾 → 首个改动类拦一次、一次性）；⑤ **风险文件修改 100% 留痕**（`.github/` 等，只记不拦）。**批 2 有意不搬**与既有功能重叠者：高危命令闸与脚本写入闸（依赖审批单机制，与资格闸的关系待定）· 触发①/盲写检测（已被第 3 层按文件覆盖）。裁剪理由：硬搬会造成"一个命令被拦两次"或两条路冲突。
+- fix: **参数遮蔽导致两段新闸静默 fail-open**——`preExecuteListener({ …, statePath })` 的**参数名 `statePath`** 遮蔽了从 `state.mjs` import 的同名函数，函数体内 `statePath === undefined` → `statePath is not a function`，且**被 `try/catch` 的 fail-open 吞成放行**（安全上正确，但 bug 完全静默，靠 `warn` 输出才抓到）。现 import 改用别名 `guardStateFile`，并加注释说明原因。
+- test: 新增 `tests/gates.test.mjs`（8 用例）。CI 闸门至此 **6 套 / 248 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

@@ -11,7 +11,7 @@
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
     "check": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges",
-    "test:all": "node --test packages/core/tests/acceptance.test.mjs packages/core/tests/eligibility.test.mjs packages/core/tests/integration.test.mjs packages/core/tests/profile.test.mjs packages/core/tests/state-ownership.test.mjs packages/core/tests/seams.test.mjs",
+    "test:all": "node --test packages/core/tests/acceptance.test.mjs packages/core/tests/eligibility.test.mjs packages/core/tests/integration.test.mjs packages/core/tests/profile.test.mjs packages/core/tests/state-ownership.test.mjs packages/core/tests/seams.test.mjs packages/core/tests/gates.test.mjs",
     "selftest": "node packages/core/src/dsh/selftest.mjs",
     "test:bridges": "node --test packages/extended/tests/bridges.test.mjs",
     "test:eligibility": "node --test packages/core/tests/eligibility.test.mjs",

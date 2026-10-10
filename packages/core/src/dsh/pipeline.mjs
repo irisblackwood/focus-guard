@@ -14,7 +14,11 @@
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
 import { redlineExempt } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
-import { statePath, loadState, saveState } from '../core/state.mjs'
+import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
+// ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
+// 直接 import 同名函数会被参数遮蔽 → 函数体内 statePath === undefined → "is not a function"，
+// 而且被 try/catch 的 fail-open 吞成静默放行（2026-10-09 实测踩过）。
+import { statePath as guardStateFile, loadState, saveState } from '../core/state.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -275,7 +279,7 @@ function rememberReads(exec) {
   if (seen.has(key)) return
   seen.add(key)
   try {
-    const file = statePath(sid)
+    const file = guardStateFile(sid)
     // loadState 在文件不存在时返回默认结构（含 readSet: {}），无需先判存在
     const state = loadState(file)
     state.readSet = state.readSet && typeof state.readSet === 'object' ? state.readSet : {}
@@ -305,7 +309,7 @@ function sessionIdOf(exec) {
  */
 function readGuardStateExact(exec, override) {
   const file =
-    override && /\.json$/i.test(String(override)) ? String(override) : statePath(sessionIdOf(exec))
+    override && /\.json$/i.test(String(override)) ? String(override) : guardStateFile(sessionIdOf(exec))
   try {
     if (!existsSync(file)) return null
     const state = JSON.parse(readFileSync(file, 'utf8'))
@@ -520,6 +524,113 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       } catch (error) {
         warn('资格审核闸异常，fail-open 放行：', (error && error.message) || error)
       }
+    }
+
+    // ===== 3.0.8（移植批 2）：体积刺客三闸 =====
+    // 移植自 guard.mjs L579-620。DSH 侧此前完全没有这三道闸——大文件整读会一次灌入上下文、
+    // 步步重复计费，是"烧上下文"最直接的来源。
+    try {
+      const toolName = String((exec && exec.name) || '')
+      const args = (exec && exec.arguments) || {}
+      const target = pathOfTool(args)
+      const sessionId = sessionIdOf(exec)
+      const stateFile = guardStateFile(sessionId)
+      const st = existsSync(stateFile) ? loadState(stateFile) : null
+      const turnPrompt = String((st && (st.turnPromptFull || st.turnPrompt)) || '')
+
+      // ① Read 整读体积闸。2.5.3（案二）：审计/盘点/审查类任务整读留痕不罚——
+      //    法典把审计定为 50 预算重大专项，体积闸却拦审计最需要的整读，属制度性误伤。
+      if (/^read$/i.test(toolName) && !args.limit && !args.pages && target) {
+        let kb = 0
+        try {
+          kb = Math.round(statSync(String(target)).size / 1024)
+        } catch {
+          kb = 0
+        }
+        if (kb * 1024 > OUTPUT_GATE_BYTES) {
+          if (/审计|盘点|审查/.test(turnPrompt)) {
+            auditRedlineExempt(exec, `${target} ${kb}KB 整读`, {
+              redline: 'output-gate',
+              basis: 'audit-task-exempt',
+              detail: `${target} ${kb}KB 整读（审计任务豁免，留痕不罚）`,
+            })
+            warn('体积刺客·审计豁免：', `${target} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`)
+          } else {
+            warn('体积刺客拦截：', `${target} ${kb}KB 整读`)
+            auditDeny(exec, `${target} ${kb}KB 整读`)
+            return {
+              kind: 'deny',
+              reason:
+                `focus-guard-native: 体积刺客——${target} ${kb}KB，整读一次灌入、步步重复计费。` +
+                `请用 limit+offset 分段读，或交子代理处理。`,
+            }
+          }
+        }
+      }
+
+      // ② Grep 无 head_limit 闸（content 模式必须限量；先 files_with_matches 定位）
+      if (/^grep$/i.test(toolName) && args.output_mode === 'content' && !args.head_limit) {
+        warn('体积刺客拦截：', 'Grep content 无 head_limit')
+        auditDeny(exec, `Grep content 无 head_limit`)
+        return {
+          kind: 'deny',
+          reason: 'focus-guard-native: 体积刺客——Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。',
+        }
+      }
+
+      // ③ 裸 cat/type 刷屏闸（有管道/重定向/限量参数即放行）
+      if (cmd && /(^|[;&|]\s*)(cat|type|Get-Content)\s/i.test(cmd)) {
+        const guarded = /\||>|-TotalCount|-First|-Tail/i.test(cmd)
+        if (!guarded) {
+          warn('体积刺客拦截：', `裸 cat/type：${cmd.slice(0, 60)}`)
+          auditDeny(exec, `裸 cat/type：${cmd.slice(0, 60)}`)
+          return {
+            kind: 'deny',
+            reason: 'focus-guard-native: 体积刺客——禁裸 cat/type 刷屏。用 `cat x | head -100`，或先 grep/wc 定位。',
+          }
+        }
+      }
+    } catch (error) {
+      warn('体积刺客闸异常，fail-open 放行：', (error && error.message) || error)
+    }
+
+    // ===== 3.0.8（移植批 2）：污染核实闸 + 风险文件留痕 =====
+    try {
+      const toolName2 = String((exec && exec.name) || '')
+      const args2 = (exec && exec.arguments) || {}
+      const target2 = pathOfTool(args2)
+      const stateFile2 = guardStateFile(sessionIdOf(exec))
+      const st2 = existsSync(stateFile2) ? loadState(stateFile2) : null
+      const isMutating = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|NotebookEdit)$/i.test(toolName2)
+
+      // 污染核实闸（移植自 guard.mjs L534-543）：上轮工具输出与参数矛盾且未核实前，
+      // 首个改动类先拦一次（一次性，重试放行）；只读核验不受限。
+      if (st2 && st2.pollutionFlagged && isMutating) {
+        st2.pollutionFlagged = false
+        saveState(stateFile2, st2)
+        warn('污染核实闸拦截：', `${toolName2} ${target2 || ''}`)
+        return {
+          kind: 'deny',
+          reason:
+            'focus-guard-native: 上轮输出曾与参数矛盾（已记档）。先输出【污染核实】预期X 实际Y，结论：可信/不可信/需重试，再重试本次修改。只读核验不受限。',
+        }
+      }
+
+      // 风险文件修改 100% 留痕（不拦，只记录；移植自 guard.mjs L555-558）
+      if (
+        st2 &&
+        /^(Write|Edit)$/i.test(toolName2) &&
+        target2 &&
+        (RISKY_FILE_RE.test(target2) || /\.github\/|\.zcode-plugin\//.test(target2))
+      ) {
+        auditRedlineExempt(exec, target2, {
+          redline: 'risky-file',
+          basis: 'risk-audit',
+          detail: `风险文件修改 ${target2}`,
+        })
+      }
+    } catch (error) {
+      warn('污染核实/风险留痕异常，fail-open 放行：', (error && error.message) || error)
     }
 
     // 第 2 层：语义预判（可插拔）。工具调用（write/read 等无命令参数）零打扰透传。
