@@ -53,6 +53,10 @@
 - feat: **原生插件补上缺失的三条宿主缝 + KPI 兑现移植**（孤儿机制移植第一步）——新增 `src/dsh/seams.mjs`，按官方桥（`@deepseek-ai/dsh-hooks-claude-code`）的**实测映射**接上三条缝：`agent/created` → SessionStart（建立本会话状态）· `agent/pre-step` → UserPromptSubmit（回合重置；**waterfall 必须 `return next()`**，否则吞掉下游决策）· `agent/turn-stopping` → Stop（**KPI 兑现结算**：本任务 KPI → 等次 → 委托池奖惩，跨任务累计入 `kpiCarry`，留痕 `kpi-settle` / `kpi-low`）。映射来源是桥的已验证代码、非猜测。`constants.mjs` 的 `BUDGET_CAP` / `DELEGATE_DEFAULT` 由此在 DSH 侧**首次被真正消费**——此前它们属于那 28 个零消费者常量。
 - test: 新增 `tests/seams.test.mjs`（6 用例）——start 建状态并留痕 · reset 必须 `return next()` · KPI 优秀 +5 且跨任务累计 · 不称职 −5 且 `kpi-low` 只提醒一次 · 三条缝异常一律不阻塞 · 真实工作区零写入。CI 闸门至此为 **6 套 / 235 个断言**。
 
+- feat: **移植批 1：批示识别与回合重置（`reset` 133 行）**——`preStepListener` 由骨架补齐为完整实现，照搬 `guard.mjs` L194-326：特赦识别 · 目标预授权（只记 goal、不解锁执行）· 信用延期（停滞≥2 且收到信用批示 → 侦查/执行池各补 `REFILL`）· **停止令**（`STOP_ORDER_RE` → 熔断；且不再被本函数后续的硬写回抹掉——那是 guard.mjs 2.5.2 修过的老 bug）· 追加批示（三池各 +`REFILL`）· **y/n 执行级授权**（y 放行全部待批并目标绑定、n 彻底阻断且清除历史绑定）· 残留核验（43 条）· 额度核定（`KEY50_RE`/`KEY15_RE`）。`constants.mjs` 的 `MERCY_RE` · `CREDIT_RE` · `STOP_ORDER_RE` · `KEY50_RE` · `KEY15_RE` · `BUDGET_DEFAULT` · `BUDGET_CAP` · `REFILL` · `INV_POOL_DEFAULT` · `DELEGATE_DEFAULT` 由此**首次在 DSH 侧被消费**。
+- fix: **会话标识取值口径**——`agent/created` 等缝的会话 id 应取 `agent.session.header.id`（与官方桥 `lib/index.js:349-354` 同源）；此前误写为 `agent.session.id` 会取不到，于是**所有会话退化成同一个 `'dsh-native'`、状态互相覆盖**（与刚修掉的跨会话泄漏同类）。`projDir` 同步改用 `session.header.cwd`。
+- test: `seams.test.mjs` 扩到 11 用例（新增停止令熔断 · 三池追加 · 额度核定 · y/n 授权与目标绑定 · 非批示文本不误判）。CI 闸门至此 **6 套 / 240 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

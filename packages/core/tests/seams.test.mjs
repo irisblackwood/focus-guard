@@ -20,7 +20,8 @@ const { sessionStartListener, preStepListener, turnStoppingListener } = await im
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
 
 const noop = () => {};
-const mkAgent = (sid) => ({ session: { id: sid } });
+// 与官方桥同源：会话 id 取自 agent.session.header.id（不是 agent.session.id）
+const mkAgent = (sid) => ({ session: { header: { id: sid, cwd: process.cwd() } } });
 const auditLines = () =>
   existsSync(AUDIT_TMP)
     ? readFileSync(AUDIT_TMP, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
@@ -121,5 +122,84 @@ describe("3.0.8 · 补充宿主缝（agent/created · agent/pre-step · agent/tu
     assert.ok(!existsSync(AUDIT_TMP) || readFileSync(AUDIT_TMP, "utf8").length >= 0);
     assert.ok(!existsSync(realAudit) || readFileSync(realAudit, "utf8").length >= 0);
     console.log("沙箱审计:", AUDIT_TMP.replace(tmpdir(), "<tmp>"));
+  });
+});
+
+describe("3.0.8 · 批示识别（reset 移植自 guard.mjs L194-326）", () => {
+  // 与桥的 blocksToText 同口径：messages[i].content 是块数组
+  const msg = (text) => [{ content: [{ type: "text", text }] }];
+  const pass = () => ({ kind: "allow" });
+  const prep = (sid, patch) => {
+    rmSync(statePath(sid), { force: true });
+    saveState(statePath(sid), { readSet: {}, ...patch });
+  };
+
+  test("停止令『停止』→ 熔断置位 + stall-fuse 留痕（不得被自家重置抹掉）", async () => {
+    const sid = `seams-stop-${process.pid}`;
+    prep(sid, {});
+    resetAudit();
+    await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("停止") }, pass);
+    const st = loadState(statePath(sid));
+    assert.equal(st.fused, true, "人类批示停止必须真的熔断");
+    assert.ok(st.violations >= 3, "违例计数应抬高");
+    assert.ok(auditLines().some((r) => r.action === "stall-fuse"), "应留痕 stall-fuse");
+    console.log("stop →", JSON.stringify({ fused: st.fused, violations: st.violations }));
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("追加批示『追加』→ 三池各 +REFILL(10)", async () => {
+    const sid = `seams-extend-${process.pid}`;
+    prep(sid, { taskBudget: 10, invCap: 10, delegateBudget: 10 });
+    await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("追加") }, pass);
+    const st = loadState(statePath(sid));
+    assert.equal(st.delegateBudget, 20, "委托池应 +10");
+    assert.equal(st.invCap, 20, "侦查池应 +10");
+    console.log("extend →", JSON.stringify({ budget: st.taskBudget, invCap: st.invCap, delegate: st.delegateBudget }));
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("额度核定：批示含『审计』(KEY50_RE) → taskBudget=50", async () => {
+    const sid = `seams-kw-${process.pid}`;
+    prep(sid, { taskBudget: 10 });
+    await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("做一次全面审计") }, pass);
+    const st = loadState(statePath(sid));
+    assert.equal(st.taskBudget, 50, "含 KEY50 关键词应核定为 50");
+    assert.equal(st.taskInitial, 50);
+    console.log("额度核定 →", st.taskBudget);
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("执行级授权：待批时『y』放行并目标绑定；『n』彻底阻断并清除绑定", async () => {
+    const sidY = `seams-y-${process.pid}`;
+    prep(sidY, { highRiskQueue: [{ k: "key-A" }, { k: "key-B" }], highRiskKey: "key-C" });
+    resetAudit();
+    await preStepListener({ warn: noop })({ agent: mkAgent(sidY), messages: msg("y") }, pass);
+    const stY = loadState(statePath(sidY));
+    assert.equal(stY.highRiskOk, true, "y 应设置执行级授权");
+    assert.deepEqual(stY.highRiskBatch, ["key-A", "key-B", "key-C"], "应放行全部待批（队列+当前）");
+    assert.equal(stY.highRiskApprovedKeys["key-A"], true, "批示即绑定目标键");
+    assert.ok(auditLines().some((r) => r.action === "high-risk-approved"), "应留痕 approved");
+    console.log("y →", JSON.stringify(stY.highRiskBatch));
+    rmSync(statePath(sidY), { force: true });
+
+    const sidN = `seams-n-${process.pid}`;
+    prep(sidN, { highRiskQueue: [{ k: "key-A" }], highRiskKey: "key-B", highRiskApprovedKeys: { "key-A": true } });
+    await preStepListener({ warn: noop })({ agent: mkAgent(sidN), messages: msg("n") }, pass);
+    const stN = loadState(statePath(sidN));
+    assert.equal(stN.rejectedCmds["key-A"], 1, "n 应彻底阻断");
+    assert.equal(stN.highRiskApprovedKeys["key-A"], undefined, "n 须同时清除历史批准绑定");
+    assert.equal(stN.highRiskQueue.length, 0);
+    console.log("n → rejected:", Object.keys(stN.rejectedCmds).join(","));
+    rmSync(statePath(sidN), { force: true });
+  });
+
+  test("非批示文本不误判（『是不是应该这样』不得被当成 y）", async () => {
+    const sid = `seams-noy-${process.pid}`;
+    prep(sid, { highRiskQueue: [{ k: "key-A" }] });
+    await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("是不是应该这样处理") }, pass);
+    const st = loadState(statePath(sid));
+    assert.notEqual(st.highRiskOk, true, "长句/非批示不得构成执行级授权");
+    console.log("非批示文本未被误判为 y；highRiskOk =", st.highRiskOk);
+    rmSync(statePath(sid), { force: true });
   });
 });
