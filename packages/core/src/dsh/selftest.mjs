@@ -104,18 +104,33 @@ console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）
   check('TRUNCATE TABLE 命中红线 deny', gate.kind === 'deny')
 }
 {
+  // 2026-10-09 更新：本用例只验"红线层不误伤"，但管线在红线之后还有**资格闸**（3.0.5 加入）——
+  // 它对任意递归强删都要求先 fg_apply，射程比红线宽（红线只认根/HOME）。故断言改为
+  // "未命中绝对红线、但被资格闸拦"，否则等于在测"资格闸不存在"。
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "/usr"' } })
-  check('带引号的非根路径不误伤（红线只认根/HOME）', gate.kind !== 'deny', JSON.stringify(gate))
+  check(
+    '带引号的非根路径不命中红线（改由资格闸拦）',
+    gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
+    JSON.stringify(gate),
+  )
 }
 
-console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，交由下游层）==')
+console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，由资格闸接管）==')
 {
+  // 同 A1：不命中红线 ≠ 放行 —— 资格闸会接管（要求先 fg_apply）。
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf ./test-dir' } })
-  check('rm -rf ./test-dir 不在红线，放行到下游层', gate.kind !== 'deny', JSON.stringify(gate))
+  check(
+    'rm -rf ./test-dir 不在红线（改由资格闸拦）',
+    gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
+    JSON.stringify(gate),
+  )
 }
 {
   const gate = await run({ name: 'bash', arguments: { command: 'cd /tmp && rm -fr build/' } })
-  check('rm -fr build/ 不在红线，放行到下游层', gate.kind !== 'deny')
+  check(
+    'rm -fr build/ 不在红线（改由资格闸拦）',
+    gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
+  )
 }
 {
   const gate = await run({ name: 'pwsh', arguments: { command: 'Remove-Item -Recurse -Force ./x' } })
@@ -146,8 +161,10 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
   })({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
   check('第2层抛错 → 保守走 ask（不静默放行）', errGate.kind === 'ask' && /judge_failed/.test(errGate.reason))
 
-  const defGate = await mk(riskOfHeuristic)({ name: 'bash', arguments: { command: 'rm -rf ./tmp' } }, passthrough)
-  check('启发式 rm -rf ./tmp 不触发 ask（走第2层后放行）', defGate.kind === 'allow', JSON.stringify(defGate))
+  // 2026-10-09 更新：改用不含递归强删的命令，避免被下游的**资格闸**拦下 ——
+  // 本用例只验"第 2 层启发式恒不越过阈值、不产生 ask"，不该被别的层干扰结论。
+  const defGate = await mk(riskOfHeuristic)({ name: 'bash', arguments: { command: 'node cleanup.mjs --all' } }, passthrough)
+  check('启发式不触发 ask（走第2层后放行）', defGate.kind === 'allow', JSON.stringify(defGate))
 
   console.warn('== 测试 A4：第2层真哨兵（观察模式）==')
   {
@@ -190,8 +207,12 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
     const fusedRead = await mkState(fusedPath)({ name: 'Read', arguments: { file_path: '/tmp/fg-a.txt' } }, pass)
     check('熔断中 + 只读 → 放行', fusedRead.kind === 'allow')
 
-    const unseenGate = await mkState(openPath)({ name: 'Write', arguments: { file_path: '/tmp/fg-never-read.txt', content: 'x' } }, pass)
-    check('未取证 + 改文件 → deny', unseenGate.kind === 'deny' && /取证/.test(unseenGate.reason), JSON.stringify(unseenGate))
+    // 2026-10-09 更新：目标必须是**真实存在**的文件。原用 `/tmp/fg-never-read.txt`，
+    // 它不存在 → 走"新建文件放行"分支（3.0.7 缺陷 C 的修复），根本测不到"未取证"。
+    const existingTarget = join(dir, 'exists-but-unread.txt')
+    wf(existingTarget, 'x')
+    const unseenGate = await mkState(openPath)({ name: 'Write', arguments: { file_path: existingTarget, content: 'x' } }, pass)
+    check('未取证 + 改已存在文件 → deny', unseenGate.kind === 'deny' && /取证/.test(unseenGate.reason), JSON.stringify(unseenGate))
 
     const noStateGate = await mkState(stalePath)({ name: 'Write', arguments: { file_path: '/tmp/fg-b.txt', content: 'x' } }, pass)
     check('读不到状态 → fail-open 放行（不静默：有 warn）', noStateGate.kind === 'allow')
@@ -200,8 +221,10 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
 
 console.warn('== 测试 B：放行 ==')
 {
-  const gate = await run({ name: 'bash', arguments: { command: 'ls -la' } })
-  check('ls -la 零打扰放行', gate.kind === 'allow')
+  // 2026-10-09 更新：`ls` 会被本项目自己的**环境指纹硬校验**拦（本机 map ls→eza），
+  // 那是"本机命令替代表"的预期行为、不是误伤。改用无替代映射的日常命令来验"零打扰"。
+  const gate = await run({ name: 'bash', arguments: { command: 'node build.js' } })
+  check('日常命令零打扰放行', gate.kind === 'allow', JSON.stringify(gate))
 }
 {
   // 先 Read 同一路径（第 3 层取证语义：先读后写），本块只验第1层不被内容里的危险字样误伤
