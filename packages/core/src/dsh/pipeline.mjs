@@ -292,9 +292,18 @@ function rememberReads(exec) {
 }
 
 /** 第 3 层判定：返回 deny 决策或 null（放行到下游）；读失败一律 fail-open + warn */
-/** 本会话身份：与 audit / grant 口径一致（DSH 交来的 sessionId 优先）。 */
+/** 本会话身份：与 audit / grant 口径一致（真实 id 在 agent.session.header.id，见桥 lib/index.js:349）。 */
 function sessionIdOf(exec) {
-  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+  // ⚠ 2026-10-10 实测修正：原实现只认 exec.sessionId / agent.sessionId / agent.id，三者皆空 →
+  // 全部退化成 'dsh-native'，导致**所有会话共用一份状态文件**（真实 AUDIT.log 里 439 条记在
+  // dsh-native 名下）。真实会话 id 形如 sess_<uuid>，位于 agent.session.header.id。
+  return (
+    (exec &&
+      ((exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.id) ||
+        exec.sessionId ||
+        (exec.agent && (exec.agent.sessionId || exec.agent.id)))) ||
+    'dsh-native'
+  )
 }
 
 /**

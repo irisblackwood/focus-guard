@@ -68,6 +68,13 @@
   - **不受影响**：`fg_appeal` 误伤申辩——它不是绕过而是救济（须附反例锚点、人类一次性裁决、全程留痕）。
 - test: `seams.test.mjs` 的 y/n 授权用例改写为"审批单退役后 `y` 不再构成任何授权"（断言 `highRiskOk` 未被设置、无 `high-risk-approved` 留痕）。
 
+- feat: **移植批 3：post-execute 进度与执法缝（242 行）**——新增 `src/dsh/postProgress.mjs`，与 `postExecuteListener` **同事件并列监听**。移植自 `guard.mjs` L666-907：**进度检测引擎**（响应/入参签名比对，判定有效 vs 无效调用）· **三预算池核算**（执行池/侦查池分列，自动续杯、硬上限熔断、侦查池超限）· **停滞熔断**（连续无效达 `STALL_FUSE` → 熔断 + 预警）· **58 条上下文污染检测**（`head -n N` 行数对账、清单路径重复 → 设 `pollutionFlagged`）· 巨量输出事后追责 · **子代理摘要校验**（KPI ±3）· **强制委派场景检测**（KPI ±5）· **抽查 A**（每 `RANDOM_AUDIT_EVERY` 次写操作全量审计）· 卷宗指纹与 TTL 依据（`caseCache`）。工具名按 DSH 适配（`Agent`→`agent|subagent`、`Bash`→`pwsh|bash`、大小写不敏感）。
+  - **闭环**：本批设置 `pollutionFlagged`，批 2 已搬其消费侧——跨模块用例锁定"post 标记 → pre 拦一次 → 重试放行"。
+- fix: **会话标识取值口径（第二处、更严重）**——`audit.mjs` 的 `sessionOf` 与 `pipeline.mjs` 的 `sessionIdOf` 只认 `exec.sessionId`/`agent.sessionId`/`agent.id`，**三者皆空** → 全部退化成 `'dsh-native'`。实测真实 `AUDIT.log` 里 **439 条**记录都记在 `dsh-native` 名下，而取值正确的 `seams.mjs` 写的是 `sess_<uuid>`——**即所有会话共用一份状态文件与一条审计流**。现统一为桥的口径（`agent.session.header.id` 优先）。
+- fix: **`postProgress` 误用母版 `audit` 会写真实工作区**——母版 `audit()` 按 `auditTarget()` 落盘，优先读 `ZCODE_PROJECT_DIR`/`CLAUDE_PROJECT_DIR`，而 DSH 下后者被设置 → 会写真实工作区的 `.focus-guard/AUDIT.log`（重演此前修过的测试污染）。现改用本地同签名包装，落点走 DSH 统一入口 `appendAudit`（尊重 `FG_AUDIT_FILE`、带体积轮转）。
+- test: 新增 `tests/postProgress.test.mjs`（9 用例，零污染）。CI 闸门 **6 套 / 257 个断言**。
+- note: **实弹验证意外达成**——DSH 插件**热重载生效**，新注册的 `postProgressListener` 在本次会话**真实运行**并把"连续工具调用被取证闸拒"判为停滞、累加至 `STALL_FUSE` 触发熔断（本人被自己的护栏拦下 3 次 edit）。这既证明监听器真的挂上了，也暴露一个**待评估的误伤面**：`progress` 判定未区分"调用失败"与"无进展"，当工具屡遭拦截时会误判为停滞。已记录，留待评估（`guard.mjs` 原逻辑如此，不宜擅自改动）。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

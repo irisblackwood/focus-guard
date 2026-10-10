@@ -90,7 +90,17 @@ export function appendAudit(row, file = auditFilePath()) {
 
 /** 从 exec 取会话标识（三处写入共用的口径）。 */
 function sessionOf(exec) {
-  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+  // ⚠ 取值口径必须与官方桥一致（lib/index.js:349-354）——真实会话 id 在 agent.session.header.id。
+  // 2026-10-10 实测：只认 exec.sessionId / agent.sessionId / agent.id 会全部取空，
+  // 于是所有会话退化成同一个 'dsh-native'（真实 AUDIT.log 里 439 条记录都记在 dsh-native 名下，
+  // 而取值正确的 seams 写的是 sess_<uuid>）——这会造成跨会话状态与审计互相污染。
+  return (
+    (exec &&
+      ((exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.id) ||
+        exec.sessionId ||
+        (exec.agent && (exec.agent.sessionId || exec.agent.id)))) ||
+    'dsh-native'
+  )
 }
 
 /** 拦截写入一条审计记录（JSONL 追加，字段与 hooks/guard.mjs 口径一致） */
