@@ -11,7 +11,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -191,5 +191,115 @@ describe("3.0.8 · pre 结构性执法（移植批 5）", () => {
     const realAudit = join(process.cwd(), ".focus-guard", "AUDIT.log");
     assert.ok(!existsSync(realAudit) || readFileSync(realAudit, "utf8").length >= 0);
     console.log("沙箱审计:", AUDIT_TMP.replace(tmpdir(), "<tmp>"));
+  });
+});
+
+describe("3.0.8 · 卷宗不重复读与改动前备份（移植批 6）", () => {
+  test("卷宗指纹一致且 TTL 未超 → 拦免重读（复用已有取证）", async () => {
+    const sid = `pre-case-hit-${process.pid}`;
+    const target = join(ROOT, "cached.txt");
+    writeFileSync(target, "content-v1");
+    const { fingerprint } = await import("../src/core/state.mjs");
+    const fp = fingerprint(target);
+    withState(sid, {
+      caseCache: {
+        [target.replace(/\\/g, "/")]: {
+          path: target, mtime: fp.mtime, size: fp.size, sha: fp.sha || "",
+          gitDirty: null, readAt: Date.now(), changes: 0, via: "mtime+size+sha",
+        },
+      },
+    });
+    resetAudit();
+    const gate = await preGuardListener({ warn: noop })(mkExec(sid, "read", { file_path: target }), pass);
+    assert.equal(gate.kind, "deny", "指纹一致且 TTL 未超应拦免重读");
+    assert.match(gate.reason, /卷宗·免重读/);
+    assert.ok(auditLines().some((r) => r.action === "casefile-hit"));
+    console.log("免重读:", String(gate.reason).slice(0, 72));
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("卷宗记录为 inherited（本会话未读过）→ 只提示不拦，首读放行", async () => {
+    const sid = `pre-case-inherit-${process.pid}`;
+    const target = join(ROOT, "inherited.txt");
+    writeFileSync(target, "content");
+    const { fingerprint } = await import("../src/core/state.mjs");
+    const fp = fingerprint(target);
+    withState(sid, {
+      caseCache: {
+        [target.replace(/\\/g, "/")]: {
+          path: target, mtime: fp.mtime, size: fp.size, sha: fp.sha || "",
+          gitDirty: null, readAt: Date.now(), changes: 0, via: "mtime+size+sha", inherited: 1,
+        },
+      },
+    });
+    const warns = [];
+    const gate = await preGuardListener({ warn: (...p) => warns.push(p.join(" ")) })(
+      mkExec(sid, "read", { file_path: target }),
+      pass,
+    );
+    assert.notEqual(gate.kind, "deny", "继承指纹不得拦首读（会阻断取证）");
+    assert.ok(warns.some((w) => /卷宗·提示/.test(w)), "应给出提示但不拦");
+    console.log("继承指纹 → 放行 + 提示");
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("offset 增量读永远放行（不受卷宗闸约束）", async () => {
+    const sid = `pre-case-offset-${process.pid}`;
+    const target = join(ROOT, "cached.txt");
+    writeFileSync(target, "content-v1");
+    const { fingerprint } = await import("../src/core/state.mjs");
+    const fp = fingerprint(target);
+    withState(sid, {
+      caseCache: {
+        [target.replace(/\\/g, "/")]: {
+          path: target, mtime: fp.mtime, size: fp.size, sha: fp.sha || "",
+          gitDirty: null, readAt: Date.now(), changes: 0, via: "mtime+size+sha",
+        },
+      },
+    });
+    const gate = await preGuardListener({ warn: noop })(
+      mkExec(sid, "read", { file_path: target, offset: 10 }),
+      pass,
+    );
+    assert.notEqual(gate.kind, "deny", "带 offset 的增量读应放行");
+    console.log("offset 增量读 → 放行");
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("文件内容变化 → 指纹不一致，放开真重读", async () => {
+    const sid = `pre-case-changed-${process.pid}`;
+    const target = join(ROOT, "changing.txt");
+    writeFileSync(target, "v1");
+    const { fingerprint } = await import("../src/core/state.mjs");
+    const fp = fingerprint(target);
+    writeFileSync(target, "v2-changed-content-longer");
+    withState(sid, {
+      caseCache: {
+        [target.replace(/\\/g, "/")]: {
+          path: target, mtime: fp.mtime, size: fp.size, sha: fp.sha || "",
+          gitDirty: null, readAt: Date.now(), changes: 0, via: "mtime+size+sha",
+        },
+      },
+    });
+    const gate = await preGuardListener({ warn: noop })(mkExec(sid, "read", { file_path: target }), pass);
+    assert.notEqual(gate.kind, "deny", "内容已变应允许真重读");
+    console.log("内容变化 → 放行重读");
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("74条：改动已有文件前自动备份到 .ai/backup/", async () => {
+    const sid = `pre-backup-${process.pid}`;
+    withState(sid);
+    const target = join(ROOT, "to-edit.txt");
+    writeFileSync(target, "原始内容");
+
+    await preGuardListener({ warn: noop })(mkExec(sid, "write", { file_path: target, content: "新内容" }), pass);
+
+    const backupDir = join(ROOT, ".ai", "backup");
+    assert.ok(existsSync(backupDir), "应创建 .ai/backup/ 目录");
+    const backups = readdirSync(backupDir);
+    assert.ok(backups.length > 0, "应产生备份文件（供无版本库工作区回滚）");
+    console.log("改动前备份:", backups.join(","));
+    rmSync(statePath(sid), { force: true });
   });
 });

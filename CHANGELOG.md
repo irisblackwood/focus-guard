@@ -90,6 +90,12 @@
 - fix: **工具名口径（适配层缺失，跨批次影响）**——母版 `risk.mjs` 的 `isMutating` / `isInvestigation` 按 **ZCode 命名**精确判定（`tool === "Write"`、`["Read","Grep","Glob",…]`），而 DSH 传**小写**（`write` / `read` / `pwsh` / `subagent`）→ 恒不匹配。后果不是"漏拦一次"而是**静默判错**：`isMutating('write') === false` 使 L2/L5 期间改动类**不被拦**；`isInvestigation('read') === false` 使**只读调用被计入执行池**，侦查池永不满、执行池被只读调用提前耗尽（**批 3 的 `postProgress` 已带此缺陷**）。新增 `src/dsh/toolName.mjs` 做归一化——修在**适配层**而非母版：母版要同时服务 ZCode 与 DSH，翻译是适配层职责；改母版会把 DSH 命名泄漏进母版、破坏"母版零宿主依赖"的分层约定。
 - test: 新增 `tests/preGuard.test.mjs`（10 用例，含委托池**闭环**用例：追加侧补池 → 消耗侧委派）。CI 闸门至此 **10 套 / 278 个断言**，测试污染零增量。
 
+- feat: **移植批 6：卷宗不重复读 + 改动前备份（44 行，功能补齐）**——并入 `preGuard.mjs`：
+  - **卷宗不重复读**（总纲四）：指纹（mtime+size+SHA/git）一致且 TTL（`resolveTTL`）未超 → **拦免重读**，复用已有取证；指纹变化或 TTL 超时 → 放开真重读（post 缝会更新卷宗指纹）。**与第 3 层取证闸语义相反**（那座闸管"没读就改"，本闸管"读了还读"），二者不冲突：取证闸只对改动类（`MUTATING_TOOL`）生效，本闸只对 `Read` 生效。**卷宗继承记录（`inherited`）只提示不拦**——本会话从未读过、内容不在上下文，拦首读即阻断取证；`offset` 增量读永远放行；熔断/强制取证期豁免。
+  - **74 条改动前自动备份**：所有闸通过、调用确定执行 → `backupBeforeEdit` 落 `.ai/backup/`，供无版本库工作区回滚。
+  - **子代理继承不再另接缝**：批 5 已在 `pre` 侧以 `Agent` 工具名判定并留痕 `subagent-spawn`（父状态随派单移交），批 3 的 `postProgress` 已在 `post` 侧按 `subagent` 处理摘要校验——`subagent/start|end` 两条缝**无增量价值，不接**（避免重复实现）。
+- test: `tests/preGuard.test.mjs` 扩到 15 用例（新增卷宗免重读 · 继承放行 · offset 放行 · 内容变化放行 · 改动前备份）。CI 闸门 **10 套 / 283 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

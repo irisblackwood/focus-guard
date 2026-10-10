@@ -19,7 +19,8 @@
  */
 import { dirname, basename } from 'node:path'
 import { readdirSync } from 'node:fs'
-import { statePath as guardStateFile, loadState, saveState } from '../core/state.mjs'
+import { statePath as guardStateFile, loadState, saveState, fingerprint, gitDirty, resolveTTL } from '../core/state.mjs'
+import { backupBeforeEdit } from '../core/backup.mjs'
 import { platformBashViolation } from '../core/env.mjs'
 import { isDangerousCmd } from '../core/redlines.mjs'
 import { isInvestigation, isMutating, penalize } from '../core/risk.mjs'
@@ -217,6 +218,66 @@ export function preGuardListener({ warn } = {}) {
           reason: state.probation
             ? 'focus-guard-native: [L5 降权]只读模式，改动类全拒，等人类批示。'
             : 'focus-guard-native: [L2 强制取证]下一调用必须是取证类，取证后自动解除。',
+        }
+      }
+
+      // ===== 总纲四：卷宗不重复读校验（跨回合）=====
+      // 指纹一致（mtime+size+SHA/git）且 TTL 未超 → 拦免重读，复用已有取证；
+      // 指纹不一致 / TTL 超时 → 放开，允许真重读（post 缝会更新卷宗指纹）。
+      // 与第 3 层取证闸**语义相反**（那座闸管"没读就改"，本闸管"读了还读"），二者不冲突：
+      // 取证闸只对改动类生效（MUTATING_TOOL），本闸只对 Read 生效。
+      // 熔断/强制取证期豁免（降级重建证据需真重读）；offset 增量读永远放行。
+      if (
+        RE_READ.test(tool) &&
+        rawPath &&
+        !ti.offset &&
+        !state.fused &&
+        !state.forcedInvestigate &&
+        !BLOCKS_RE.test(rawPath)
+      ) {
+        try {
+          const rec = (state.caseCache || {})[filePath]
+          if (rec) {
+            const fp = fingerprint(rawPath)
+            const pDir = projDirOf(exec)
+            const dirty = fp.sha ? null : gitDirty(pDir, rawPath)
+            const changed =
+              rec.mtime !== fp.mtime ||
+              rec.size !== fp.size ||
+              (rec.sha && fp.sha && rec.sha !== fp.sha) ||
+              (rec.gitDirty !== null && rec.gitDirty !== undefined && dirty !== null && dirty !== rec.gitDirty)
+            if (!changed) {
+              const ttl = resolveTTL(pDir, rec, rawPath)
+              if (Date.now() - (rec.readAt || 0) < ttl.ms) {
+                if (rec.inherited) {
+                  // 卷宗继承的指纹只提示不拦——本会话从未读过，内容不在上下文，拦首读即阻断取证
+                  audit(sid, 'casefile-inherit', { evidence: `2.0卷宗 继承指纹放行首读 ${filePath} ttl=${ttl.src}` })
+                  if (typeof warn === 'function') {
+                    warn('卷宗·提示：', `${filePath} 卷宗有近期取证（${ttl.src}），但本会话尚未读过——首读放行。`)
+                  }
+                } else {
+                  audit(sid, 'casefile-hit', { evidence: `2.0卷宗 免重读 ${filePath} ttl=${ttl.src}` })
+                  return {
+                    kind: 'deny',
+                    reason:
+                      `focus-guard-native: [卷宗·免重读]${filePath} 指纹一致（${rec.via || 'mtime+size'}）且 TTL 未超（${ttl.src}），` +
+                      `勿重复整读；需新内容用 offset 增量读或请批示。`,
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          /* 指纹/卷宗读取失败 → 放行真重读（fail-open，与全文件口径一致） */
+        }
+      }
+
+      // ===== 74条：本次调用确定执行 → 备份改动前内容到 .ai/backup/（新文件无内容可备份，自动跳过）=====
+      if (RE_WRITE.test(tool) && !handoff && rawPath) {
+        try {
+          backupBeforeEdit(rawPath, projDirOf(exec))
+        } catch {
+          audit(sid, 'note-fail', { evidence: `74条 改动前备份失败 ${filePath}` })
         }
       }
     } catch (error) {
