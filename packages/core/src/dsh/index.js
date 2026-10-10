@@ -11,8 +11,9 @@
  */
 
 import { postExecuteListener, preExecuteListener, systemPromptListener } from './pipeline.mjs'
-import { preStepListener, sessionStartListener, turnStoppingListener } from './seams.mjs'
+import { preStepListener, sessionStartListener, systemPromptRulesListener, turnStoppingListener } from './seams.mjs'
 import { postProgressListener } from './postProgress.mjs'
+import { stopGuardListener } from './stopGuard.mjs'
 
 export const name = 'focus-guard'
 
@@ -31,6 +32,8 @@ export function apply(ctx) {
 
   register('tools/pre-execute', preExecuteListener, 'tools/pre-execute')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
+  // 3.0.8 移植批 4：常驻规则注入（guard.mjs 的 SESSION_RULES，原文走 stdout，原生改走注入缝）
+  register('system-prompt/assemble', systemPromptRulesListener, 'system-prompt/assemble(rules)')
   register('tools/post-execute', postExecuteListener, 'tools/post-execute')
   // 3.0.8 移植批 3：进度检测 / 三预算池 / 污染检测 / 委派 KPI / 抽查（与上条同事件并列监听）
   register('tools/post-execute', postProgressListener, 'tools/post-execute(progress)')
@@ -39,4 +42,6 @@ export function apply(ctx) {
   register('agent/created', sessionStartListener, 'agent/created')
   register('agent/pre-step', preStepListener, 'agent/pre-step')
   register('agent/turn-stopping', turnStoppingListener, 'agent/turn-stopping')
+  // 3.0.8 移植批 4：收尾核验（授权识别 / 熔断声明 / 无锚点）——与上条 KPI 结算并列监听
+  register('agent/turn-stopping', stopGuardListener, 'agent/turn-stopping(guard)')
 }

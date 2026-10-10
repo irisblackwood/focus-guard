@@ -20,19 +20,32 @@
  * 纪律：所有写入经 appendAudit / saveState / saveLedger（均 fail-open + 留痕）；
  * 任一缝异常只 warn，绝不断开 DSH 主流程。
  */
-import { existsSync } from 'node:fs'
-import { statePath, loadState, saveState, saveLedger } from '../core/state.mjs'
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  statePath,
+  loadState,
+  saveState,
+  saveLedger,
+  casePath,
+  ensureCaseFile,
+  loadCaseRecords,
+} from '../core/state.mjs'
+import { noteFail } from '../core/audit.mjs'
+import { detectEnv } from '../core/env.mjs'
 import {
   BUDGET_CAP,
   BUDGET_DEFAULT,
   CREDIT_RE,
   DELEGATE_DEFAULT,
+  ENGINE_VERSION,
   INV_POOL_DEFAULT,
   KEY15_RE,
   KEY50_RE,
   MERCY_RE,
   MERCY_SHORT,
   REFILL,
+  SESSION_RULES,
   STOP_ORDER_RE,
 } from '../core/constants.mjs'
 import { appendAudit } from './audit.mjs'
@@ -82,20 +95,108 @@ function auditRow(sid, action, evidence, extra = {}) {
 }
 
 /**
- * ① agent/created → SessionStart：建立/载入本会话状态。
- * 这是"原生插件自持状态"的起点——此前 DSH 侧没有任何 state 写入者，
- * 所有依赖 state 的机制（取证、KPI、预算池…）因此一起失效。
+ * ① agent/created → SessionStart：建立/载入本会话状态 + 环境检测 + 卷宗载入 + 巡视。
+ *
+ * 移植自 guard.mjs 的 start 模式（L90-193），**唯一的取舍**：原文把常驻规则 `SESSION_RULES`
+ * 混在 `hookSpecificOutput.additionalContext` 里用 stdout 输出（Claude hooks 协议）；
+ * DSH 原生插件不走 stdout，注入缝是 `system-prompt/assemble` —— 故规则改由下面的
+ * `systemPromptRulesListener` 承担，本缝只管状态与环境。
+ *
+ * 去掉脚本特有部分：rmSync(path)（原文每次 start 都清状态；DSH 的会话状态要跨回合保留，
+ * 清空会丢取证记录）、cleanStaleTemp 之外的 ZCode 注册表核验（`~/.zcode/...` 在 DSH 下无意义）。
  */
 export function sessionStartListener({ warn } = {}) {
   return async ({ agent } = {}) => {
     try {
-      const { sid, file, state } = loadOrInit(agent)
-      if (!existsSync(file)) {
-        saveState(file, state)
+      const sid = sidOf(agent)
+      const file = statePath(sid)
+      const projDir = projDirOf(agent)
+      const state = loadState(file)
+      const first = !existsSync(file)
+
+      // 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）
+      try {
+        state.envCache = detectEnv(projDir)
+      } catch {
+        /* 环境检测失败不阻断 */
+      }
+      // 2.0 卷宗载入：重建取证记录与 TTL 表（总纲七）
+      if (projDir) {
+        try {
+          state.caseCache = loadCaseRecords(ensureCaseFile(projDir))
+          // 2.5.3（案一）：从卷宗重建的记录标为"继承"——内容不在本会话上下文中，
+          // 据此免重读会挡住合法首读。继承记录只提示不拦，本会话真读过（post 重录指纹）后转正。
+          for (const k of Object.keys(state.caseCache)) state.caseCache[k].inherited = 1
+        } catch {
+          noteFail(sid, '卷宗初始化（工作区可能只读，降级继续）')
+        }
+        // 卷宗【一】环境声明落卷（原子写：tmp + rename）
+        try {
+          const cp = casePath(projDir)
+          let t = readFileSync(cp, 'utf8')
+          const env = state.envCache || {}
+          const envRow = `- OS=${env.os} / Shell=${env.shellIdKey} / 大小写=${env.caseSensitive === false ? '不敏感' : '敏感'} / 编码=${env.encoding || '-'} / 检测于 ${new Date().toISOString()}`
+          t = t.replace(/### 【一】[\s\S]*?(?=\n### |\n## |$)/, () => `### 【一】环境声明（会话级检测，全程复用）\n\n${envRow}\n`)
+          const tmp = cp + '.' + process.pid + '.tmp'
+          writeFileSync(tmp, t)
+          renameSync(tmp, cp)
+        } catch {
+          noteFail(sid, '卷宗【一】环境声明落卷')
+        }
+        // 36条 异地交叉巡视：新会话接手 → 复核前任结论
+        try {
+          readFileSync(join(projDir, 'HANDOFF.md'), 'utf8')
+          auditRow(sid, 'handover-inspect', '36条 交叉巡视：发现 HANDOFF.md')
+        } catch {
+          /* 无 HANDOFF 属正常 */
+        }
+        // 42条 部署版本核验：运行引擎 vs 工作区源码
+        for (const rel of ['packages/core/hooks/guard.mjs', 'hooks/guard.mjs', 'focus-guard/hooks/guard.mjs']) {
+          try {
+            const m = readFileSync(join(projDir, rel), 'utf8').slice(0, 400).match(/v(\d+\.\d+\.\d+)/)
+            if (m && m[1] !== ENGINE_VERSION) {
+              auditRow(sid, 'version-check', `42条 引擎 v${ENGINE_VERSION} vs 源码 v${m[1]} (${rel})`)
+            }
+            break
+          } catch {
+            /* 该路径不存在，试下一个 */
+          }
+        }
+      }
+
+      state.taskChain = (state.taskChain || 'S') + ''
+      if (first) state.taskChain = 'S' + Date.now().toString(36) // 3.0.0 因果链：会话根链
+      saveState(file, state)
+      if (first) {
         auditRow(sid, 'start-fired', `本会话状态初始化（DSH 原生插件自持）：${file}`)
       }
+      // 立法法·第七章 规则备案
+      auditRow(sid, 'rules-registered', `立法法(试行)v1.0 生效2026-09-29; 监督办法v1.0(docs/RULES.md); 引擎v${ENGINE_VERSION}`)
     } catch (error) {
       if (typeof warn === 'function') warn('会话启动缝异常（不阻塞）:', (error && error.message) || error)
+    }
+  }
+}
+
+/**
+ * 常驻规则注入（`system-prompt/assemble`，与 pipeline 的成本提示行并列）。
+ * 这是 guard.mjs 的 `SESSION_RULES` 在 DSH 原生插件里的落点——原文经 stdout 的
+ * `hookSpecificOutput.additionalContext` 输出，原生插件无此契约，故改走注入缝。
+ * 追加为独立 section，不改动下游既有 section。
+ */
+export function systemPromptRulesListener({ warn } = {}) {
+  return async (assembly, context, next) => {
+    let downstream
+    try {
+      downstream = await next()
+      if (downstream && typeof downstream === 'object' && Array.isArray(downstream.sections)) {
+        return { ...downstream, sections: [...downstream.sections, { name: 'focus-guard-rules', text: SESSION_RULES }] }
+      }
+      // 兜底：下游不是预期的 assembly 形状时不强行改写，原样透传
+      return downstream
+    } catch (error) {
+      if (typeof warn === 'function') warn('常驻规则注入异常（不阻塞）:', (error && error.message) || error)
+      return downstream
     }
   }
 }

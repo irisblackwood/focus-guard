@@ -19,6 +19,12 @@ const { preExecuteListener } = await import("../src/dsh/pipeline.mjs");
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
 
 const ROOT = join(tmpdir(), `fg-ownership-${process.pid}-${Date.now()}`);
+// —— 审计沙箱：必须在任何会触发 auditDeny 的调用之前生效 ——
+// 2026-10-10 补：本文件此前只"声称"重定向到 tmpdir，实际从未设置 FG_AUDIT_FILE，
+// 于是 preExecuteListener 的 deny 路径经 auditDeny 写进了真实工作区（实测 own- 前缀 39 条）。
+// 与 integration.test.mjs 的 after() 同源问题：纪律写在注释里，不等于执行了。
+const AUDIT_TMP = join(tmpdir(), `fg-ownership-audit-${process.pid}-${Date.now()}.log`);
+process.env.FG_AUDIT_FILE = AUDIT_TMP;
 const TARGET = join(ROOT, "target.txt");
 mkdirSync(ROOT, { recursive: true }); // 先建目录：writeFileSync 不会自动创建父目录
 writeFileSync(TARGET, "content");

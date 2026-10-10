@@ -26,7 +26,11 @@ import { applyEligibility, gateToolCall, grantsFor, resetGrants, gatedReasonOf }
 import { redlineExempt } from "../src/core/redlines.mjs";
 
 after(() => {
-  delete process.env.FG_AUDIT_FILE;
+  // ⚠ 必须"恢复为沙箱路径"而不是 delete：node --test 的多文件可能共享进程，
+  // delete 会让**后续测试文件**全部落回真实 AUDIT.log（2026-10-10 实测：
+  // 本文件之后的 state-ownership 泄漏 own- 33 条、gates 泄漏 gate- 6 条；而重新设置了
+  // FG_AUDIT_FILE 的 seams/postProgress 为 0）。与 eligibility.test.mjs 的写法保持一致。
+  process.env.FG_AUDIT_FILE = AUDIT_TMP;
   rmSync(AUDIT_TMP, { force: true });
 });
 

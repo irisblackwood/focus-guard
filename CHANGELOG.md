@@ -75,6 +75,16 @@
 - test: 新增 `tests/postProgress.test.mjs`（9 用例，零污染）。CI 闸门 **6 套 / 257 个断言**。
 - note: **实弹验证意外达成**——DSH 插件**热重载生效**，新注册的 `postProgressListener` 在本次会话**真实运行**并把"连续工具调用被取证闸拒"判为停滞、累加至 `STALL_FUSE` 触发熔断（本人被自己的护栏拦下 3 次 edit）。这既证明监听器真的挂上了，也暴露一个**待评估的误伤面**：`progress` 判定未区分"调用失败"与"无进展"，当工具屡遭拦截时会误判为停滞。已记录，留待评估（`guard.mjs` 原逻辑如此，不宜擅自改动）。
 
+- feat: **移植批 4：start 与 stop 收尾缝（约 300 行）**——新增 `stopGuard.mjs`，并扩充 `sessionStartListener`。
+  - **start**（`agent/created`）：环境检测入 `state.envCache` · 卷宗载入（`inherited` 标记）· 卷宗【一】环境声明落卷（原子写）· 36 条 HANDOFF 交叉巡视 · 42 条部署版本核验 · 因果根链 · `rules-registered` 备案。
+  - **常驻规则注入**：`guard.mjs` 把 `SESSION_RULES` 经 stdout 的 `hookSpecificOutput.additionalContext` 输出（Claude hooks 协议）；原生插件无此契约 → 改由新增的 `systemPromptRulesListener` 经 `system-prompt/assemble` 注入**独立 section**（与成本提示行并列，不改动下游既有 section）。
+  - **stop**（`agent/turn-stopping`，与 KPI 结算并列监听）：任务规模声明（`TASK_SCALE_RE`）· 绝境模式豁免 · **《授权识别与留痕条例》三重核验**（引用原文 ↔ 本回合实际指令比对 / 法条 / 授权语义；不合格 → 熔断 + L3 留痕）· 触发⑤ 熔断声明与未知跟踪 · 79 条经验库 `PATTERNS.md` 创建 · 触发②（本回合 ≥5 次调用无锚点）。
+  - **两处刻意取舍（均因 DSH 的现实）**：① **只审计、不打回**——`guard.mjs` 用 `block()` 打回，靠宿主协议信号 `input.stop_hook_active` 保证"只打回一次"，而 DSH 无此信号，误打回会变成强制续跑死循环（本移植过程中本人已被自家熔断拦过）；② **无收尾文本时跳过文本核验**——沿用原文对"无文本宿主"的 `dshBridge` 降级口径，否则锚点核验会对空文本必然失败、把每次收尾都判成"无锚点"。
+  - **不搬**：高危审批单收尾校验（L1059-1077）——该机制已退役。
+- fix: **测试污染彻底修复（第三处）**——`state-ownership.test.mjs` **从未设置审计沙箱**，尽管其头部注释声称"一切写入重定向到 tmpdir"。`preExecuteListener` 的 deny 路径经 `auditDeny` 写进了真实工作区（实测 `own-` 前缀 39 条）。现补上 `FG_AUDIT_FILE`。另修 `integration.test.mjs` 的 `after()`：**`delete process.env.FG_AUDIT_FILE` 改为恢复沙箱路径**——`node --test` 多文件可能共享进程，delete 会让后续测试文件落回真实审计（与 `eligibility.test.mjs` 的已有写法对齐）。
+  - **验证**：连续两次全量 `npm run check`，`own-` / `gate-` / `post-` / `seams-` / `lc-` / `eval-` 增量**全部为 0**；总增量 15 条经查全为 `deny`（本会话被护栏拦截的真实执法记录，属设计内）。
+- test: 新增 `tests/lifecycle.test.mjs`（11 用例）。CI 闸门至此 **9 套 / 268 个断言**。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。
