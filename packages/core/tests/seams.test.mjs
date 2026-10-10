@@ -62,7 +62,6 @@ describe("3.0.8 · 补充宿主缝（agent/created · agent/pre-step · agent/tu
     const st = loadState(statePath(sid));
     assert.equal(st.turnCount, 0, "回合计数应归零");
     assert.equal(st.stopBlocked, false);
-    assert.equal(st.highRiskDeniedThisTurn, false);
     console.log("reset →", JSON.stringify({ turnCount: st.turnCount, stopBlocked: st.stopBlocked }));
     rmSync(statePath(sid), { force: true });
   });
@@ -169,37 +168,29 @@ describe("3.0.8 · 批示识别（reset 移植自 guard.mjs L194-326）", () => 
     rmSync(statePath(sid), { force: true });
   });
 
-  test("执行级授权：待批时『y』放行并目标绑定；『n』彻底阻断并清除绑定", async () => {
-    const sidY = `seams-y-${process.pid}`;
-    prep(sidY, { highRiskQueue: [{ k: "key-A" }, { k: "key-B" }], highRiskKey: "key-C" });
+  test("审批单退役：人类回复 y 不再构成任何执行级授权（授权唯一入口是 fg_apply）", async () => {
+    // 3.0.8 修法（人类批示 2026-10-10）：审批单机制退役——敲一个 y 无目的/无范围/无留档，
+    // 与 fg_apply 的结构化申请并存会让人选省事的那条，使事前申请形同虚设。
+    const sid = `seams-noy-${process.pid}`;
+    // 即便状态里有历史待批队列，y 也不应触发任何放行
+    prep(sid, { highRiskQueue: [{ k: "key-A" }], highRiskKey: "key-B" });
     resetAudit();
-    await preStepListener({ warn: noop })({ agent: mkAgent(sidY), messages: msg("y") }, pass);
-    const stY = loadState(statePath(sidY));
-    assert.equal(stY.highRiskOk, true, "y 应设置执行级授权");
-    assert.deepEqual(stY.highRiskBatch, ["key-A", "key-B", "key-C"], "应放行全部待批（队列+当前）");
-    assert.equal(stY.highRiskApprovedKeys["key-A"], true, "批示即绑定目标键");
-    assert.ok(auditLines().some((r) => r.action === "high-risk-approved"), "应留痕 approved");
-    console.log("y →", JSON.stringify(stY.highRiskBatch));
-    rmSync(statePath(sidY), { force: true });
-
-    const sidN = `seams-n-${process.pid}`;
-    prep(sidN, { highRiskQueue: [{ k: "key-A" }], highRiskKey: "key-B", highRiskApprovedKeys: { "key-A": true } });
-    await preStepListener({ warn: noop })({ agent: mkAgent(sidN), messages: msg("n") }, pass);
-    const stN = loadState(statePath(sidN));
-    assert.equal(stN.rejectedCmds["key-A"], 1, "n 应彻底阻断");
-    assert.equal(stN.highRiskApprovedKeys["key-A"], undefined, "n 须同时清除历史批准绑定");
-    assert.equal(stN.highRiskQueue.length, 0);
-    console.log("n → rejected:", Object.keys(stN.rejectedCmds).join(","));
-    rmSync(statePath(sidN), { force: true });
+    await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("y") }, pass);
+    const st = loadState(statePath(sid));
+    assert.notEqual(st.highRiskOk, true, "y 不得构成执行级授权（审批单已退役）");
+    const rows = auditLines();
+    assert.equal(rows.filter((r) => r.action === "high-risk-approved").length, 0, "不得再产生审批放行留痕");
+    console.log("y 未产生授权；highRiskOk =", st.highRiskOk);
+    rmSync(statePath(sid), { force: true });
   });
 
-  test("非批示文本不误判（『是不是应该这样』不得被当成 y）", async () => {
-    const sid = `seams-noy-${process.pid}`;
+  test("非批示文本同样不产生授权（『是不是应该这样』不得被当成 y）", async () => {
+    const sid = `seams-longtext-${process.pid}`;
     prep(sid, { highRiskQueue: [{ k: "key-A" }] });
     await preStepListener({ warn: noop })({ agent: mkAgent(sid), messages: msg("是不是应该这样处理") }, pass);
     const st = loadState(statePath(sid));
-    assert.notEqual(st.highRiskOk, true, "长句/非批示不得构成执行级授权");
-    console.log("非批示文本未被误判为 y；highRiskOk =", st.highRiskOk);
+    assert.notEqual(st.highRiskOk, true, "长句不得构成执行级授权");
+    console.log("非批示文本未产生授权；highRiskOk =", st.highRiskOk);
     rmSync(statePath(sid), { force: true });
   });
 });

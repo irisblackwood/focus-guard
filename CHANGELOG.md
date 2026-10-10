@@ -61,6 +61,13 @@
 - fix: **参数遮蔽导致两段新闸静默 fail-open**——`preExecuteListener({ …, statePath })` 的**参数名 `statePath`** 遮蔽了从 `state.mjs` import 的同名函数，函数体内 `statePath === undefined` → `statePath is not a function`，且**被 `try/catch` 的 fail-open 吞成放行**（安全上正确，但 bug 完全静默，靠 `warn` 输出才抓到）。现 import 改用别名 `guardStateFile`，并加注释说明原因。
 - test: 新增 `tests/gates.test.mjs`（8 用例）。CI 闸门至此 **6 套 / 248 个断言**。
 
+- refactor: **审批单机制退役（`fg_apply` 为唯一授权入口）**——按人类批示（2026-10-10）：审批单只需敲一个 `y`，**无目的、无范围、无留档**；与 `fg_apply`（要求 purpose/scope 结构化留档）并存时，人会本能选省事的那条，使"事前结构化申请"形同虚设。**留一条能绕过主设计的旁路，等于没有主设计。**
+  - **代码**：`seams.mjs` 移除批 1 照搬的 y/n 批示识别（`Y_TOKEN`/`N_TOKEN`/`LEAD`/`TAIL`）与待批队列处理，以及 `highRiskDeniedThisTurn` 死字段（保留退役说明注释）。
+  - **修法**：RULES 第七十五条(三) **实质保留**（"推送远端属对外发布行为，须审批"），授权方式由"出具【高危申请】审批单 + 领导回复 y"改为"**须先调 `fg_apply` 取得授权**（附 purpose/scope 结构化留档）"；(四) 合并审批与批示词容错**标注废止**；第二十四条删去"「同意」即审批单放行"之注；第八十三条(三) 由"不替代审批单"改指 `fg_apply`；技术映射表两行同步。**立法沿革保留**（与第十九条「（已废止·编译版 v1.1）」同例）。
+  - **验收**：`acceptance` 的"文档-实现对齐"断言从**锁定 y 放行口径**改为**锁定 `fg_apply` 口径**，并新增"审批单口径不得残留"的反向断言。
+  - **不受影响**：`fg_appeal` 误伤申辩——它不是绕过而是救济（须附反例锚点、人类一次性裁决、全程留痕）。
+- test: `seams.test.mjs` 的 y/n 授权用例改写为"审批单退役后 `y` 不再构成任何授权"（断言 `highRiskOk` 未被设置、无 `high-risk-approved` 留痕）。
+
 ## 3.0.5 · 事前资格审核、模型画像与命令硬校验
 
 - feat: **资格审核逻辑层**——`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕），依赖注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层；`core/grants.mjs` 授权表为 FG 独有状态（按会话分表，不进 guard 状态）。

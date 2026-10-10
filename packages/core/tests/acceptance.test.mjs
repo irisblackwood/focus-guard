@@ -1364,7 +1364,10 @@ describe("工程自检（防版本与文档漂移）", () => {
     assert.ok(skill.includes("执行/侦查/委托三池各+10"));
     // 推送语义统一：法条不再是"由领导执行"，而是"y 放行本次"
     assert.ok(!rules.includes("推送远端属对外发布行为，由领导执行"), "第七十五条仍保留 2.2.0 旧推送口径");
-    assert.ok(rules.includes("经领导回复 y 放行后方可执行"));
+    // 2026-10-10 修法：审批单机制退役（敲 y 无目的/范围/留档，与 fg_apply 并存会架空事前申请）。
+    // 断言随之从「锁定 y 放行口径」改为「锁定 fg_apply 口径」。
+    assert.ok(!rules.includes("经领导回复 y 放行后方可执行"), "审批单口径应已退役，不得残留");
+    assert.ok(rules.includes("须先调 `fg_apply` 取得授权"), "推送须走 fg_apply 事前资格审核（结构化留档）");
     // 空头条款透明化：未机械化清单必须存在，且已列入"日志/缓存无清理"这条实情
     assert.ok(rules.includes("未机械化条款清单"));
     assert.ok(rules.includes("第六十一条"), "未机械化清单须包含第六十一条（会话状态无自动清理）");

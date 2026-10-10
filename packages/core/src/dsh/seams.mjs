@@ -100,20 +100,20 @@ export function sessionStartListener({ warn } = {}) {
   }
 }
 
-// ── 批示词识别（3.0.2：头尾皆可）──
-// 原实现用 \b 收尾，而 JS 的 \b 只认 ASCII 词字符，导致「同意/批准/不/拒绝」等中文批示全部失效；
-// 这里保留 guard.mjs 修正后的精确写法：整条短指令==一个批示词（可带尾标点），
-// 或「批示词 + 分隔符 + 简短补充」。
-const Y_TOKEN = '(?:y|yes|是|好|行|ok|同意|批准|允许|可以|没问题|通过)'
-const N_TOKEN = '(?:n|no|不|不行|否|不要|拒绝|不许)'
-const LEAD = (tok) => new RegExp(`^${tok}(?:[\\s。！!，,]*$|[\\s]*[，,。：:！!][\\s]*\\S)`, 'i')
-const TAIL = (tok) => new RegExp(`(?:^|[\\s，,。：:！!])${tok}[\\s。！!，,]*$`, 'i')
+// ── 3.0.8 修法：审批单机制退役 ──
+// 原 guard.mjs 的 reset 段含 y/n 批示识别（Y_TOKEN/N_TOKEN/LEAD/TAIL）与待批队列处理，
+// 本文件批 1 曾照搬。**现已移除**——理由（人类批示 2026-10-10）：
+//   审批单只需敲一个 y，**无目的、无范围、无留档**；而 fg_apply 要求 purpose/scope 结构化留档。
+//   两套并存时人会本能选省事的那条，使"事前结构化申请"形同虚设。
+//   **留一条能绕过主设计的旁路，等于没有主设计。**
+// 误伤救济（fg_appeal）不受影响：它不是绕过，而是申辩——须附反例锚点、人类一次性裁决、全程留痕。
+// 对应条文修法见 RULES 第七十五条(三)(四)。
 
 /**
- * ② agent/pre-step → UserPromptSubmit：批示识别 + 回合重置（waterfall，必须 return next()）。
+ * ② agent/pre-step → UserPromptSubmit：回合重置（waterfall，必须 return next()）。
  *
- * 移植自 guard.mjs 的 reset 模式（L194-326），保留全部判定；去掉脚本特有部分
- *（process.exit / detectEnv 环境重检——后者依赖 env.mjs 的探测链，留待后续批次）。
+ * 移植自 guard.mjs 的 reset 模式（L194-326），但**不含**已退役的审批单部分（y/n 批示识别与待批队列）。
+ * 去掉脚本特有部分：process.exit / detectEnv 环境重检（依赖 env.mjs 探测链，留待后续批次）。
  */
 export function preStepListener({ warn } = {}) {
   return async ({ agent, messages } = {}, next) => {
@@ -163,34 +163,6 @@ export function preStepListener({ warn } = {}) {
         )
       }
 
-      // 2.4.0 执行级授权：只认人类当回合短指令 y/n；y 放行全部待批，n 彻底阻断
-      const yReply = short.length <= MERCY_SHORT && (LEAD(Y_TOKEN).test(short) || TAIL(Y_TOKEN).test(short))
-      const nReply = short.length <= MERCY_SHORT && (LEAD(N_TOKEN).test(short) || TAIL(N_TOKEN).test(short))
-      const pendingCount = (state.highRiskQueue || []).length + (state.highRiskKey ? 1 : 0)
-      if (yReply && pendingCount > 0) {
-        const keys = (state.highRiskQueue || []).map((x) => x.k)
-        if (state.highRiskKey && !keys.includes(state.highRiskKey)) keys.push(state.highRiskKey)
-        state.highRiskOk = true
-        state.highRiskBatch = keys
-        state.highRiskQueue = []
-        state.highRiskApprovedKeys = state.highRiskApprovedKeys || {}
-        for (const k of keys) state.highRiskApprovedKeys[k] = true
-        auditRow(sid, 'high-risk-approved', `批示原文: ${short} | 放行 ${keys.length} 条待批（目标绑定）`, {
-          pardon: true,
-        })
-      }
-      if (nReply && pendingCount > 0) {
-        state.rejectedCmds = state.rejectedCmds || {}
-        const keys = (state.highRiskQueue || []).map((x) => x.k)
-        if (state.highRiskKey && !keys.includes(state.highRiskKey)) keys.push(state.highRiskKey)
-        for (const k of keys) state.rejectedCmds[String(k)] = 1
-        if (state.highRiskApprovedKeys) for (const k of keys) delete state.highRiskApprovedKeys[k]
-        auditRow(sid, 'high-risk-rejected', `批示原文: ${short} | 已彻底阻断 ${keys.length} 条`)
-        state.highRiskCmd = ''
-        state.highRiskKey = ''
-        state.highRiskQueue = []
-      }
-
       // 43条 状态重置核验：上一回合残留 → 记档后清理
       const residues = []
       if ((state.turnCount || 0) > 0) residues.push(`turnCount=${state.turnCount}`)
@@ -216,8 +188,6 @@ export function preStepListener({ warn } = {}) {
         stopBlocked: false,
         mercy,
         goalPush,
-        highRiskOk: yReply && pendingCount > 0,
-        highRiskDeniedThisTurn: false,
         violations: stopOrdered ? Math.max(state.violations || 0, 3) : 0,
         forcedInvestigate: false,
         probation: false,
