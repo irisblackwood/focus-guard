@@ -19,7 +19,8 @@
     "chain": "node packages/core/tools/audit-chain.mjs",
     "sentinel": "node packages/core/tools/sentinel.mjs",
     "bench:decision": "node packages/core/tests/decision-bench.mjs",
-    "bench:cost": "node packages/core/tools/bench-cost.mjs"
+    "bench:cost": "node packages/core/tools/bench-cost.mjs",
+    "bench:tasks": "node packages/core/tests/task-bench.mjs"
   },
   "license": "MIT",
   "engines": {
