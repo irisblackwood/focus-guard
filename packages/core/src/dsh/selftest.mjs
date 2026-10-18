@@ -12,7 +12,7 @@
  *
  * 硬纪律：**自检永远只写 tmpdir()，绝不碰真实工作区**（FG_CASE_FILE 重定向 + 真实卷宗未触碰断言）。
  */
-import { writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -23,8 +23,66 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const TEST_CASE_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-CASE_FILE.md`)
 process.env.FG_CASE_FILE = TEST_CASE_FILE
 
+// —— 审计 / 心跳隔离（2026-10-18 补漏）——
+// 本文件第 61 行会真的调 apply()，而 apply() 从 2026-10-18 起会**无条件写一条启动自证**
+// （compaction-watch-ready）。此前这里只重定向了卷宗、没重定向审计，于是每跑一次自检就往
+// 真实 .focus-guard/AUDIT.log 追加一条带自检 pid 的"监察层就位"—— 实测一次排查里刷了 10 条，
+// 与生产记录混在一起，正好毁掉那条自证的可信度。心跳同理：自检退出后 status.json 会残留
+// 一个已死 pid（真实进程 10s 内会覆写，但不该依赖它自愈）。
+const TEST_AUDIT_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-AUDIT.log`)
+const TEST_STATUS_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-status.json`)
+process.env.FG_AUDIT_FILE = TEST_AUDIT_FILE
+process.env.FG_STATUS_FILE = TEST_STATUS_FILE
+
+// 隔离的兜底断言：跑完比对真实审计文件大小，涨了就是漏了。
+const REAL_AUDIT = fileURLToPath(new URL('../../../../.focus-guard/AUDIT.log', import.meta.url))
+const realAuditSizeBefore = existsSync(REAL_AUDIT) ? statSync(REAL_AUDIT).size : -1
+
+// —— 会话状态隔离（2026-10-18）——
+// 病根：自检的 fake exec 没有 `agent.session.header.id`，`sessionIdOf()`（pipeline.mjs:296）退化为
+// 'dsh-native'，状态文件固定落在 %TEMP%/focus-guard-dsh-native.json，**跨运行累积**。
+// 而自检自己的 post-execute 熔断用例会把 `fused` 置真并落盘 —— 于是下一次运行时，
+// 测试 A2（pwsh Remove-Item）与测试 B（write 内容含 rm -rf）在跑到之前就已经处于熔断态，
+// 被**第3层状态校验**（pipeline.mjs:342-345）拒掉，表现为"第1层漏网"的假象。
+// 实测：清空该文件后连跑两次全绿；不清则第 2 次起必红（fused=true, violations=3, stalledStreak=3）。
+// 修法：每次运行一个唯一 sid → 状态文件互不相干；退出时清理。
+const SELFTEST_SID = `selftest-${process.pid}-${Date.now().toString(36)}`
+/**
+ * 把 fake exec 挂上自检专属会话身份（形状与真实 exec 一致：agent.session.header.id）。
+ * ⚠ 绝不能用展开运算符 `{...call}` —— 测试 C 里有个 `arguments` getter 会抛错的 evil exec，
+ * 展开会**读取所有自有属性**从而提前把那个 getter 触发掉，等于替被测代码挨了子弹。
+ * 用 Object.create 走原型委托 + defineProperty 只加一个自有属性，全程零属性读取。
+ */
+const withSelftestSession = (call) => {
+  const wrapped = Object.create(call)
+  // ⚠ 只读 call.agent（普通对象），绝不碰 call 自身的 getter；且必须**保留**原有 agent 字段
+  // ——测试 B3 的台账用例靠 agent.model 决定价目，整块替换会把 deepseek-flash 弄丢。
+  let agent = {}
+  try {
+    if (call.agent && typeof call.agent === 'object') agent = { ...call.agent }
+  } catch {
+    agent = {}
+  }
+  agent.session = { header: { id: SELFTEST_SID, cwd: process.cwd() } }
+  Object.defineProperty(wrapped, 'agent', { value: agent, enumerable: true, configurable: true, writable: true })
+  return wrapped
+}
+/** 判断瀑布首参是不是 exec（命令类/文件类工具调用的形状），别把 assembly 之类的对象误判。 */
+const looksLikeExec = (a) => {
+  try {
+    // 用 `in` 判存在，不读值：evil exec 的 arguments 是抛错 getter。
+    return !!a && typeof a === 'object' && typeof a.name === 'string' && 'arguments' in a
+  } catch {
+    return false
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url))
 const { name, apply } = await import(pathToFileURL(join(here, 'index.js')))
+const { redlineOf } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+const { statePath: guardStatePath, loadState: guardLoadState } = await import(
+  pathToFileURL(join(here, '..', 'core', 'state.mjs'))
+)
 
 // —— 迷你瀑布：忠实实现 cordis 语义（cordis/lib/index.js:317-325）——
 // 末位参数为 fallback；每个监听器收到的实参 = 官方实参 + 末位 next。
@@ -74,12 +132,30 @@ function check(label, cond, extra) {
 
 const fallbackAllow = () => Promise.resolve({ kind: 'allow' })
 /** 按缝构造迷你瀑布：只跑该缝的监听器，fallback 形状与该缝官方默认一致 */
-const makeRun = (event, fallback) => makeWaterfall(listenersFor(event), (...a) => Promise.resolve(fallback(...a)))
+const makeRun = (event, fallback) => {
+  const waterfall = makeWaterfall(listenersFor(event), (...a) => Promise.resolve(fallback(...a)))
+  // 首参是 exec 的一律挂上自检专属会话身份（见上方"会话状态隔离"）。
+  return (...args) => {
+    const [first, ...rest] = args
+    return waterfall(...(looksLikeExec(first) ? [withSelftestSession(first), ...rest] : args))
+  }
+}
 const run = makeRun('tools/pre-execute', () => ({ kind: 'allow' }))
 
 console.warn('== 注册自检 ==')
 check('apply 导出 name', name === 'focus-guard', `实际 ${name}`)
 check('注册了 tools/pre-execute 监听', events.some(([t, e]) => t === 'on' && e === 'tools/pre-execute'))
+
+// 起点状态断言（2026-10-18）：把"状态串扰"从"规则漏网"里分离出来。
+// 有了它，未来若再出现同类污染，红的是这一条（指名道姓），而不是 A2/B 那两条边界用例。
+{
+  const startState = guardLoadState(guardStatePath(SELFTEST_SID))
+  check(
+    '自检起点状态干净（未熔断 / 零违规）',
+    startState.fused !== true && !startState.probation,
+    `fused=${startState.fused} probation=${startState.probation}`,
+  )
+}
 
 console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）==')
 {
@@ -107,7 +183,9 @@ console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）
   // 2026-10-09 更新：本用例只验"红线层不误伤"，但管线在红线之后还有**资格闸**（3.0.5 加入）——
   // 它对任意递归强删都要求先 fg_apply，射程比红线宽（红线只认根/HOME）。故断言改为
   // "未命中绝对红线、但被资格闸拦"，否则等于在测"资格闸不存在"。
-  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "/usr"' } })
+  // 2026-10-18 射程扩大：`/usr` 已并入绝对红线（见 A4「射程内：rm --recursive --force /usr」），
+  // 故本用例的"非根路径"样本从 `"/usr"` 换成 `"./build"` —— 仍带引号、仍非根，A1 的原意图不变。
+  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "./build"' } })
   check(
     '带引号的非根路径不命中红线（改由资格闸拦）',
     gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
@@ -135,6 +213,40 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
 {
   const gate = await run({ name: 'pwsh', arguments: { command: 'Remove-Item -Recurse -Force ./x' } })
   check('非 rm 命令不受第1层管辖（交下游特征库）', gate.kind === 'allow')
+}
+
+console.warn('== 测试 A4：第1层射程边界（直击 redlineOf，不经状态层）==')
+// 2026-10-18 新增。动机：上面 A2 / B 两条是**端到端**断言，一旦上游状态被污染（熔断/降权）
+// 就会红，而红的位置看起来像"第1层漏网"，实际与第1层无关。这里把射程本身钉死：
+//   ① 正向：rm 族递归强删根/HOME 必拦（射程不得收窄）
+//   ② 反向：非 rm 族、非根路径、非命令字段一律不认（射程不得放宽）
+// 这两侧同时锁定，A2/B 的语义才是可解释的。
+{
+  const nameOf = (cmd) => redlineOf(cmd)?.name ?? null
+
+  // ① 正向：射程内必须拦
+  check('射程内：rm -rf / → rm-rf-root', nameOf('rm -rf /') === 'rm-rf-root')
+  check('射程内：rm -fr ~/ → rm-rf-root', nameOf('rm -fr ~/') === 'rm-rf-root')
+  check('射程内：rm --recursive --force /usr → rm-rf-root', nameOf('rm --recursive --force /usr') === 'rm-rf-root')
+  check('射程内：git push -f → git-push-force', nameOf('git push -f origin main') === 'git-push-force')
+  check('射程内：DROP DATABASE → drop-database', nameOf('DROP DATABASE prod') === 'drop-database')
+
+  // ② 反向：射程外不得误伤
+  check(
+    '射程外：Remove-Item 不是 rm 族',
+    nameOf('Remove-Item -Recurse -Force ./x') === null,
+    `实际 ${nameOf('Remove-Item -Recurse -Force ./x')}`,
+  )
+  check('射程外：rm -rf ./build（相对路径，非根/HOME）', nameOf('rm -rf ./build') === null)
+  check('射程外：rm -rf build（同上）', nameOf('rm -rf build') === null)
+  check('射程外：rm file.txt（无递归）', nameOf('rm file.txt') === null)
+  check('射程外：write 无 command 字段 → 第1层根本看不到内容', redlineOf(undefined) === null)
+  check(
+    '射程外：内容里的 rm -rf 字样不构成命令（第1层只吃 command）',
+    // 第1层拿到的是 command 字符串；write 的 content 永远走不到这里（commandOf 返回 null）。
+    // 这里锁定"把内容当命令喂进去会命中、但流水线不会这么喂"这一事实，防止有人改成扫 content。
+    nameOf('文档里提到 rm -rf 很危险') === null,
+  )
 }
 
 console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）==')
@@ -278,6 +390,22 @@ console.warn('== 测试 B3：tools/post-execute（真实三参 exec,result,next�
   check('真实 .ai/CASE_FILE.md 未被触碰', before === after, before === after ? '' : '内容发生变化')
 }
 
+// 审计隔离兜底（2026-10-18）：apply() 会写启动自证，这里必须证明它写进了 tmp 而不是真台账。
+{
+  const afterSize = existsSync(REAL_AUDIT) ? statSync(REAL_AUDIT).size : -1
+  check(
+    '真实 .focus-guard/AUDIT.log 未被触碰',
+    afterSize === realAuditSizeBefore,
+    `before=${realAuditSizeBefore} after=${afterSize}`,
+  )
+  const own = existsSync(TEST_AUDIT_FILE) ? readFileSync(TEST_AUDIT_FILE, 'utf8') : ''
+  check(
+    '启动自证写进了沙箱（compaction-watch-ready）',
+    own.includes('"action":"compaction-watch-ready"'),
+    own ? `沙箱行数=${own.trim().split('\n').filter(Boolean).length}` : '沙箱为空 —— apply() 未留痕',
+  )
+}
+
 console.warn('== 测试 C：fail-open ==')
 {
   // 构造 arguments 访问即炸的 exec，验证监听体内异常不阻塞
@@ -311,6 +439,23 @@ console.warn('== 装机 cordis 冒烟（可选） ==')
   } catch (error) {
     origWarn(`  - 跳过（${(error && error.message) || error}）——本地瀑布自检已覆盖逻辑层`)
   }
+}
+
+// —— 收尾清理（2026-10-18）——
+// 自检用唯一 sid 生成的状态文件、审计沙箱、心跳沙箱全部删掉，不给 %TEMP% 留残留。
+// 特别是状态文件：留着就是下一次运行的地雷（熔断态会被继承，见上方"会话状态隔离"）。
+{
+  const leftovers = [guardStatePath(SELFTEST_SID), TEST_AUDIT_FILE, TEST_STATUS_FILE]
+  let cleaned = 0
+  for (const f of leftovers) {
+    try {
+      rmSync(f, { force: true })
+      cleaned += 1
+    } catch {
+      /* 删不掉不致命：唯一 sid 保证下次不会读到它 */
+    }
+  }
+  origWarn(`  · 沙箱清理：${cleaned}/${leftovers.length} 个临时文件已删除（sid=${SELFTEST_SID}）`)
 }
 
 console.warn(`\n自检结果：${pass} 通过 / ${fail} 失败`)
