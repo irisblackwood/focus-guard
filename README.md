@@ -306,6 +306,8 @@ node --test packages/core/tests/integration.test.mjs  # 端到端 27 用例（�
 node --test packages/core/tests/profile.test.mjs      # 画像加载 8 用例
 npm run eval                                         # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
 npm run bench                                        # 报文体量基准
+npm run bench:decision                               # 判定基准：14 用例×10 轮 → 准确率/误伤率/p50-p95（基线锁定）
+npm run bench:cost                                   # 成本基准：读台账【五】与 AUDIT.log → token/USD/拦截/误伤比
 npm run check                                        # test + eval（pre-push 钩子跑的就是它）
 npm run library                                      # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
 npm run chain -- <AUDIT.log路径> [--mermaid]         # 执法档案因果树渲染

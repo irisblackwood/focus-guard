@@ -1,0 +1,89 @@
+{
+  "ts": "2026-10-18T11:29:05.111Z",
+  "iterations": 10,
+  "cases": 14,
+  "calls": 140,
+  "accuracy": 1,
+  "falsePositiveRate": 0,
+  "latencyMs": {
+    "p50": 0.58,
+    "p95": 61.19,
+    "max": 63.25
+  },
+  "byCase": {
+    "redline-rm-rf-root": {
+      "p50": 0.42,
+      "p95": 0.65
+    },
+    "redline-git-push-force": {
+      "p50": 0.34,
+      "p95": 0.68
+    },
+    "hardcheck-cat": {
+      "p50": 0.39,
+      "p95": 0.49
+    },
+    "whole-file-deny": {
+      "p50": 1.98,
+      "p95": 2.41
+    },
+    "whole-file-offset-allow": {
+      "p50": 2.21,
+      "p95": 2.87
+    },
+    "small-file-allow": {
+      "p50": 2.59,
+      "p95": 3.03
+    },
+    "grep-content-deny": {
+      "p50": 0.39,
+      "p95": 1.95
+    },
+    "grep-default-allow": {
+      "p50": 0.12,
+      "p95": 0.3
+    },
+    "eligibility-publish-deny": {
+      "p50": 0.6,
+      "p95": 0.87
+    },
+    "evidence-edit-deny": {
+      "p50": 0.65,
+      "p95": 0.72
+    },
+    "evidence-new-session-allow": {
+      "p50": 0.15,
+      "p95": 0.19
+    },
+    "plain-ls-allow": {
+      "p50": 61.19,
+      "p95": 63.23
+    },
+    "plain-git-status-allow": {
+      "p50": 59.91,
+      "p95": 63.25
+    },
+    "write-new-file-allow": {
+      "p50": 0.25,
+      "p95": 0.33
+    }
+  },
+  "slowest": [
+    {
+      "id": "plain-git-status-allow",
+      "p50": 59.91,
+      "p95": 63.25
+    },
+    {
+      "id": "plain-ls-allow",
+      "p50": 61.19,
+      "p95": 63.23
+    },
+    {
+      "id": "small-file-allow",
+      "p50": 2.59,
+      "p95": 3.03
+    }
+  ],
+  "failures": []
+}

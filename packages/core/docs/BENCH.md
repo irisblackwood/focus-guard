@@ -1,0 +1,93 @@
+# 基准测试（Bench）
+
+四类基准，各回答一个问题。全部零外部依赖，命令直接跑。
+
+| 命令 | 回答什么 | 实现 |
+|---|---|---|
+| `npm run bench:decision` | 判定准不准、误不误伤、热路径多快 | `packages/core/tests/decision-bench.mjs` |
+| `npm run bench:cost` | 花了多少 token/USD、拦了什么、误伤多少 | `packages/core/tools/bench-cost.mjs` |
+| `npm run bench` | 常驻注入占多少字符/token | `packages/core/tests/token-bench.mjs` |
+| `npm run eval` | 对攻击样本的拦截率（`guard.mjs` 路径） | `packages/core/tests/threat-eval.mjs` |
+
+---
+
+## 一、判定基准（decision bench）
+
+固定 14 条用例 × 10 轮 = 140 次真实 `preExecuteListener` 调用，覆盖：
+
+- **红线层**：`rm -rf /`、`git push --force`
+- **第 1.5 层**：环境替代（`cat` → `bat`）
+- **第 1.4 层**：整文件读取闸（>300 行无 offset）
+- **体积闸**：`Grep content` 无 `head_limit`
+- **资格闸**：`npm publish` 无授权
+- **取证闸**：有会话状态、未读即改；另有"无状态文件 fail-open"对照用例
+- **不得误伤**：`ls -la`、`git status`、写新文件、分段读
+
+输出三个指标：
+
+```
+准确率   100.00%
+误伤率   0.00%（期望放行却被拦）
+延迟     p50 0.58ms / p95 61.19ms / max 63.25ms
+```
+
+**基线**：`packages/core/docs/BENCH-BASELINE.json`。`--update` 覆盖。
+不达基线（准确率掉 2 个点以上、p95 劣化 3 倍以上、或 p95 超阈值）即 exit 1。
+
+### 已知热路径成本（实测，不是估算）
+
+```
+plain-ls-allow           p50 60.04ms   p95 70.55ms   ← Bash 类
+plain-git-status-allow   p50 60.41ms   p95 62.71ms   ← Bash 类
+其余 12 条用例            p95 ≤ 2.8ms
+```
+
+差异来自第 2 层语义判定：每条 **Bash 命令**会调一次 `packages/core/tools/sentinel.mjs`
+（python 子进程，约 60ms）。非 Bash 工具（Read/Edit/Grep/Write）不走该层。
+
+这是当前架构的真实开销。要压下来有两个方向，都未实施：
+
+1. 按命令哈希缓存哨兵结论（同一条命令重复判定时命中缓存）
+2. 将哨兵改为常驻进程（避免每次冷启动 python）
+
+`FG_BENCH_ITER` 调节轮数、`FG_BENCH_P95_MS` 调节延迟阈值。
+
+---
+
+## 二、成本/效果基准（cost bench）
+
+不跑模型，只汇总已落盘的数据：
+
+| 来源 | 指标 |
+|---|---|
+| `.ai/CASE_FILE.md` 【五】成本台账 | token、USD、按模型分布 |
+| `.focus-guard/AUDIT.log` | `deny` 次数、理由分布（`trigger`） |
+| 同上 `appeal-granted` | 误伤后获准条数 → 误伤比 = 获准 / 拦截 |
+
+```powershell
+node packages/core/tools/bench-cost.mjs
+node packages/core/tools/bench-cost.mjs --since 2026-10-18 --json
+```
+
+### A/B 对照协议（回答"FG 值不值"）
+
+1. 准备一组固定任务（同一 prompt、同一模型）
+2. FG 开：跑 5 次；FG 关：跑 5 次
+3. 每次结束后跑 `bench:cost`，取中位数对比
+
+注意两点：
+- 关 FG 的轮次**不会写** `AUDIT.log`，所以只能比 token/轮次，这是设计使然
+- 单次差异会被 prompt 缓存命中率掩盖，样本少于 5 次没有意义
+
+---
+
+## 三、Token 基准
+
+`npm run bench` = 常驻开销（技能目录 + 工具 schema + 系统提示注入）。
+FG 当前注入 440 字符（`focus-guard-rules` 425 + `focus-guard-cost` 15），
+宿主按 4 字符/token 折算 ≈ 110 tokens。改动注入正文后应重跑。
+
+## 四、威胁评测
+
+`npm run eval` 跑的是 **ZCode 路径**（`hooks/guard.mjs`）的攻击样本集。
+DSH 原生插件的判定基准看第一节，两者互补：一个测规则覆盖面，一个测链路准确率与延迟。

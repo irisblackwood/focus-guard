@@ -8,6 +8,10 @@
 - fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
 - feat(tools): **卷宗【三】路径自检**——新增 `packages/core/tools/verify-case-paths.mjs`（只读核查，不删不改，`--json` 可机器读）。实测 81 行 / 有效 75 / 失效 6（均为 monorepo 迁移前布局，待人类批准后归档）。
 - refactor(layers): **消除三处分层越界**并固化断言——`protocol.mjs` 移入 `hooks/`（去掉 `zcode → adapter`）；审计写入器下沉 `src/core/audit-writer.mjs`、绝对红线表下沉 `src/core/redlines.mjs`（去掉 `adapter → seam`，`pipeline.mjs` 保留 re-export）；自检脚本移入 `tools/selftest.mjs`（工具不再放生产目录）。新增 `tests/layering.test.mjs` 锁死方向：`core → adapter → seam` 单向，禁止 `zcode → 适配层/宿主缝`，并显式承认组装根 `seam → adapter` 合法。
+- feat(bench): **判定基准** `tests/decision-bench.mjs`——14 用例 × 10 轮 = 140 次真实 `preExecuteListener` 调用，输出准确率 / 误伤率 / p50-p95 / max，基线落 `docs/BENCH-BASELINE.json`（`--update` 覆盖，掉点即 exit 1）。首跑即暴露真实成本：**Bash 类命令每次约 60ms**（第 2 层语义判定调 python 哨兵），非 Bash 工具 p95 < 3ms。
+- feat(bench): **成本基准** `tools/bench-cost.mjs`——不跑模型，只汇总 `.ai/CASE_FILE.md`【五】成本台账与 `AUDIT.log`：token/USD、按模型分布、拦截数、`trigger` 分布、误伤比（`appeal-granted / deny`）；支持 `--since` / `--json`。附 A/B 对照协议（FG 开/关各 5 次取中位数）。
+- fix(ci): **`test:all` 改为发现式**——原为硬编码 11 文件清单，今天新增的 `casePaths` / `layering` 测试不在其中，会出现"CI 全绿但没测"。现统一走 `tests/audit-isolation.mjs`（自动发现 + 真实审计零增长守卫）。
+- docs: 新增 `packages/core/docs/BENCH.md`（四类基准的跑法与已知热路径成本），README 命令表补 `bench:decision` / `bench:cost`。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
