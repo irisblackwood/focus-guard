@@ -19,6 +19,7 @@ import { announceWatchReady, compactionEventListener, contextOverflowListener } 
 import { startHeartbeat } from './heartbeat.mjs'
 import { degradedModules, livenessNote, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
+import { registerGateTools } from './tools.mjs'
 
 export const name = 'focus-guard'
 
@@ -105,6 +106,14 @@ export function apply(ctx) {
   )
   // 3.0.8 移植批 4：收尾核验（授权识别 / 熔断声明 / 无锚点）——与上条 KPI 结算并列监听
   register('agent/turn-stopping', stopGuardListener, 'agent/turn-stopping(guard)')
+
+  // 申请/申辩通道（2026-10-18 补洞）：资格闸会拦高危操作，但没有通道时模型只能绕过 DSH。
+  // 这两个工具此前从未接线（adapters 里的 defineTool 版本缺 output，一导入就抛）。
+  try {
+    for (const toolName of registerGateTools(ctx, { warn })) markModule(`tools:${toolName}`, true)
+  } catch (error) {
+    warn('申请/申辩工具注册失败（资格闸将无通道）：', (error && error.message) || error)
+  }
 
   // 压缩监察（2026-10-18）：DSH 0.2 自带压缩栈（preset 层 compaction-basic +
   // command-compact + tool-result-pruner），FG 不重复实现，只做留痕与看门狗。
