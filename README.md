@@ -38,6 +38,10 @@
 | 拦错了没有程序可走，只能绕过 | `fg_appeal` 误伤申辩（司法救济，3.0.6） | 人类一次性裁决：批准即豁免本次红线 |
 | 大小模型一刀切，贵的模型被过度打扰 | 模型画像五份 + 按画像跳层（3.0.5） | 审核强度随模型调整 |
 | 本机习惯用 `rg`/`fd`，AI 老写 `grep`/`find` | 环境指纹 + 命令硬校验（3.0.5） | 一行替代提示，不依赖模型自觉 |
+| 超过 300 行的文件整读 | 第 1.4 层整文件闸 → 指向 XERJ 检索（2026-10-18） | `xerj search "<关键词>"` / `xerj def "<符号>"`，或带 offset/limit |
+| 模糊需求上来就改代码 | 第 1.3 层 Superpowers 动笔闸（2026-10-18） | 先加载 `brainstorming` / `writing-plans`，再动笔 |
+| 插件被炸了没人知道 | 心跳 + 11 模块启动自检（2026-10-18） | `status.json` 的 `modules_ok` / `degraded`，exit 0/2/3/4 |
+| 换会话/改文件夹名后旧状态乱注入 | L4 跨会话卷宗按路径哈希路由（2026-10-18） | hash 不符 → 一条都不注入 |
 
 ## 为什么需要它
 
@@ -160,7 +164,7 @@ AI 智能体最常见的三种失控：
 - **严禁脚本包装**：被拒后写 `push.sh` 再执行 = 对抗审查（从重记档）；高危脚本的**写入本身**也要走审批单；
 - **不设卡**：普通单文件 rm、构建、测试、本地 commit、常规 `curl` GET——零打断。放松日常 + 刚性高危。
 
-### 事前资格审核与司法救济（3.0.5 / 3.0.6 / 3.0.7）
+### 事前资格审核与司法救济（3.0.5 / 3.0.6 / 2026-10-18 增量）
 
 高危命令闸管的是**事后拦截**（命中即拒，再交人类审批）。3.0.5 起在其之前加一道**事前资格审核**：高危工具**先申请、后执行**，无授权直接拒。
 
@@ -204,6 +208,23 @@ AI 智能体最常见的三种失控：
 | 任务编排 | 第一句话声明"通过条件"（可测 = 退出码 0；不可测 = 编译 + 不崩溃 + 《人类验收清单》）；机械任务优先内置库与既有预制脚本（`.ai/tools/`，存在则用） | 结案以机器退出码为准 |
 | 人类交互 | 提交前固定一行：`【提交申请】修改:<文件> (+n,-m) \| 测试:n/n 绿 \| 允许提交？(y/n)`；仅不可逆操作请示 | 其余全自动 |
 | 经验固化 | L2/L3 或回滚后往 `.ai/PATTERNS.md` 追加 `[环境:x] [任务:y] 以后遇到 X 必须先做 Y`；新任务不预读，卡点时 Grep 检索 | 熔断出口提示经验固化（触发熔断时引擎确保该文件存在） |
+
+### 运行面与自证（2026-10-18 in-tree 增量，未 bump 版本）
+
+这些是引擎里**已经在跑**、但描述此前缺失的部分。版本号仍记 3.0.6，代码即事实。
+
+| 能力 | 落点 | 行为 |
+|---|---|---|
+| 心跳与存活确认 | `packages/core/src/dsh/heartbeat.mjs:85`、`status.mjs:73` | 每 10s 原子覆写 `.focus-guard/status.json`；外部 `node status.mjs` 判活，exit `0` 全绿 / `2` 缺模块 / `3` STALE / `4` 文件缺失 |
+| 模块启动自检 | `heartbeat.mjs:45`（`markModule`） | 10 条执法缝 + 心跳各自报到；缺谁写进 `degraded`，宿主日志告警，模型侧收到 `focus-guard-degraded` 段 |
+| L4 跨会话卷宗 | `workspace.mjs:38`（hash）、`:125`（回合落账）、`index.js:71`（注入段） | `workspace_hash = sha256(realpath(cwd))` 前 16 位；hash 不符零注入（改文件夹名即彻底屏蔽） |
+| 整文件读取闸 | `pipeline.mjs:421`（口径）、`:645`（闸本体） | 目标 > 300 行且无 offset/limit → deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调 |
+| Superpowers 动笔闸 | `pipeline.mjs:398` | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载 `brainstorming`/`writing-plans`；同条重试与已加载均放行 |
+| 风险启发式分级 | `pipeline.mjs:159`（`destructiveApiWeight`） | 破坏性 API 按目标给权：系统路径/递归 0.9（必拦）、TEMP 0.2、其他 0.4；重定向 0.15 |
+| 压缩监察 | `packages/core/src/dsh/compactionWatch.mjs:239`、`:364` | 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），**不写 surface、不 cancel 回合**——压缩归 DSH 内置栈 |
+| 审计拦截理由 | `packages/core/src/dsh/audit.mjs:120` | `auditDeny(exec, cmd, {trigger, level})`：`redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `risk:<category>` 等，不再是清一色 `high-risk-rm` |
+| 执行体判定 | `packages/core/src/core/env.mjs:18`、`index.js:31` | 母版认 `FG_SHELL` 显式覆盖；DSH 适配层声明执行体为 `powershell`，与卷宗【一】/指纹不再互相矛盾 |
+| 审计零增长守卫 | `packages/core/tests/audit-isolation.mjs:1` | 跑测前拍真实 `AUDIT.log` 快照，跑完有增长即 exit 1（已双向验证：干净 Δ0 PASS、故意污染 Δ1 FAIL） |
 
 ## 配置
 

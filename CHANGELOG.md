@@ -6,6 +6,25 @@
 > （共 8 处版本点），且**必须等于本文件最新条目版本**——两条一致性均由验收用例锁定。
 > 引擎头注释（`hooks/guard.mjs`）例外：该文件已封存、版本号独立，由断言锁定其"封存标注"而非版本相等。
 
+## 未发版 · 2026-10-18（in-tree，版本号仍 3.0.6）
+
+> 本节记录已进代码、但**未 bump 版本**的增量（人类决定：先补描述，不发版）。对应提交：`8f58bcf` / `861e9a7` / `cd7ad36` / `2d04d53`。
+
+- feat(runtime): **心跳与存活确认**——`heartbeat.mjs` 每 10s 原子覆写 `.focus-guard/status.json`（tmp→rename），`unref()` 不拖住宿主；`status.mjs` 按需判活，exit `0` 全绿 / `2` 缺模块 / `3` STALE（>30s）/ `4` 文件缺失。
+- feat(runtime): **11 模块启动自检**——10 条执法缝 + 心跳各自报到（`markModule`）；缺项写 `degraded`、宿主日志 warn、模型侧注入 `focus-guard-degraded` 段；心跳首写延后一 tick，避免首帧少报自己。
+- feat(l4): **跨会话卷宗按路径哈希路由**——`workspace.mjs` 以 `sha256(realpath(cwd))` 前 16 位为身份，`.focus-guard/workspace.json` 存决策/约束/下一步（各限 10 条、每条 200 字、注入 ≤1200 字）；**hash 不符零注入**，改文件夹名即彻底屏蔽。回合结束（`agent/turn-stopping`）自动落账，只记 FG 亲眼看到的事实。
+- feat(gate): **第 1.4 层整文件读取闸**——目标 >300 行且无 `offset`/`limit` 即 deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调。分块数换行、够数即停，不整文件读入内存。
+- feat(gate): **第 1.3 层 Superpowers 动笔闸**——判据三件套（开发动词 + 模糊标记 + 无验收词）同中才触发；首次改文件/写文件/破坏性 shell deny 一次，要求先加载 `brainstorming` / `writing-plans`；同条重试与已加载均放行（防死锁）。
+- fix(gate): **破坏性 API 按目标分级**——旧实现只看动词、权重恒 0.6，清 TEMP 单文件与递归删系统目录同分，且 `Remove-Item` + 任意重定向即 0.9 越线。现系统路径/递归 0.9（拦截）、TEMP 0.2、其他 0.4、重定向 0.15。历史 39 条误伤样本回放：全部降到阈值下（最高 0.45）。
+- fix(gate): **红线射程补两处**——长旗标写法 `rm --recursive --force X`（旧短簇正则认不出 `--force`）与系统顶层目录（`/usr` 等）；`/tmp` 刻意不收，避免误伤构建。
+- fix(audit): **`FG_AUDIT_FILE` 优先**——`core/audit.mjs` 的 `auditTarget` 此前只认 `ZCODE_PROJECT_DIR`/`CLAUDE_PROJECT_DIR`，导致 `risk.mjs` 的 `penalize()` 成为第四个写点、测试重定向对它失效（CHANGELOG 3.0.6 所称"零增长"实测不成立）。
+- fix(audit): **deny 记录真实 trigger**——`auditDeny(exec, cmd, {trigger, level})`，10 处调用点补 `redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `volume:*` / `superpowers:writing-gate` / `risk:<category>`；此前一律写 `high-risk-rm`，`ls -la` 也被记成强删。
+- fix(env): **执行体判定不再三方矛盾**——母版认显式 `FG_SHELL`，DSH 适配层在 `apply()` 声明执行体为 `powershell`；卷宗【一】/指纹/实际执行从此一致（实测 `powershell 5.1.26100.9444`）。
+- fix(seams): **42 条版本核验退旧账**——封存版此前被"并入候选表"而非跳过，每会话误报一次部署漂移；改为 `SEALED` 命中即 skip。
+- feat(watch): **压缩监察**——`compactionWatch.mjs` 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），不写 surface、不 cancel；压缩归 DSH 内置栈，第三方不再重复实现。
+- fix(test): **审计零增长守卫**——`tests/audit-isolation.mjs` 跑测前后比对真实 `AUDIT.log`，有增长即 exit 1；`test`/`test:all` 改经守卫运行。已双向验证：干净 Δ0 PASS、故意污染 Δ1 FAIL。
+- chore(audit): **历史测试夹具清理**——剔除 882 条 `deny`+`session=dsh-native` 历史污染（双备份 + 并发追加保护 + `audit-purge` 留痕），保留 71 条真实会话拦截。
+
 ## 勘误 · 历史 commit message 的行数口径（2026-10-09）
 
 三条 `refactor(core)` 提交的 message 中，`guard.mjs` 行数与实际不符。**不改写历史**（不 force push），正确数字以下表为准：

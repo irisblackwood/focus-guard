@@ -39,6 +39,21 @@ Restart the session to activate. The bundle patch is declared by this package's 
 | One-size-fits-all across models | Model profiles (`src/profiles/`): review intensity follows the model |
 | Writing `grep`/`find` when the machine wants `rg`/`fd` | Environment fingerprint + hard command check, one-line substitution hint |
 
+## Runtime additions (in-tree, 2026-10-18)
+
+Shipped in the code, not yet reflected in the version number (still `3.0.6`):
+
+- **Heartbeat and liveness** — `src/dsh/heartbeat.mjs:85`, `src/dsh/status.mjs:73`: every 10s the plugin atomically rewrites `.focus-guard/status.json`; `node src/dsh/status.mjs` reports `ALIVE` / `STALE` and exits `0` all-green, `2` module missing, `3` stale, `4` no file.
+- **Module self-check** — `heartbeat.mjs:45`: the ten enforcement seams plus the heartbeat each report at startup; anything missing lands in `degraded`, is warned to the host log, and is injected to the model as `focus-guard-degraded`.
+- **L4 cross-session record** — `src/dsh/workspace.mjs:38` (hash) / `:125` (turn record) / `src/dsh/index.js:71` (injection): state is keyed by `sha256(realpath(cwd))`; a hash mismatch injects nothing, so a renamed folder cannot inherit old state.
+- **Whole-file read gate** — `src/dsh/pipeline.mjs:421` / `:645`: a target above 300 lines read without `offset`/`limit` is denied and pointed at XERJ (`xerj search` / `xerj def`). Configurable via `FG_WHOLE_FILE_MAX_LINES`.
+- **Superpowers writing gate** — `src/dsh/pipeline.mjs:398`: a vague development request (dev verb + vague marker + no acceptance criteria) gets one denial before the first edit/write/destructive shell, requiring `brainstorming` or `writing-plans`; a retry or a loaded skill passes.
+- **Graded destructive heuristic** — `src/dsh/pipeline.mjs:159`: `Remove-Item` / `fs.rmSync` weight by target — system path or recursive `0.9` (blocked), TEMP `0.2`, other `0.4`; redirection `0.15`.
+- **Compaction watch** — `src/dsh/compactionWatch.mjs:239` / `:364`: observes `compaction/start|end|prune` and request-error collisions, records them, and never writes surface or cancels a turn.
+- **Denial reasons in the audit** — `src/dsh/audit.mjs:120`: `auditDeny(exec, cmd, {trigger, level})` records the real rule (`redline:<name>`, `env-substitute`, `gate:fg_apply`, `evidence-gate`, `whole-file:lines`, `risk:<category>`) instead of a constant `high-risk-rm`.
+- **Executor detection** — `src/core/env.mjs:18` + `src/dsh/index.js:31`: the master layer honours an explicit `FG_SHELL`; the DSH adapter declares `powershell`, ending the three-way mismatch between record, fingerprint and actual executor.
+- **Audit isolation guard** — `tests/audit-isolation.mjs:1`: snapshots the real `AUDIT.log` before the suites run and fails the run if it grew (verified both ways: clean Δ0 PASS, deliberate pollution Δ1 FAIL).
+
 ## Six-layer eligibility
 
 | Layer | Question |
