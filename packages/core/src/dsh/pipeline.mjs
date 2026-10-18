@@ -12,7 +12,7 @@
  *   - dsh-tools/lib/index.js:3504  post-execute 三参瀑布 (exec, result, next)。
  */
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
-import { redlineExempt } from '../core/redlines.mjs'
+import { redlineExempt, MUTATOR_HEAD_RE } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
 import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
@@ -20,9 +20,9 @@ import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // 而且被 try/catch 的 fail-open 吞成静默放行（2026-10-09 实测踩过）。
 import { statePath as guardStateFile, loadState, saveState } from '../core/state.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
-import { statSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import { statSync, readFileSync, readdirSync, existsSync, openSync, readSync, closeSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { dirname, join } from 'node:path'
+import { dirname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 
@@ -72,7 +72,12 @@ const RM_RF = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\b/
 
 // ── 第 1 层·绝对红线（零延迟短路 deny，不进第 2 层）──
 // rm 递归强删根/HOME 族：rm -rf / ... 、rm -rf ~ ...（后随任意字符即命中本档）
-const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\s+["']?[\/~][\/\s"']*(?=\s|["']|$)/
+// 2026-10-18 补两处射程（自检 A4 钉死）：
+//   ① 长旗标写法 `rm --recursive --force X`（正序/反序）——旧式短簇 `-\w*(r..f|f..r)` 认不出
+//      `--force`（第二个 `-` 不在 \w 里），于是最危险的那种写法反而漏网；
+//   ② 系统顶层目录 `/usr /etc ...`——`rm -rf /usr` 与 `rm -rf /` 是同一量级破坏，不能只认裸根。
+//      不含 `/tmp`：临时目录递归删除是常规构建行为，已由体积闸/资格闸覆盖，收进来就是误伤。
+const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*(?:-\w*(?:r\w*f|f\w*r)\w*|--recursive\s+(?:-{1,2}[\w-]+\s+)*--force|--force\s+(?:-{1,2}[\w-]+\s+)*--recursive)\s+["']?(?:[\/~][\/\s"']*(?=\s|["']|$)|\/(?:usr|etc|bin|sbin|lib(?:32|64)?|boot|dev|proc|sys|var|opt|root|home|media|mnt|srv|run)(?=[\/\s"']|$))/
 /** 破坏库结构：DROP DATABASE / DROP SCHEMA / TRUNCATE TABLE */
 const DROP_DB = /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i
 /** 强制推送：git push -f / --force / --force-with-lease */
@@ -133,26 +138,46 @@ const clampRisk = (n) => Math.min(0.99, Math.max(0, Number(n) || 0))
 
 const HEURISTIC_RULES = [
   { re: /\|\s*(?:sh|bash|zsh|cmd|powershell|pwsh)\b/i, cat: 'pipe_to_shell', w: 0.55 },
-  { re: /[>]{1,2}\s*\S/, cat: 'redirect', w: 0.3 },
+  // 重定向 0.3 → 0.15（2026-10-18）：`>` 本身不是破坏性动作，它只是"会写文件"。
+  // 旧权重下 Remove-Item(0.6) + 一条重定向就 0.9 越线，把"清 TEMP + 存日志"这种常规脚本判成高危。
+  { re: /[>]{1,2}\s*\S/, cat: 'redirect', w: 0.15 },
   { re: /\b(?:child_process|execSync|spawnSync|subprocess|os\.system)\b/, cat: 'subprocess', w: 0.5 },
-  { re: /\b(?:shutil\.rmtree|fs\.rmSync|Remove-Item)\b/i, cat: 'destructive_api', w: 0.6 },
   { re: RM_RF, cat: 'fs_mutation', w: 0.3 },
   { re: /\b(?:mv|dd|truncate)\s/, cat: 'fs_mutation', w: 0.3 },
   { re: /\bgit\s+(?:reset\s+--hard|clean\s+-[a-z]*f|checkout\s+\.)/, cat: 'history_overwrite', w: 0.6 },
 ]
 
+// ── 破坏性 API：按目标分级（2026-10-18 修）──
+// 旧实现只看动词，权重恒 0.6：清 TEMP 单文件与递归删系统目录同分，而且 +重定向就误伤。
+// 现在按"打哪里"给权：系统路径/递归 → 0.9（必拦）；TEMP → 0.2（不拦）；其余 → 0.4。
+const DESTRUCTIVE_API = /\b(?:shutil\.rmtree|fs\.rmSync|Remove-Item)\b/i
+const SYSTEM_PATH =
+  /(?:[A-Za-z]:\\(?:Windows|Program Files|ProgramData)|(?:^|[\s"'=])\/(?:usr|etc|bin|sbin|var|lib|boot|sys|proc|opt|root)(?:\/|$))/i
+const RECURSIVE_FLAG = /-Recurse\b|\brmdirSync\s*\(|recursive\s*:\s*true/i
+const TEMP_TARGET = /\$(?:env:)?TEMP\b|%TEMP%|\\Temp\\|\/tmp\//i
+
+function destructiveApiWeight(cmd) {
+  const text = String(cmd ?? '')
+  if (!DESTRUCTIVE_API.test(text)) return 0
+  if (/shutil\.rmtree/i.test(text)) return 0.9 // rmtree 天生递归
+  if (SYSTEM_PATH.test(text) || RECURSIVE_FLAG.test(text)) return 0.9
+  if (TEMP_TARGET.test(text)) return 0.2
+  return 0.4 // 未知目标：中间档，不拦但会进审批视野
+}
+
 /**
- * 启发式兜底实现（本阶段 mock 语义）：命中规则累加权重、上限 0.99。
- * 当前规则最高累加 0.6 —— 设计上**恒不越过 0.85 阈值**，因此不产生 ask；
- * 阈值分支由测试/未来 Needle 2 实现驱动（见 preExecuteListener 的 riskOf 注入）。
+ * 启发式兜底实现。
  * @returns {{risk:number, category:string, reasons:string[]}}
  */
 export function riskOfHeuristic(cmd, tool) {
-  const hits = HEURISTIC_RULES.filter((r) => r.re.test(cmd ?? ''))
+  const text = cmd ?? ''
+  const hits = HEURISTIC_RULES.filter((r) => r.re.test(text)).map((r) => ({ cat: r.cat, w: r.w }))
+  const destructive = destructiveApiWeight(text)
+  if (destructive > 0) hits.push({ cat: 'destructive_api', w: destructive })
   return {
-    risk: clampRisk(hits.reduce((a, r) => a + r.w, 0)),
+    risk: clampRisk(hits.reduce((a, h) => a + h.w, 0)),
     category: hits.slice().sort((a, b) => b.w - a.w)[0]?.cat || 'benign',
-    reasons: hits.map((r) => r.cat),
+    reasons: hits.map((h) => h.cat),
   }
 }
 
@@ -370,6 +395,85 @@ function layer3Check(exec, warn, statePathOverride) {
   return null
 }
 
+// ===== 第 1.3 层：Superpowers 动笔闸（2026-10-18 人类批示）=====
+// 规则：模糊开发任务（非闲聊）在**未加载方法论技能**前，不许动笔。
+// 为什么拦「动笔」而不是「首轮输出」：DSH 没有 beforeSubmit 缝；而 `agent/pre-step`
+// 直接 reject 整轮会把回合打死（DCR 就这么死过，同日卸载）。动笔闸是同一意图的可执行版。
+// 判定三件套：开发动词 + 模糊标记 + 无验收词。缺一不判，宁可漏也不误伤闲聊。
+const SP_SKILLS = /^(?:brainstorming|writing-plans)$/i
+const SP_MUTATORS = /^(?:write|edit|multiedit|str_replace_editor|apply_patch)$/i
+const SP_DEV_VERB = /(实现|开发|重构|优化|修复|改造|迁移|重写|升级|接入|搭建|新增|加个|加上|补上|改一下|改改)/
+const SP_VAGUE = /(一下|顺手|更好|顺便|提升|优化|性能|体验|好看|清理|整理|完善)/
+const SP_ACCEPT = /(验收|测试|命令|报错|复现|接口|字段|路径|行号|截图|日志|表结构|阈值|标准|N\s*=)/
+
+function isVagueDevTask(prompt) {
+  const text = String(prompt || '').trim()
+  if (text.length < 6) return false
+  return SP_DEV_VERB.test(text) && SP_VAGUE.test(text) && !SP_ACCEPT.test(text)
+}
+
+/** 本轮提示的稳定戳：只存长度+前缀，不把整段 prompt 写进状态文件。 */
+function promptStamp(prompt) {
+  const text = String(prompt || '')
+  return `${text.length}:${text.slice(0, 48)}`
+}
+
+// ===== 第 1.4 层：整文件读取闸（2026-10-18 人类批示：整文件检索交给 XERJ）=====
+// 口径：目标文件 > N 行（默认 300）且**没有分段参数/限量管道** → 拒绝，并指向 XERJ。
+// 为什么排在 1.5 层之前：环境指纹对 cat 只给「用 bat 替代」，而 bat 同样是整文件灌屏；
+// 本层的正解是「别整读，去检索」——谁先开口决定模型学会哪条。
+// 边界：命中不了目标文件（相对路径、动态拼接、变量）一律 fail-open，不猜。
+const WHOLE_FILE_MAX_LINES = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300
+const WHOLE_FILE_READ_TOOLS = /^(?:read|read_file|readfile|view)$/i
+const WHOLE_FILE_SHELL = /(^|[;&|]\s*)(?:cat|type|Get-Content|bat)\s/i
+const WHOLE_FILE_HINT =
+  '请调用 XERJ 的 search 或 def 工具（`xerj search "<关键词>"` / `xerj def "<符号>"`），' +
+  '或对同一文件带 offset/limit 分段读。'
+
+/** 该文件是否超过 n 行；分块数换行、够数即停，绝不把整文件读进内存。 */
+function exceedsLines(file, n) {
+  let fd
+  try {
+    fd = openSync(file, 'r')
+    const buf = Buffer.allocUnsafe(64 * 1024)
+    let lines = 0
+    for (;;) {
+      const read = readSync(fd, buf, 0, buf.length, null)
+      if (read <= 0) return false
+      for (let i = 0; i < read; i += 1) {
+        if (buf[i] === 10) {
+          lines += 1
+          if (lines > n) return true
+        }
+      }
+    }
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        /* fd 已关或不可关：不影响判定 */
+      }
+    }
+  }
+}
+
+/** 读类 shell 命令里的第一个真实存在的文件参数；取不到返回 null（fail-open）。 */
+function shellFileTarget(cmd, cwd) {
+  for (const token of String(cmd).split(/\s+/)) {
+    if (!token || token.startsWith('-') || /[|&;><$`]/.test(token)) continue
+    const abs = isAbsolute(token) ? token : join(cwd || process.cwd(), token)
+    try {
+      if (statSync(abs).isFile()) return abs
+    } catch {
+      /* 不是文件就下一个 */
+    }
+  }
+  return null
+}
+
 // ===== 第 1.5 层：命令硬校验（规则来源 = .ai/env-fingerprint.json 的 map 表）=====
 // 指纹是规则来源、本层是执行层：mtime 变化立即生效，无需重启；指纹缺失/损坏一律 fail-open + warn。
 const ENV_FINGERPRINT_REL = join('.ai', 'env-fingerprint.json')
@@ -397,12 +501,21 @@ export function readEnvMap(warn, cwd = process.cwd()) {
   }
 }
 
+/** 会话工作目录：与 seams.mjs:63 projDirOf / preGuard / postProgress / stopGuard 同源（session.header.cwd）。 */
+function cwdOf(exec) {
+  const a = exec && exec.agent
+  return (a && a.session && a.session.header && a.session.header.cwd) || undefined
+}
+
 /**
  * 命令硬校验：任一段（|、;、&&、||、换行）的段首命令词命中 map 的 key → deny。
  * 白名单：① 引号内字符串字面量（先剥离）② 参数值（只判段首 token）③ 文件路径（含分隔符或以 . 开头）。
  */
-export function hardCheck(cmd, map, warn) {
-  const m = map || readEnvMap(warn)
+export function hardCheck(cmd, map, warn, cwd) {
+  // cwd 缺省时落回 readEnvMap 的 process.cwd()。DSH Desktop 的进程 cwd 是应用安装目录
+  // （E:\DSH\DSH Desktop），不是工作区，故调用点必须传会话 cwd，否则工作区里的
+  // .ai/env-fingerprint.json 永远读不到 → 本层等于没开（fail-open）。
+  const m = map || readEnvMap(warn, cwd)
   if (!m) return null
   const stripped = String(cmd || '').replace(/'[^']*'|"[^"]*"/g, ' ')
   for (const seg of stripped.split(/\|\||&&|[|;\n]/)) {
@@ -449,7 +562,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
 
     const layer3 = layer3Check(exec, warn, statePath)
     if (layer3) {
-      auditDeny(exec, layer3.reason)
+      auditDeny(exec, layer3.reason, { trigger: 'evidence-gate', level: 3 })
       warn('第3层拦截：', layer3.reason)
       return layer3
     }
@@ -479,7 +592,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
             auditRedlineExempt(exec, cmd, { redline: redline.name, basis, detail })
           } else {
             warn(`已拦截绝对红线（${redline.name}）：`, cmd.slice(0, 120))
-            auditDeny(exec, cmd)
+            auditDeny(exec, cmd, { trigger: `redline:${redline.name}`, level: 3 })
             return {
               kind: 'deny',
               reason:
@@ -494,13 +607,75 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       return next()
     }
 
+    // 第 1.3 层：Superpowers 动笔闸（模糊开发任务：先加载方法论，再动笔）
+    try {
+      const spFile = guardStateFile(sessionIdOf(exec))
+      const spState = existsSync(spFile) ? loadState(spFile) : null
+      const spPrompt = String((spState && (spState.turnPromptFull || spState.turnPrompt)) || '')
+      if (spState && isVagueDevTask(spPrompt)) {
+        const stamp = promptStamp(spPrompt)
+        const spTool = String((exec && exec.name) || '')
+        const spArgs = (exec && exec.arguments) || {}
+        // 模型已加载方法论 → 本轮放行并记住
+        if (/^skill$/i.test(spTool) && SP_SKILLS.test(String(spArgs.name || spArgs.skill || ''))) {
+          spState.spLoadedFor = stamp
+          saveState(spFile, spState)
+          return next()
+        }
+        if (spState.spLoadedFor === stamp) return next()
+        const mutating = SP_MUTATORS.test(spTool) || (cmd && MUTATOR_HEAD_RE.test(cmd))
+        if (mutating && spState.spDeniedFor !== stamp) {
+          spState.spDeniedFor = stamp
+          saveState(spFile, spState)
+          warn('Superpowers 动笔闸：', `模糊开发任务未加载方法论即动笔（${spTool || 'shell'}）`)
+          auditDeny(exec, `动笔前置：${spTool || 'shell'}`, { trigger: 'superpowers:writing-gate' })
+          return {
+            kind: 'deny',
+            reason:
+              'focus-guard-native: [Superpowers] 这是模糊开发任务，先别动笔。' +
+              '请先调用 brainstorming 或 writing-plans 工具（skill 工具，name 为其中之一），' +
+              '确认需求并给出计划后再改代码。本次只拒一次，重试即放行。',
+          }
+        }
+      }
+    } catch (error) {
+      warn('Superpowers 动笔闸异常，fail-open 放行：', (error && error.message) || error)
+    }
+
+    // 第 1.4 层：整文件读取闸（大文件不许整读，改走 XERJ 检索）
+    try {
+      const toolName = String((exec && exec.name) || '')
+      const args = (exec && exec.arguments) || {}
+      let target = null
+      let segmented = false
+      if (WHOLE_FILE_READ_TOOLS.test(toolName)) {
+        target = pathOfTool(args)
+        segmented = Boolean(args.limit || args.offset || args.pages)
+      } else if (cmd && WHOLE_FILE_SHELL.test(cmd)) {
+        segmented = /\||>|-TotalCount|-First|-Tail|--limit/.test(cmd)
+        if (!segmented) target = shellFileTarget(cmd, cwdOf(exec))
+      }
+      if (target && !segmented && exceedsLines(target, WHOLE_FILE_MAX_LINES)) {
+        warn('整文件闸拦截：', `${target} 超过 ${WHOLE_FILE_MAX_LINES} 行整读`)
+        auditDeny(exec, `整读 ${target}`, { trigger: 'whole-file:lines' })
+        return {
+          kind: 'deny',
+          reason:
+            `focus-guard-native: 整文件闸——${target} 超过 ${WHOLE_FILE_MAX_LINES} 行，禁止整文件读取。` +
+            WHOLE_FILE_HINT,
+        }
+      }
+    } catch (error) {
+      warn('整文件闸异常，fail-open 放行：', (error && error.message) || error)
+    }
+
     // 第 1.5 层：命令硬校验（红线之后、语义预判之前；不依赖 AI 自觉）
     if (cmd) {
       try {
-        const hard = hardCheck(cmd, null, warn)
+        const hard = hardCheck(cmd, null, warn, cwdOf(exec))
         if (hard) {
           warn('硬校验拦截：', hard.reason)
-          auditDeny(exec, cmd)
+          auditDeny(exec, cmd, { trigger: 'env-substitute', level: 2 })
           return hard
         }
       } catch (error) {
@@ -527,7 +702,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         })
         if (gate.kind === 'deny') {
           warn('资格审核闸拦截：', gate.reason)
-          auditDeny(exec, cmd)
+          auditDeny(exec, cmd, { trigger: 'gate:fg_apply', level: 6 })
           return { kind: 'deny', reason: `focus-guard-native: ${gate.reason}` }
         }
       } catch (error) {
@@ -566,7 +741,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
             warn('体积刺客·审计豁免：', `${target} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`)
           } else {
             warn('体积刺客拦截：', `${target} ${kb}KB 整读`)
-            auditDeny(exec, `${target} ${kb}KB 整读`)
+            auditDeny(exec, `${target} ${kb}KB 整读`, { trigger: 'volume:kb' })
             return {
               kind: 'deny',
               reason:
@@ -580,7 +755,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       // ② Grep 无 head_limit 闸（content 模式必须限量；先 files_with_matches 定位）
       if (/^grep$/i.test(toolName) && args.output_mode === 'content' && !args.head_limit) {
         warn('体积刺客拦截：', 'Grep content 无 head_limit')
-        auditDeny(exec, `Grep content 无 head_limit`)
+        auditDeny(exec, `Grep content 无 head_limit`, { trigger: 'volume:grep' })
         return {
           kind: 'deny',
           reason: 'focus-guard-native: 体积刺客——Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。',
@@ -592,7 +767,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         const guarded = /\||>|-TotalCount|-First|-Tail/i.test(cmd)
         if (!guarded) {
           warn('体积刺客拦截：', `裸 cat/type：${cmd.slice(0, 60)}`)
-          auditDeny(exec, `裸 cat/type：${cmd.slice(0, 60)}`)
+          auditDeny(exec, `裸 cat/type：${cmd.slice(0, 60)}`, { trigger: 'volume:cat' })
           return {
             kind: 'deny',
             reason: 'focus-guard-native: 体积刺客——禁裸 cat/type 刷屏。用 `cat x | head -100`，或先 grep/wc 定位。',
@@ -661,7 +836,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       if (risk > RISK_ASK_THRESHOLD) {
         observe.highRisk += 1
         // 观察模式：留痕 + 告警，但放行（不返回 ask），直到累计判定数达标并由人类启用
-        auditDeny(exec, `risk=${risk} category=${category} backend=${backend} | ${String(cmd).slice(0, 100)}`)
+        auditDeny(exec, `risk=${risk} category=${category} backend=${backend} | ${String(cmd).slice(0, 100)}`, { trigger: `risk:${category}`, level: 2 })
         warn(
           `第2层高危但观察模式放行（risk=${risk} category=${category} backend=${backend} judgements=${observe.judgements}）：`,
           cmd.slice(0, 120),

@@ -215,8 +215,15 @@ export function sessionStartListener({ warn } = {}) {
         // 42条 部署版本核验：运行引擎 vs 工作区源码
         // ⚠ 排除 `packages/core/hooks/guard.mjs`——它是**封存版、版本号独立**（header 写明不随 FG 主版本更新，
         // 见 HANDOFF §九）。拿它的 v 号与 ENGINE_VERSION 比较会**每次会话误报部署漂移**（2026-10-10 实测）。
-        const SEALED = ['packages/core/hooks/guard.mjs']
-        for (const rel of ['hooks/guard.mjs', 'focus-guard/hooks/guard.mjs', ...SEALED]) {
+        // 2026-10-18 销旧账：原实现写 `for (const rel of [...候选, ...SEALED])`，把封存版**拼进了**比对列表
+        // ——语义正好反了（本意是排除，实际是加入）。而前两个候选在仓库根并不存在（catch 后试下一个），
+        // 于是必然命中封存版、必然失配，每次会话一条假警报（实测 evidence：
+        // `42条 引擎 v3.0.6 vs 源码 v3.0.4 (packages/core/hooks/guard.mjs)`）。
+        // 正确语义：候选里可以列出封存版（记录"它存在但被豁免"），**命中 SEALED 一律跳过**。
+        const SEALED = new Set(['packages/core/hooks/guard.mjs'])
+        const VERSION_CANDIDATES = ['hooks/guard.mjs', 'focus-guard/hooks/guard.mjs', 'packages/core/hooks/guard.mjs']
+        for (const rel of VERSION_CANDIDATES) {
+          if (SEALED.has(rel)) continue
           try {
             const m = readFileSync(join(projDir, rel), 'utf8').slice(0, 400).match(/v(\d+\.\d+\.\d+)/)
             if (m && m[1] !== ENGINE_VERSION) {

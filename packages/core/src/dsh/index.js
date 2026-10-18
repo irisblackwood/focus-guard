@@ -15,10 +15,20 @@ import { preStepListener, sessionStartListener, systemPromptRulesListener, turnS
 import { postProgressListener } from './postProgress.mjs'
 import { stopGuardListener } from './stopGuard.mjs'
 import { preGuardListener } from './preGuard.mjs'
+import { announceWatchReady, compactionEventListener, contextOverflowListener } from './compactionWatch.mjs'
+import { startHeartbeat } from './heartbeat.mjs'
+import { degradedModules, livenessNote, markModule } from './heartbeat.mjs'
+import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
 
 export const name = 'focus-guard'
 
 export function apply(ctx) {
+  // 2026-10-18 修（REPORT-2026-10-12 P2「三处 shell 判定互相矛盾」）：
+  // 环境检测原本只看宿主 Node 进程自身的 ComSpec/SHELL → DSH 下报成 cmd，
+  // 而 DSH 的 shell 工具实际执行体是 pwsh（cordis.patch.yml 的 pwshPath）——
+  // 卷宗【一】/env-fingerprint/实际执行三方长期不一致。
+  // 母版不认 harness，所以由适配层显式声明执行体；FG_SHELL 已设则不覆盖。
+  if (process.platform === 'win32' && !process.env.FG_SHELL) process.env.FG_SHELL = 'powershell'
   const warn = (...parts) => {
     console.warn('[focus-guard-native]', ...parts)
     if (ctx && typeof ctx.logger?.warn === 'function') ctx.logger.warn(...parts)
@@ -26,7 +36,9 @@ export function apply(ctx) {
   const register = (event, factory, label) => {
     try {
       ctx.on(event, factory({ warn }))
+      markModule(label, true)
     } catch (error) {
+      markModule(label, false, (error && error.message) || error)
       warn(label + ' 注册失败（不影响其他缝）：', (error && error.message) || error)
     }
   }
@@ -36,7 +48,36 @@ export function apply(ctx) {
   register('tools/pre-execute', preGuardListener, 'tools/pre-execute(structural)')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
   // 3.0.8 移植批 4：常驻规则注入（guard.mjs 的 SESSION_RULES，原文走 stdout，原生改走注入缝）
-  register('system-prompt/assemble', systemPromptRulesListener, 'system-prompt/assemble(rules)')
+  // 2026-10-18：再包一层——启动自检缺模块时追加 `focus-guard-degraded` 段，让模型自己也看得见。
+  register(
+    'system-prompt/assemble',
+    (opts) => {
+      const base = systemPromptRulesListener(opts)
+      return async (assembly, context, next) => {
+        const downstream = await base(assembly, context, next)
+        if (!downstream || !Array.isArray(downstream.sections)) return downstream
+        /** @type {{name: string, text: string}[]} */
+        const extra = []
+        const note = livenessNote()
+        if (note) extra.push({ name: 'focus-guard-degraded', text: note })
+        // L4 跨会话卷宗（2026-10-18）：只有 workspace_hash 与当前路径一致才注入；
+        // 路径改变 → readWorkspace 返回 null → 一条都不加（DCR 的病根就是没这条）。
+        try {
+          const cwd =
+            context && context.agent && context.agent.session && context.agent.session.header
+              ? context.agent.session.header.cwd
+              : null
+          const section = renderWorkspaceSection(readWorkspace(cwd))
+          if (section) extra.push({ name: 'focus-guard-workspace', text: section })
+        } catch {
+          /* fail-open：卷宗读取失败不影响系统提示 */
+        }
+        if (!extra.length) return downstream
+        return { ...downstream, sections: [...downstream.sections, ...extra] }
+      }
+    },
+    'system-prompt/assemble(rules)',
+  )
   register('tools/post-execute', postExecuteListener, 'tools/post-execute')
   // 3.0.8 移植批 3：进度检测 / 三预算池 / 污染检测 / 委派 KPI / 抽查（与上条同事件并列监听）
   register('tools/post-execute', postProgressListener, 'tools/post-execute(progress)')
@@ -44,7 +85,52 @@ export function apply(ctx) {
   //（@deepseek-ai/dsh-hooks-claude-code）的实测代码，不是猜测。
   register('agent/created', sessionStartListener, 'agent/created')
   register('agent/pre-step', preStepListener, 'agent/pre-step')
-  register('agent/turn-stopping', turnStoppingListener, 'agent/turn-stopping')
+  // 回合结束自动落账（L4，2026-10-18）：只记 FG 亲眼看到的事实（人类指令 / 被人否决的命令），
+  // 不推断、不编造；写失败只 warn。与 DCR 不同：这里不 cancel、不 reject、不碰 surface。
+  register(
+    'agent/turn-stopping',
+    (opts) => {
+      const base = turnStoppingListener(opts)
+      return async (payload, ...rest) => {
+        const decision = await base(payload, ...rest)
+        try {
+          recordWorkspaceTurn(payload && payload.agent)
+        } catch (error) {
+          warn('工作区卷宗写入失败（不阻断回合）:', (error && error.message) || error)
+        }
+        return decision
+      }
+    },
+    'agent/turn-stopping',
+  )
   // 3.0.8 移植批 4：收尾核验（授权识别 / 熔断声明 / 无锚点）——与上条 KPI 结算并列监听
   register('agent/turn-stopping', stopGuardListener, 'agent/turn-stopping(guard)')
+
+  // 压缩监察（2026-10-18）：DSH 0.2 自带压缩栈（preset 层 compaction-basic +
+  // command-compact + tool-result-pruner），FG 不重复实现，只做留痕与看门狗。
+  // 详见 compactionWatch.mjs 头部：自建压缩引擎与内置抢跑，正是当日回合被打死的根因。
+  register('session/event', compactionEventListener, 'session/event(compaction-watch)')
+  register('agent/request-error', contextOverflowListener, 'agent/request-error(compaction-watch)')
+
+  // 心跳（2026-10-18）：每 10s 覆写 .focus-guard/status.json，宿主外由 status.mjs 判存活。
+  // 失败只降级本条，不影响上面任何执法缝。
+  try {
+    const disposeHeartbeat = startHeartbeat({ warn })
+    if (typeof ctx.effect === 'function') ctx.effect(() => disposeHeartbeat)
+    markModule('heartbeat', true)
+  } catch (error) {
+    markModule('heartbeat', false, (error && error.message) || error)
+    warn('心跳启动失败（不影响执法缝）：', (error && error.message) || error)
+  }
+
+  // 启动自检汇总（2026-10-18）：缺模块就在宿主日志喊一次；模型侧由上面那条注入缝负责。
+  const missing = degradedModules()
+  if (missing.length > 0) {
+    warn(`启动自检：${missing.length} 个模块未报到 —— ${missing.join('、')}（模型侧会收到 FG-DEGRADED 段）`)
+  }
+
+  // 启动自证（2026-10-18）：无条件往 AUDIT.log 写一条 compaction-watch-ready / -degraded。
+  // 位置必须在此处 —— 两条 register() 与心跳都已跑完，快照才是最终装配结果；
+  // 提前调用会漏掉心跳、报出错误的完成度。每进程一次，详见 compactionWatch.mjs 末段。
+  announceWatchReady({ warn })
 }
