@@ -12,6 +12,7 @@
 - feat(bench): **成本基准** `tools/bench-cost.mjs`——不跑模型，只汇总 `.ai/CASE_FILE.md`【五】成本台账与 `AUDIT.log`：token/USD、按模型分布、拦截数、`trigger` 分布、误伤比（`appeal-granted / deny`）；支持 `--since` / `--json`。附 A/B 对照协议（FG 开/关各 5 次取中位数）。
 - fix(ci): **`test:all` 改为发现式**——原为硬编码 11 文件清单，今天新增的 `casePaths` / `layering` 测试不在其中，会出现"CI 全绿但没测"。现统一走 `tests/audit-isolation.mjs`（自动发现 + 真实审计零增长守卫）。
 - docs: 新增 `packages/core/docs/BENCH.md`（四类基准的跑法与已知热路径成本），README 命令表补 `bench:decision` / `bench:cost`。
+- perf(gate): **哨兵结论缓存**——判定基准量出每条 Bash 命令都要付约 60ms 的 python 冷启动，而同一命令在会话里反复出现（重试/复测/同脚本多轮）。`riskOfSentinel` 现按命令原文缓存**成功结论**（LRU 500，`FG_SENTINEL_CACHE=0` 关闭、`FG_SENTINEL_CACHE_SIZE` 调容量），失败（超时/缺 python/解析失败）一律不缓存，不把错误固化成判定。实测 **p95 61.19ms → 2.37ms**，p50 0.58ms → 0.36ms；每条新命令首次仍付约 60ms（常驻进程方案未做）。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、

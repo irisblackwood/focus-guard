@@ -28,7 +28,7 @@
 ```
 准确率   100.00%
 误伤率   0.00%（期望放行却被拦）
-延迟     p50 0.58ms / p95 61.19ms / max 63.25ms
+延迟     p50 0.36ms / p95 2.37ms / max 4.43ms
 ```
 
 **基线**：`packages/core/docs/BENCH-BASELINE.json`。`--update` 覆盖。
@@ -37,18 +37,30 @@
 ### 已知热路径成本（实测，不是估算）
 
 ```
+### 热路径成本：修复前后（实测）
+
+加缓存前：
+
+```
 plain-ls-allow           p50 60.04ms   p95 70.55ms   ← Bash 类
 plain-git-status-allow   p50 60.41ms   p95 62.71ms   ← Bash 类
 其余 12 条用例            p95 ≤ 2.8ms
 ```
 
-差异来自第 2 层语义判定：每条 **Bash 命令**会调一次 `packages/core/tools/sentinel.mjs`
-（python 子进程，约 60ms）。非 Bash 工具（Read/Edit/Grep/Write）不走该层。
+差异来自第 2 层语义判定：每条 **Bash 命令**会调一次 `sentinel.py`（python 子进程 ≈60ms）。
 
-这是当前架构的真实开销。要压下来有两个方向，都未实施：
+加缓存后（2026-10-18，`riskOfSentinel` 按命令内容缓存成功结论）：
 
-1. 按命令哈希缓存哨兵结论（同一条命令重复判定时命中缓存）
-2. 将哨兵改为常驻进程（避免每次冷启动 python）
+```
+判定基准              准确率 100%  误伤率 0%
+延迟                  p50 0.36ms / p95 2.37ms / max 4.43ms
+```
+
+语义说明：
+- **只缓存成功结论**。超时、缺 python、解析失败一律不缓存——下次仍重试，不把错误固化成判定。
+- 缓存键 = 命令原文（`Map` + LRU，默认容量 500）。`FG_SENTINEL_CACHE=0` 关闭，`FG_SENTINEL_CACHE_SIZE` 调容量。
+- **每条新命令的首次判定仍要付约 60ms**（python 冷启动）；缓存收益在重复命令（重试、复测、同一脚本多轮）。
+  想连首次也压掉，只能把哨兵改成常驻进程——未实施。
 
 `FG_BENCH_ITER` 调节轮数、`FG_BENCH_P95_MS` 调节延迟阈值。
 

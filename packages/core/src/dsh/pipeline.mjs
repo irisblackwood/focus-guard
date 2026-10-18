@@ -199,8 +199,27 @@ export function observeState() {
  * sentinel.py 的 Node 侧接线：execFileSync 调子进程，超时/异常/解析失败一律抛错，
  * 由 preExecuteListener 的 catch 转成保守 ask（不静默放行）。
  * HF_HOME 只注入子进程 env，不写全局。
+ *
+ * 2026-10-18 加**结论缓存**：判定基准实测每条 Bash 命令都要付 ~60ms 的 python 冷启动，
+ * 而同一命令在会话里会反复出现（重试、复测、同一脚本多轮）。按命令内容哈希缓存**成功结论**，
+ * 失败（超时/缺 python/解析失败）一律不缓存——下次仍要重试，不能把错误固化成结论。
+ * `FG_SENTINEL_CACHE=0` 关闭；`FG_SENTINEL_CACHE_SIZE` 调容量（默认 500，LRU）。
  */
-export function riskOfSentinel(cmd) {
+const SENTINEL_CACHE_OFF = process.env.FG_SENTINEL_CACHE === '0'
+const SENTINEL_CACHE_LIMIT = Number(process.env.FG_SENTINEL_CACHE_SIZE) || 500
+const sentinelCache = new Map()
+
+/** 缓存命中/未命中计数（自检与基准用只读快照）。 */
+export const sentinelCacheStats = { hits: 0, misses: 0 }
+
+/** 测试钩子：清空缓存与计数。 */
+export function resetSentinelCache() {
+  sentinelCache.clear()
+  sentinelCacheStats.hits = 0
+  sentinelCacheStats.misses = 0
+}
+
+function runSentinel(cmd) {
   const out = execFileSync(SENTINEL_PYTHON, [SENTINEL_PY, '--cmd', String(cmd ?? '')], {
     encoding: 'utf8',
     timeout: SENTINEL_TIMEOUT_MS,
@@ -211,6 +230,27 @@ export function riskOfSentinel(cmd) {
   if (!line) throw new Error('sentinel 无输出')
   const verdict = JSON.parse(line)
   if (!verdict || typeof verdict !== 'object') throw new Error('sentinel 输出非对象')
+  return verdict
+}
+
+export function riskOfSentinel(cmd) {
+  if (SENTINEL_CACHE_OFF) return runSentinel(cmd)
+  const key = String(cmd ?? '')
+  const hit = sentinelCache.get(key)
+  if (hit !== undefined) {
+    sentinelCacheStats.hits += 1
+    // LRU：命中后移到队尾（Map 保持插入序）
+    sentinelCache.delete(key)
+    sentinelCache.set(key, hit)
+    return hit
+  }
+  sentinelCacheStats.misses += 1
+  const verdict = runSentinel(cmd)
+  sentinelCache.set(key, verdict)
+  while (sentinelCache.size > SENTINEL_CACHE_LIMIT) {
+    const oldest = sentinelCache.keys().next().value
+    sentinelCache.delete(oldest)
+  }
   return verdict
 }
 // ── 第 3 层：状态校验（单向读 guard.mjs 权威状态，本插件只读不写）──

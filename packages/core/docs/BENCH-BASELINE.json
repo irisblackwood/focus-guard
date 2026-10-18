@@ -1,88 +1,88 @@
 {
-  "ts": "2026-10-18T11:29:05.111Z",
+  "ts": "2026-10-18T11:40:09.591Z",
   "iterations": 10,
   "cases": 14,
   "calls": 140,
   "accuracy": 1,
   "falsePositiveRate": 0,
   "latencyMs": {
-    "p50": 0.58,
-    "p95": 61.19,
-    "max": 63.25
+    "p50": 0.36,
+    "p95": 2.37,
+    "max": 4.43
   },
   "byCase": {
     "redline-rm-rf-root": {
-      "p50": 0.42,
-      "p95": 0.65
+      "p50": 0.35,
+      "p95": 0.61
     },
     "redline-git-push-force": {
-      "p50": 0.34,
-      "p95": 0.68
+      "p50": 0.37,
+      "p95": 0.44
     },
     "hardcheck-cat": {
-      "p50": 0.39,
-      "p95": 0.49
+      "p50": 0.4,
+      "p95": 0.65
     },
     "whole-file-deny": {
-      "p50": 1.98,
-      "p95": 2.41
+      "p50": 2.12,
+      "p95": 2.26
     },
     "whole-file-offset-allow": {
-      "p50": 2.21,
-      "p95": 2.87
+      "p50": 2.16,
+      "p95": 4.43
     },
     "small-file-allow": {
-      "p50": 2.59,
-      "p95": 3.03
+      "p50": 2.37,
+      "p95": 3.44
     },
     "grep-content-deny": {
-      "p50": 0.39,
-      "p95": 1.95
+      "p50": 0.36,
+      "p95": 0.4
     },
     "grep-default-allow": {
       "p50": 0.12,
-      "p95": 0.3
+      "p95": 0.15
     },
     "eligibility-publish-deny": {
-      "p50": 0.6,
-      "p95": 0.87
+      "p50": 0.58,
+      "p95": 0.85
     },
     "evidence-edit-deny": {
-      "p50": 0.65,
-      "p95": 0.72
+      "p50": 0.71,
+      "p95": 0.8
     },
     "evidence-new-session-allow": {
-      "p50": 0.15,
-      "p95": 0.19
+      "p50": 0.17,
+      "p95": 0.22
     },
     "plain-ls-allow": {
-      "p50": 61.19,
-      "p95": 63.23
+      "p50": 0.17,
+      "p95": 0.21
     },
     "plain-git-status-allow": {
-      "p50": 59.91,
-      "p95": 63.25
+      "p50": 0.14,
+      "p95": 0.34
     },
     "write-new-file-allow": {
-      "p50": 0.25,
-      "p95": 0.33
+      "p50": 0.12,
+      "p95": 0.38
     }
   },
   "slowest": [
     {
-      "id": "plain-git-status-allow",
-      "p50": 59.91,
-      "p95": 63.25
-    },
-    {
-      "id": "plain-ls-allow",
-      "p50": 61.19,
-      "p95": 63.23
+      "id": "whole-file-offset-allow",
+      "p50": 2.16,
+      "p95": 4.43
     },
     {
       "id": "small-file-allow",
-      "p50": 2.59,
-      "p95": 3.03
+      "p50": 2.37,
+      "p95": 3.44
+    },
+    {
+      "id": "whole-file-deny",
+      "p50": 2.12,
+      "p95": 2.26
     }
   ],
   "failures": []
