@@ -97,4 +97,4 @@ Currently `3.0.7`. Eight version surfaces are asserted equal to each other and t
 
 ## License
 
-MIT © 2026 irisblackwood
+Apache-2.0 © 2026 irisblackwood

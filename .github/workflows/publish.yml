@@ -17,6 +17,11 @@ on:
   release:
     types: [published]
 
+# 同一时间只允许一个发布作业：并发触发会让后一个撞上 "cannot publish over" 而红。
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write # OIDC 必需：换取 npm 的短期发布凭据
@@ -36,8 +41,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       # Trusted Publishing 需要 npm >= 11.5.1；Node 24 自带的 npm 可能刚好不够。
-      - name: Upgrade npm
-        run: npm install -g npm@latest && npm --version
+      # 2026-10-18：从 `npm@latest` 改为**锁大版本**——latest 每次可能带进新的 2FA/GAT 策略，
+      # 发布日志会突然因为上游策略变化而红（本仓库已踩过两次）。锁 11 大版本，行为可预期。
+      - name: Ensure npm >= 11.5.1
+        run: |
+          npm install -g npm@11
+          npm --version
+          node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number);if(v[0]<11||(v[0]===11&&v[1]<5)){console.error('npm too old:',v.join('.'));process.exit(1)}"
 
       # 发布前先跑闸：CI 红就不发。
       - name: Test suite
@@ -49,6 +59,7 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Verify
+        shell: pwsh
         run: |
-          sleep 5
+          Start-Sleep -Seconds 5
           npm view focus-guard version dist.tarball

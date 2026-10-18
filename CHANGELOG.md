@@ -34,6 +34,8 @@
   - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
   - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
 - fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
+- chore(license): **MIT → Apache-2.0**——核实 DSH 市场并无 MIT 强制要求（`dsh-plugin-market-index` 内无 license 约束；生态分布 MIT 62 / ISC 10 / Apache-2.0 7 / BSD 5）。对"给别人装、可能被企业内嵌"的安全工具，Apache-2.0 多了**专利授权**与更明确的免责/商标条款，比 MIT 更合适。已换 `LICENSE`（官方原文 11,358 字节）+ 新增 `NOTICE`（版权与许可声明），三处 `package.json` 的 `license` 字段、三份 README 的许可行与徽章同步。**已发布的 3.0.7 仍按 MIT 授权，不追溯**；改动自下一个版本生效。
+- ci(publish): **发布工作流去抖动**——`npm install -g npm@latest` 改为锁定 `npm@11`（latest 每次可能带进新的 2FA/GAT 策略，本仓库已因此红过两次），并显式校验 `npm >= 11.5.1`；新增 `concurrency: publish-${ref}` 防止并发触发撞上 "cannot publish over"；`Verify` 步骤显式 `shell: pwsh`（windows runner 默认 shell 行为差异）。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
