@@ -388,3 +388,8 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) © 2026 irisblackwood · 个人与社区免费，**商业使用需单独授权**
+
+- **个人 / 学习 / 研究 / 业余项目 / 非营利社区**：免费，不需申请
+- **企业内部生产 / 收费产品或服务 / SaaS 转售**：需单独商业授权，见 [NOTICE](NOTICE)
+- **商标**：`FocusGuard`、`聚焦护栏` 及项目标识保留，fork 或改版**不得沿用**，也不得暗示作者为你的产品或服务背书
+- 这是 **source-available，不是 OSI 开源**；贡献条款见 [CONTRIBUTING.md](CONTRIBUTING.md)
