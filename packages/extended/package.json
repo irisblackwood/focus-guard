@@ -28,5 +28,8 @@
   "author": {
     "name": "irisblackwood",
     "url": "https://github.com/irisblackwood"
-  }
+  },
+  "files": [
+    "NOTICE"
+  ]
 }

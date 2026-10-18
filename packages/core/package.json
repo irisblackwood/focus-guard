@@ -16,7 +16,8 @@
     "tools",
     "skills",
     "docs",
-    "src"
+    "src",
+    "NOTICE"
   ],
   "scripts": {
     "test": "node tests/audit-isolation.mjs",
