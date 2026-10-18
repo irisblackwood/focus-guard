@@ -177,8 +177,11 @@ export function sessionStartListener({ warn } = {}) {
       }
 
       // 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）
+      // 2026-10-18：DSH 的 shell 工具执行体是 pwsh（cordis.patch.yml 的 pwshPath），
+      // 但 Node 进程自身的 ComSpec 是 cmd —— 不显式声明就会把执行体记成 cmd。
+      // 用参数传，不写环境变量（否则会被子进程继承，污染测试）。
       try {
-        state.envCache = detectEnv(projDir)
+        state.envCache = detectEnv(projDir, process.platform === 'win32' ? { shell: 'powershell' } : {})
       } catch {
         /* 环境检测失败不阻断 */
       }

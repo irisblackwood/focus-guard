@@ -36,9 +36,16 @@ export function quickShellId() {
   return String(process.env.SHELL || "sh").split(/[\\/]/).pop() || "sh";
 }
 
-export function detectEnv(projDir) {
+/**
+ * @param {string} [projDir]
+ * @param {{ shell?: string }} [opts] 显式执行体（适配层传入，母版不猜 harness）。
+ *   2026-10-18：DSH 适配层此前靠写 process.env.FG_SHELL 传递，结果宿主设的变量
+ *   被子进程（含 npm test）继承，直接污染了 4 条环境检测用例。改为参数传递。
+ */
+export function detectEnv(projDir, opts = {}) {
   const osName = process.platform;
-  const shellIdKey = quickShellId();
+  const forced = String((opts && opts.shell) || "").trim().toLowerCase();
+  const shellIdKey = forced || quickShellId();
   let shellVersion = "";
   try {
     if (shellIdKey === "powershell")

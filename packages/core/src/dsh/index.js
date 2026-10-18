@@ -22,14 +22,15 @@ import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './wo
 import { registerGateTools } from './tools.mjs'
 
 export const name = 'focus-guard'
+// 2026-10-18：`ctx.tools` 是 Cordis 服务，未声明 inject 就访问会抛
+// `cannot get property "tools" without inject` —— 这正是 fg_apply/fg_appeal
+// 注册失败的真实原因（此前只写进 warn，模块自检里看不到）。
+export const inject = ['tools']
 
 export function apply(ctx) {
-  // 2026-10-18 修（REPORT-2026-10-12 P2「三处 shell 判定互相矛盾」）：
-  // 环境检测原本只看宿主 Node 进程自身的 ComSpec/SHELL → DSH 下报成 cmd，
-  // 而 DSH 的 shell 工具实际执行体是 pwsh（cordis.patch.yml 的 pwshPath）——
-  // 卷宗【一】/env-fingerprint/实际执行三方长期不一致。
-  // 母版不认 harness，所以由适配层显式声明执行体；FG_SHELL 已设则不覆盖。
-  if (process.platform === 'win32' && !process.env.FG_SHELL) process.env.FG_SHELL = 'powershell'
+  // 2026-10-18：执行体声明改为**参数传递**（见 seams.mjs 的 detectEnv 调用），
+  // 不再写 process.env.FG_SHELL —— 宿主进程设的环境变量会被子进程（含 npm test）继承，
+  // 实测直接打红 4 条环境检测用例。
   const warn = (...parts) => {
     console.warn('[focus-guard-native]', ...parts)
     if (ctx && typeof ctx.logger?.warn === 'function') ctx.logger.warn(...parts)

@@ -33,7 +33,10 @@ function makeRunner(sid) {
       // 原先只靠"不传 ZCODE_PROJECT_DIR"退回临时目录，但宿主（DSH）在环境里设了
       // CLAUDE_PROJECT_DIR，guard.mjs 会读它 → 审计流水写进真实 <仓库>/.focus-guard/AUDIT.log
       // （实测污染 2630 行 / 746 个测试 session）。...env 必须放最后，让具体用例的覆盖仍生效。
-      env: { ...process.env, ZCODE_PROJECT_DIR: "", CLAUDE_PROJECT_DIR: "", ...env },
+      // 2026-10-18 再补一个：FG_SHELL。DSH 宿主会在自己的进程里声明执行体
+      // （旧实现写 process.env.FG_SHELL），子进程（本套件）会继承它，
+      // 导致 4 条环境检测用例把宿主声明误当成被测事实。测试必须自带干净环境。
+      env: { ...process.env, ZCODE_PROJECT_DIR: "", CLAUDE_PROJECT_DIR: "", FG_SHELL: "", ...env },
     });
     return { rc: p.status, out: ((p.stdout || "") + (p.stderr || "")).trim() };
   };
