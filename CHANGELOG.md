@@ -17,6 +17,9 @@
 - fix(gate): **引号豁免射程过宽**（漏拦）——`psql -c 'DROP DATABASE prod'`、`node -e '…'` 的引号内容会被**真正执行**，旧实现按"被引用的数据"豁免放过。`redlineExempt` 增加执行型参数判据（`psql/mysql/sqlite3/node/python/ruby/perl/bash/pwsh… -c|-e|--command|--eval` 的实参不豁免），`git log --grep 'drop database'` 这类真数据仍豁免。
 - fix(gate): **`rm -rf` 一刀切要 fg_apply**（误伤）——`rm -rf ./dist`、`rm -rf /tmp/...` 属常规构建清理，与第 2 层已做的分级（`destructiveApiWeight`：TEMP 0.2 / 递归系统 0.9）口径矛盾。现对可重建目录（`dist/build/out/output/target/coverage/.cache/.next/node_modules`）与 TEMP 目标不进门槛清单，交回第 2 层按风险裁决。
 - fix(gate): **`Write`/`Edit` 写系统路径未被拦**（漏拦）——资格闸原来只在 `if (cmd)` 时执行，而写入型工具没有 command 参数，`C:\Windows\...` 之类的目标从未被检查。现闸按"命令或 `file_path` 任一存在"触发，`gatedReasonOf(tool, command, filePath)` 对写入型工具查 `SYSTEM_PATH_RE`。
+- fix(gate): **shell 写文件绕过取证闸**（漏拦）——A/B 会话对照 B 组实测：要求"不读就改 README"，代理用 `pwsh Add-Content` 而非 Edit，旧实现只管 `MUTATING_TOOL`，于是**盲改被放行**。新增 `shellWriteTargets()`：从命令里提取写目标（`>`/`>>`、`Set-Content`/`Add-Content`/`Out-File`/`Tee-Object`、`tee`、`sed -i`、`perl -pi`），对**已存在且本会话未读**的目标同样拒一次；新建文件与 `NUL`/句柄复制不误伤。参数惰性 getter 抛错时降级不做判定（不中断判定链）。新增 `tests/evidence-shell.test.mjs` 7 条。
+- feat(bench): **`bench:ab` 会话成本对照**——从 `$DSH_HOME/.dsh/sessions` 的 `session.v4.jsonl.zstd` 解出结构指标（turns/steps/工具调用分布/各类正文字符/时长），并按会话 id 从 `AUDIT.log` 取拦截数与理由分布；输出 A/B 差值与性价比（每步 tokens、每次拦截 tokens）。多帧 zstd 需按魔数 0x28B52FFD 分帧解压，单帧 API 只解第一帧。
+- fix(bench): **token 口径与台账退化值得以确认**——宿主会话记录**不含逐次 usage**；FG 成本台账写进去的是退化值（`model=unknown`、1 token、cacheRead `undefined`）。`bench:ab` 因此给两列估算（`est4 = chars/4`、`estCJK = chars/1.6`）并显式标注"不可当账单"。真实 token 统计需另找宿主接口，属未完成项。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、

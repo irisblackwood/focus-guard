@@ -21,7 +21,8 @@
     "bench:decision": "node packages/core/tests/decision-bench.mjs",
     "bench:cost": "node packages/core/tools/bench-cost.mjs",
     "bench:tasks": "node packages/core/tests/task-bench.mjs",
-    "bench:control": "node packages/core/tests/task-control.mjs"
+    "bench:control": "node packages/core/tests/task-control.mjs",
+    "bench:ab": "node packages/core/tools/bench-ab.mjs"
   },
   "license": "MIT",
   "engines": {

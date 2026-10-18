@@ -28,7 +28,8 @@
     "bench:decision": "node tests/decision-bench.mjs",
     "bench:cost": "node tools/bench-cost.mjs",
     "bench:tasks": "node tests/task-bench.mjs",
-    "bench:control": "node tests/task-control.mjs"
+    "bench:control": "node tests/task-control.mjs",
+    "bench:ab": "node tools/bench-ab.mjs"
   },
   "dsh": {
     "bundle": {

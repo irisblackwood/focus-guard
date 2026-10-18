@@ -266,6 +266,49 @@ export const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
 
 const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|NotebookEdit)$/i
 const READ_TOOL = /^(?:Read|Grep|Glob|read_image|NotebookRead)$/i
+const SHELL_TOOL = /^(?:Bash|Shell|sh|pwsh|powershell|cmd|Terminal|RunCommand)$/i
+
+/**
+ * 从 shell 命令里提取"会被写的已存在文件"的目标路径（2026-10-18 补口）。
+ *
+ * 起因：A/B 会话对照实测——B 组第 2 条要求"不读就改 README.md"，代理用 `pwsh Add-Content`
+ * 而不是 Edit 工具，取证闸只管 MUTATING_TOOL，于是**盲改被放行**。shell 重定向是等效写操作，
+ * 必须纳入同一判据，否则取证闸一行 `echo >>` 就能绕过。
+ *
+ * 只认显式写目标，宁可漏也不扩大误伤面：
+ *   PowerShell：`>` / `>>` / `Set-Content [-Path] X` / `Add-Content [-Path] X` / `Out-File X` / `Tee-Object X`
+ *   POSIX：`>` / `>>` / `tee X` / `sed -i … X` / `perl -pi … X`
+ * 返回绝对/相对路径数组（去重、去掉引号与变量占位）。
+ */
+function shellWriteTargets(cmd) {
+  const c = String(cmd || '')
+  if (!c) return []
+  const out = new Set()
+  const push = (raw) => {
+    if (!raw) return
+    const p = String(raw).trim().replace(/^["']|["']$/g, '')
+    if (!p || p.startsWith('$') || p.startsWith('%') || p === '/' || /^[A-Za-z]:$/.test(p)) return
+    if (/^(\/dev\/null|NUL)$/i.test(p)) return
+    out.add(p)
+  }
+  // 重定向：> file / >> file（排除 2>&1 这类句柄复制）
+  for (const m of c.matchAll(/(?<![0-9])\>{1,2}\s*("([^"]+)"|'([^']+)'|([^\s;&|）]+))/g)) {
+    push(m[2] || m[3] || m[4])
+  }
+  // PowerShell cmdlet
+  for (const m of c.matchAll(/\b(?:Set-Content|Add-Content|Out-File|Tee-Object)\b[^;|&]*?(?:-\w+\s+)*("([^"]+)"|'([^']+)'|([A-Za-z]:[\\/][^\s;"']+|[^\s;&|]+))/gi)) {
+    const candidate = m[2] || m[3] || m[4]
+    // 跳过 -Path 之类参数名本身
+    if (candidate && !candidate.startsWith('-')) push(candidate)
+  }
+  // tee / sed -i / perl -pi
+  for (const m of c.matchAll(/\btee\b(?:\s+-\w+)*\s+("([^"]+)"|'([^']+)'|([^\s;&|]+))/gi)) push(m[2] || m[3] || m[4])
+  for (const m of c.matchAll(/\b(?:sed|perl)\b[^\n;|&]*?\s(?:-i\S*|-pi\S*)\b[^\n;|&]*?\s("([^"]+)"|'([^']+)'|([^\s;&|]+))\s*$/gim)) {
+    push(m[2] || m[3] || m[4])
+  }
+  return [...out]
+}
+
 const pathOfTool = (args) => {
   const a = args || {}
   return a.file_path || a.path || a.target || a.targetPath || a.dest || null
@@ -386,7 +429,19 @@ function readGuardStateExact(exec, override) {
 
 function layer3Check(exec, warn, statePathOverride) {
   const tool = String((exec && exec.name) || '')
-  if (!MUTATING_TOOL.test(tool)) return null
+  const isMutating = MUTATING_TOOL.test(tool)
+  // 2026-10-18 补口：shell 重定向/写 cmdlet 与 Edit 是等效写操作，取证闸不能只认工具名。
+  // 实测绕过路径：`pwsh Add-Content -Path README.md`（A/B 会话对照 B 组第 2 条）。
+  // 参数读取必须防炸：DSH 允许 arguments 为惰性 getter，解析失败应降级而非中断整条判定链。
+  let shellTargets = []
+  if (SHELL_TOOL.test(tool)) {
+    try {
+      shellTargets = shellWriteTargets(commandOf(exec))
+    } catch {
+      shellTargets = [] // 取不到命令就不做取证判定，与其余分支的 fail-open 口径一致
+    }
+  }
+  if (!isMutating && shellTargets.length === 0) return null
 
   const gs = readGuardStateExact(exec, statePathOverride)
   if (gs === null) {
@@ -403,8 +458,9 @@ function layer3Check(exec, warn, statePathOverride) {
   }
 
   if (EVIDENCE_GATE.effective) {
-    const fp = pathOfTool(exec && exec.arguments)
-    if (fp) {
+    const toolPath = pathOfTool(exec && exec.arguments)
+    const targets = isMutating ? (toolPath ? [toolPath] : []) : shellTargets
+    for (const fp of targets) {
       const key = String(fp)
       const sid = sessionIdOf(exec)
       const known =
