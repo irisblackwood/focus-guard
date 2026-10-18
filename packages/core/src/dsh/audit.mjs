@@ -80,6 +80,11 @@ export function rotateAuditIfNeeded(file = auditFilePath(), max = AUDIT_MAX_BYTE
 export function appendAudit(row, file = auditFilePath()) {
   try {
     rotateAuditIfNeeded(file)
+    // 2026-10-18：先确保目录存在再追加。原先若 `.focus-guard/` 尚未创建，
+    // 首写会 ENOENT 被 catch 吞成一条 warn —— 而 FG 现在**第一条**写入是启动自证
+    // `compaction-watch-ready`（进程一启动就写，早于任何会话活动）。它要是丢了，
+    // "自证清白"就成了自证不了。mkdir 失败仍在同一 try 内，降级口径不变。
+    mkdirSync(dirname(file), { recursive: true })
     appendFileSync(file, JSON.stringify(row) + '\n')
     return true
   } catch (error) {
@@ -103,14 +108,22 @@ function sessionOf(exec) {
   )
 }
 
-/** 拦截写入一条审计记录（JSONL 追加，字段与 hooks/guard.mjs 口径一致） */
-export function auditDeny(exec, cmd) {
+/**
+ * 拦截写入一条审计记录（JSONL 追加，字段与 hooks/guard.mjs 口径一致）。
+ * 2026-10-18 修（REPORT-2026-10-12 P2）：trigger/level 原为常量 'high-risk-rm'/3，
+ * 与真实拦截规则无关 —— `ls -la` 也被记成 "high-risk-rm"，审计无法回答"为什么被拦"。
+ * 现由调用点传 detail.trigger（规则名），缺省才退回 'unspecified'。
+ * @param {unknown} exec
+ * @param {unknown} cmd
+ * @param {{ trigger?: string, level?: number|null }} [detail]
+ */
+export function auditDeny(exec, cmd, detail = {}) {
   return appendAudit({
     ts: new Date().toISOString(),
     session: sessionOf(exec),
     action: 'deny',
-    trigger: 'high-risk-rm',
-    level: 3,
+    trigger: detail.trigger || 'unspecified',
+    level: detail.level ?? 3,
     evidence: String(cmd).slice(0, 120),
     pardon: false,
   })

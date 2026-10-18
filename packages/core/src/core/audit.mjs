@@ -12,6 +12,15 @@ import { execFileSync } from "node:child_process";
 export let auditFile = null;
 export function auditTarget(sid) {
   if (auditFile !== null) return auditFile;
+  // 2026-10-18 修（REPORT-2026-10-12 P1「审计单一入口未收敛」）：
+  // 显式 FG_AUDIT_FILE 优先级最高。此前这里只认 ZCODE/CLAUDE 项目目录，于是
+  // 测试把 FG_AUDIT_FILE 指向 tmpdir 时，走核心 audit() 的那条路（risk.mjs penalize()）
+  // 仍然写真实 AUDIT.log —— 隔离形同虚设，CHANGELOG 的"零增长"实测不成立。
+  const explicit = process.env.FG_AUDIT_FILE;
+  if (explicit) {
+    auditFile = explicit;
+    return auditFile;
+  }
   const dir = process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || "";
   if (dir) {
     try {
