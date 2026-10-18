@@ -189,7 +189,9 @@ console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）
   // "未命中绝对红线、但被资格闸拦"，否则等于在测"资格闸不存在"。
   // 2026-10-18 射程扩大：`/usr` 已并入绝对红线（见 A4「射程内：rm --recursive --force /usr」），
   // 故本用例的"非根路径"样本从 `"/usr"` 换成 `"./build"` —— 仍带引号、仍非根，A1 的原意图不变。
-  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "./build"' } })
+  // 2026-10-18 任务测试 T35 后：`build` 已被归入"可重建目录"，不再进资格闸门槛（交第 2 层分级），
+  // 样本再换成 `./app-src` —— 仍是"带引号的非根路径"，仍应被资格闸拦。
+  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "./app-src"' } })
   check(
     '带引号的非根路径不命中红线（改由资格闸拦）',
     gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
@@ -208,10 +210,19 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
   )
 }
 {
-  const gate = await run({ name: 'bash', arguments: { command: 'cd /tmp && rm -fr build/' } })
+  const gate = await run({ name: 'bash', arguments: { command: 'cd /tmp && rm -fr app-src/' } })
   check(
-    'rm -fr build/ 不在红线（改由资格闸拦）',
+    'rm -fr app-src/ 不在红线（改由资格闸拦）',
     gate.kind === 'deny' && !/绝对红线/.test(String(gate.reason || '')),
+  )
+}
+{
+  // 2026-10-18 新增（任务测试 T35/T36 确立的分级口径）：可重建目录/TEMP 不再要事前申请。
+  const disposable = await run({ name: 'bash', arguments: { command: 'rm -rf ./dist' } })
+  check(
+    'rm -rf ./dist 属可重建目录 → 放行（交第 2 层分级，不再一刀切要 fg_apply）',
+    disposable.kind === 'allow',
+    JSON.stringify(disposable),
   )
 }
 {
