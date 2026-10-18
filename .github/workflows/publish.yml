@@ -1,0 +1,52 @@
+name: publish
+
+# Trusted Publishing（OIDC）：不存任何 npm token，由 GitHub 和 npm 之间用短期 OIDC 断言授权。
+# 触发：手动 run，或发布 Release。
+#
+# ⚠ 前置条件（一次性，必须在 npm 网页上做）：
+#   1. 包必须**已经存在于 registry**（首次发布只能用 token 发一次，OIDC 不能创建新包）。
+#   2. npmjs.com → Packages → focus-guard → Settings → Trusted publishing → Add GitHub Actions
+#        Organization/User: irisblackwood
+#        Repository:        focus-guard
+#        Workflow filename: publish.yml
+#        Environment:       （留空）
+#   3. 之后每次发版：改 packages/core/package.json 的 version → 推 tag → 跑本 workflow。
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # OIDC 必需：换取 npm 的短期发布凭据
+
+jobs:
+  publish:
+    name: npm publish (OIDC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing 需要 npm >= 11.5.1；Node 24 自带的 npm 可能刚好不够。
+      - name: Upgrade npm
+        run: npm install -g npm@latest && npm --version
+
+      # 发布前先跑闸：CI 红就不发。
+      - name: Test suite
+        run: npm test
+        working-directory: packages/core
+
+      - name: Publish
+        working-directory: packages/core
+        run: npm publish --access public --provenance
+
+      - name: Verify
+        run: |
+          sleep 5
+          npm view focus-guard version dist.tarball
