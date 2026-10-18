@@ -21,6 +21,7 @@
 - feat(bench): **`bench:ab` 会话成本对照**——从 `$DSH_HOME/.dsh/sessions` 的 `session.v4.jsonl.zstd` 解出结构指标（turns/steps/工具调用分布/各类正文字符/时长），并按会话 id 从 `AUDIT.log` 取拦截数与理由分布；输出 A/B 差值与性价比（每步 tokens、每次拦截 tokens）。多帧 zstd 需按魔数 0x28B52FFD 分帧解压，单帧 API 只解第一帧。
 - fix(bench): **token 口径与台账退化值得以确认**——宿主会话记录**不含逐次 usage**；FG 成本台账写进去的是退化值（`model=unknown`、1 token、cacheRead `undefined`）。`bench:ab` 因此给两列估算（`est4 = chars/4`、`estCJK = chars/1.6`）并显式标注"不可当账单"。真实 token 统计需另找宿主接口，属未完成项。
 - fix(audit): **成本台账停止写假账**——`appendCostRow` 增加退化值守卫（`usageLooksReal`：模型名不得为 `unknown`，且输入+输出 > 2），不可信时整条不写、每进程 warn 一次，指向"真实用量以宿主面板为准"。同时**清空卷宗【五】历史 42 行**（全为 1 token/未知价目的退化值），保留标题与表头并追加清空说明；清理前已双备份到 `%TEMP%\CASE_FILE.bak-*.md` 与 `.ai/archive/`。
+- fix(gate): **`ttl` 真正生效（授权回收）**——`grants.mjs` 此前自述"ttl 只记录、不生效"，等于 `fg_apply` 申请一次就**进程内永久放行**，`ttl: turn` 是空话。现三档按事件回收：`turn` 在 `agent/turn-stopping` 回收（`sweepGrants(sid,'turn')`，放在监听器最前，避免 KPI 无增量的提前 return 跳过回收）、`task` 回收 turn+task、`persist` 只受会话寿命约束；另设硬上限 `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）防僵尸授权。回收留痕 `grants-swept`（trigger `ttl:turn`）。新增 `tests/grants-ttl.test.mjs` 5 条（含端到端：授权期内放行 → turn-stopping 后必须 deny）。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、

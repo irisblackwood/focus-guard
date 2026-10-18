@@ -83,9 +83,32 @@ export function grantsFor(session) {
   return table
 }
 
-/** 回收整张表（回合/任务结束；第五步由 ttl 计时自动调用）。 */
+/** 回收整张表（会话结束；ttl 未到期也不会留到下一个会话）。 */
 export function resetGrants(session) {
   return TABLES.delete(String(session || 'dsh-native'))
+}
+
+/**
+ * 按 ttl 档回收授权（2026-10-18 补口：此前 ttl 只记录、从不回收，等于申请一次永久放行）。
+ * 由宿主缝在事件边界调用：回合结束 → 'turn'；任务结束 → 'task'。
+ * @param {string} session
+ * @param {"turn"|"task"} kind
+ * @returns {string[]} 被回收的工具名
+ */
+export function sweepGrants(session, kind) {
+  const table = TABLES.get(String(session || 'dsh-native'))
+  if (!table) return []
+  const removed = table.sweep(kind)
+  if (removed.length > 0) {
+    auditEligibility({
+      ts: new Date().toISOString(),
+      session: String(session || 'dsh-native'),
+      action: 'grants-swept',
+      trigger: `ttl:${kind}`,
+      evidence: removed.join(','),
+    })
+  }
+  return removed
 }
 
 /**

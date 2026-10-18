@@ -411,6 +411,14 @@ export function turnStoppingListener({ warn } = {}) {
   return async ({ agent } = {}) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
+      // 2026-10-18 补口：ttl 回收（此前 ttl 只记录、从不回收，fg_apply 申请一次便永久放行）。
+      // 必须放在最前——下面 kpi 无增量时会提前 return，回收不能因此被跳过。
+      try {
+        const { sweepGrants } = await import('../adapters/dsh/eligibility-gate.mjs')
+        sweepGrants(sid, 'turn')
+      } catch (error) {
+        if (typeof warn === 'function') warn('授权 ttl 回收异常（不阻塞）:', (error && error.message) || error)
+      }
       // 2026-10-18 修（REPORT-2026-10-12「KPI 重复结算」）：state.kpi 是**会话累计值**，
       // 而本缝每回合都跑一次。原实现把累计值当成"本任务 KPI"：
       //   ① `kpiCarry += kpiNow` 每回合重复累加 → ΣΣ（实测 -10 被记成 -80）；
