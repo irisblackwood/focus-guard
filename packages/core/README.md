@@ -1,86 +1,84 @@
-# FocusGuard 聚焦护栏
+# FocusGuard
 
-给 AI 编码智能体装上履职纪律：**未取证就改、结论无锚点、整读大文件烧上下文、查无实据硬凑**这四类失控，被变成可机械拦截的行为事件——命中即按 L1 打回 → L2 强制取证 → L3 熔断 → L4 记档 → L5 降权 → L6 上报逐级处置。
+[Chinese](README.zh-CN.md) · English
 
-- **零依赖**：核心包不依赖任何运行时库（`dependencies` 为空）
-- **双端硬拦截**：DSH 原生插件（宿主缝）与 ZCode 钩子两套执行面
-- **全程留痕**：拦截写入 `.focus-guard/AUDIT.log`（JSONL，带体积轮转与归档）
-- **法条可审计**：条文正本 `docs/RULES.md` 明确标注哪些条款已机械化、哪些尚未落地
+Guardrails for AI coding agents, enforced at the hook layer. Four behaviours that make agents dangerous stop being prompt advice and become mechanically blocked events: **editing without reading first**, **conclusions without `[file:line]` evidence**, **whole-file reads that burn context**, and **asserting findings that were never verified**. A hit escalates through L1 push-back → L2 forced evidence → L3 fuse → L4 record → L5 downgrade → L6 report.
 
-## 安装
+- **Zero dependencies** — the core package ships no runtime libraries (`dependencies` is empty)
+- **Two enforcement surfaces** — a native DSH plugin (host hooks) plus the ZCode hook shell
+- **Full audit trail** — every block is appended to `.focus-guard/AUDIT.log` (JSONL, rotated and archived)
+- **Auditable rules** — `docs/RULES.md` marks which clauses are machine-enforced and which are not yet implemented
 
-### DSH（原生插件，推荐）
+## Install
 
-```bash
-dsh plugin --profile <你的 profile> add focus-guard
-```
-
-装完 **重启会话** 生效。bundle 补丁由本包的 `package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`。
-
-⚠ 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路同时挂载会双跑（同一条缝双监听），**二选一**。
-
-### 从 Git 直接安装
+### DSH (native plugin, recommended)
 
 ```bash
-dsh plugin --profile <你的 profile> add github:irisblackwood/focus-guard
+dsh plugin --profile <your-profile> add github:irisblackwood/focus-guard#path:/packages/core
 ```
+
+Restart the session to activate. The bundle patch is declared by this package's `package.json` (`dsh.bundle.patch` → `src/dsh/cordis.patch.yml`).
+
+> **Not on npm yet.** `npm install focus-guard` returns 404 — the package has never been published. Use the GitHub install above; it is the only supported route today.
+
+⚠ Mutually exclusive with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Mounting both double-runs the same hooks — pick one.
 
 ### ZCode
 
-`.zcode-plugin/plugin.json` 已就绪，按 ZCode 的插件安装流程导入本仓库即可。
+`.zcode-plugin/plugin.json` is ready; import this repository through ZCode's plugin flow.
 
-## 它拦什么
+## What it blocks
 
-| 场景 | 机制 |
+| Situation | Mechanism |
 |---|---|
-| 未调查取证就改文件 / 执行变更命令 | 第 4 层前置条件：目标须本会话已读，否则拒一次（新建文件除外） |
-| 高危命令（递归强删 / 格式化 / 强推 / 发布 / 全局安装 / 系统路径写入） | 第 3 层资格审核：**先申请后执行**，无授权即拒；`fg_apply` 是申请通道 |
-| 绝对红线（`rm -rf /`、`DROP DATABASE`、`git push -f`） | 第 1 层零延迟短路拒绝，**不弹审批** |
-| 被**引用的**危险命令字符串（测试数据、文档引用、评测集） | 上下文豁免三判据（引号内 / 数据标记 / 只读命令）→ 降级到语义预判，不再直接拒 |
-| 拦错了没有程序可走 | `fg_appeal` 误伤申辩：附反例锚点提交，人类一次性裁决，全程留痕 |
-| 大小模型一刀切 | 模型画像（`src/profiles/`）：按模型调整审核强度 |
-| 本机该用 `rg`/`fd` 却写了 `grep`/`find` | 环境指纹 + 命令硬校验，给一行替代提示 |
+| Editing files or running mutating commands without investigating first | Layer 4 precondition: the target must have been read in this session, otherwise one refusal (new files exempt) |
+| High-risk commands (recursive delete, format, force-push, publish, global install, system-path writes) | Layer 3 eligibility: **apply before execute**, denied without a grant; `fg_apply` is the request channel |
+| Absolute red lines (`rm -rf /`, `DROP DATABASE`, `git push -f`) | Layer 1 zero-latency short-circuit denial, **no approval prompt** |
+| Dangerous command strings that are merely **quoted** (test data, docs, eval fixtures) | Context exemption on three criteria (quoted / data marker / read-only command) → downgraded to semantic judgement instead of a hard denial |
+| Wrongly blocked, no appeal path | `fg_appeal`: submit counter-evidence anchors, one human ruling, fully recorded |
+| One-size-fits-all across models | Model profiles (`src/profiles/`): review intensity follows the model |
+| Writing `grep`/`find` when the machine wants `rg`/`fd` | Environment fingerprint + hard command check, one-line substitution hint |
 
-## 六层资格审核
+## Six-layer eligibility
 
-| 层 | 判什么 |
+| Layer | Question |
 |---|---|
-| L0 | 申请完整性——`purpose` / `scope` 空白即拒 |
-| L1 | 状态——熔断 / 降权 / 预算耗尽 |
-| L2 | 绝对红线（命中即拒，不进 L3） |
-| L3 | 高危资格——命中高危特征且本会话无授权 → 转人工审批 |
-| L4 | 前置条件——改动类目标须已取证；系统路径与 `.git`/`node_modules` 加严 |
-| L5 | 语义信号——模型探针的 `mismatch` / 高风险分 |
-| L6 | 授权并留痕 |
+| L0 | Request completeness — empty `purpose` / `scope` is denied |
+| L1 | State — fuse / downgrade / budget exhausted |
+| L2 | Absolute red lines (denied here, never reaches L3) |
+| L3 | High-risk eligibility — matches a high-risk signature with no grant in this session → human approval |
+| L4 | Preconditions — mutating targets must be evidenced; system paths and `.git`/`node_modules` are stricter |
+| L5 | Semantic signals — the model probe's `mismatch` / high-risk score |
+| L6 | Grant and record |
 
-## 三条命令
+## Three commands
 
 ```bash
-npm test              # 验收（含版本一致性、文档-实现对齐）
-npm run test:eligibility   # 资格审核 + 红线豁免 + 申辩
-npm run eval          # 威胁评测（高危检出率 + 良性误报率）
+npm test                    # acceptance (version consistency, docs-vs-implementation alignment)
+npm run test:eligibility    # eligibility + red-line exemption + appeal
+npm run eval                # threat evaluation (high-risk detection rate + benign false-positive rate)
 ```
 
-## 架构
+## Architecture
 
 ```
-src/core/        母版层：零依赖、宿主无关的判定逻辑（六层审核 / 画像 / 红线与豁免 / 申辩）
-src/adapters/dsh/  适配层：把母版接进 DSH（fg_apply / fg_appeal 工具注册 + 资格闸）
-src/dsh/pipeline.mjs  宿主缝：pre-execute / system-prompt / post-execute
-hooks/guard.mjs   ZCode 执行壳（已封存：版本号独立，不随主版本更新）
+src/core/           master layer: zero-dependency, host-agnostic judging logic
+src/adapters/dsh/   adapter layer: wires the master into DSH (fg_apply / fg_appeal + eligibility gate)
+src/dsh/pipeline.mjs host hooks: pre-execute / system-prompt / post-execute
+hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not follow the main release)
 ```
 
-**分层铁律**：母版层**不得**反向依赖适配层（有验收用例锁定）。
+**Layering rule**: the master layer must not depend back on the adapter layer (locked by an acceptance test).
 
-## 版本
+## Version
 
-当前 `3.0.6`。版本面共 8 处由验收断言锁定"彼此相等且等于 CHANGELOG 最新条目"。
+Currently `3.0.6`. Eight version surfaces are asserted equal to each other and to the latest `CHANGELOG.md` entry.
 
-## 文档
+## Docs
 
-- 能力与排错：仓库 `README.md`、`INSTALL.md`
-- 条文正本：`docs/RULES.md`
-- 变更记录：仓库 `CHANGELOG.md`
+- Capabilities and troubleshooting: repository `README.md`, `INSTALL.md`
+- Rule text: `docs/RULES.md`
+- Changelog: repository `CHANGELOG.md`
 
 ## License
 

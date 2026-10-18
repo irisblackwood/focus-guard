@@ -1,11 +1,15 @@
 # FocusGuard 聚焦护栏
 
+[English](packages/core/README.md) · 中文
+
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
 [![version](https://img.shields.io/badge/version-3.0.6-369eff)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-ffcb47)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-**ZCode 原生硬拦截** + **DSH 经官方桥硬拦截** · 零依赖 · 钩子层 AI 行为治理
+**DSH 原生插件（3.0.5+）** + **ZCode 钩子** · 零依赖 · 钩子层 AI 行为治理
+
+> **Hook-level guardrails for DSH**: blocks unverified edits, high-risk commands, and context-burning reads — with an auditable trail for every block.
 
 > **FocusGuard 不是另一把 Hook 枪，它是 AI 行为治理的完整体系**：立法（法条定标准）→ 执法（引擎机械执行）→ 监察（全程留痕可复核）。日常对话零打扰，一旦出现未取证就改、结论无锚点、整读大文件烧上下文、无限空转等失控行为，立刻按梯度处罚——打回、强制取证、熔断、记档、降权、上报，人类随时可复核。
 
@@ -59,20 +63,25 @@ AI 智能体最常见的三种失控：
 **核心版与扩展版的关系**：`focus-guard`（`packages/core/`）是零依赖范本包——引擎钩子、技能、核心工具、法条文档，所有人从这里开始；`focus-guard-extended`（`packages/extended/`）是扩展衍生包，依赖核心包，承载重型外接集成（OpenViking 同步桥 / Needle 2 本地模型外判 / Semantica 图谱导出）。核心版是范本，可衍生无数扩展变体；下载核心版时**不需要也不会拉取**任何扩展依赖。
 
 ```bash
-npm install focus-guard           # 核心版：零依赖，装完即用
-npm install focus-guard-extended  # 扩展版：按需启用外接集成（自动带上核心版）
+# ⚠ 「尚未发布」：npm registry 上这两个包目前是 404，装不上。等发布后删掉本注释。
+# npm install focus-guard           # 核心版：零依赖（未发布）
+# npm install focus-guard-extended  # 扩展版：按需启用外接集成（未发布）
 ```
 
-**ZCode 插件（推荐）**：克隆本仓库 → 插件市场 → 添加市场（选择含 `marketplace.json` 的**仓库根目录**）→ 插件列表安装 → 新开会话。
+### 装到 DSH（首选）
 
-**DSH** 有两条路，**二选一、互斥**（同缝双监听 = 双跑）：
+有两条路，**二选一、互斥**（同缝双监听 = 双跑）：
 
 | 路径 | 装什么 | 拿到什么 |
 |---|---|---|
-| **原生插件**（3.0.5 起，推荐） | `dsh plugin --profile <name> add <本仓库 packages/core 目录>` | 三条宿主缝全开：资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线上下文豁免 |
+| **原生插件**（3.0.5 起，推荐） | `dsh plugin --profile <name> add github:irisblackwood/focus-guard#path:/packages/core` | 三条宿主缝全开：资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线上下文豁免 |
 | **官方桥** | `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json` | 与 ZCode 同级的六事件硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回），但**不含**原生插件独有的资格审核与申辩 |
 
 ⚠ 两条路**同时挂载会双跑**；**都不装则 DSH 端没有拦截**。挂桥/装插件的逐行步骤与卸载见 [INSTALL.md](INSTALL.md) 第二、四节。
+
+### 装到 ZCode（并存，非首选）
+
+克隆本仓库 → 插件市场 → 添加市场（选择含 `marketplace.json` 的**仓库根目录**）→ 插件列表安装 → 新开会话。ZCode 执行壳已封存（`packages/core/hooks/guard.mjs`，版本号独立），只做兼容，不随主版本演进。
 
 **验证生效**：新会话开头出现 `<focus-guard AI履职执法模型v3.0 …>` 注入，且工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log`。
 
