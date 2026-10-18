@@ -97,16 +97,29 @@ describe("3.0.8 · 体积刺客三闸（移植批 2）", () => {
   test("cat 命令被拦（DSH 侧由 hardCheck 环境替代先拦；体积闸的 cat 段是冗余兜底）", async () => {
     const sid = `gates-cat-${process.pid}`;
     withState(sid);
+    // 2026-10-18：不再依赖工作区的真实 `.ai/env-fingerprint.json`（该目录被 .gitignore，
+    // CI 检出里没有 → hardCheck 读不到指纹就 fail-open，本用例在 CI 上必红）。
+    // 自建指纹夹具，并通过 exec.agent.session.header.cwd 指定会话 cwd（hardCheck 收 cwd）。
+    const fpDir = join(ROOT, `fp-${Date.now()}`);
+    mkdirSync(join(fpDir, ".ai"), { recursive: true });
+    writeFileSync(join(fpDir, ".ai", "env-fingerprint.json"), JSON.stringify({ map: { cat: "bat", grep: "rg" } }));
+    const execWith = (command) => ({
+      sessionId: sid,
+      name: "bash",
+      arguments: { command },
+      agent: { session: { header: { cwd: fpDir } } },
+    });
     const listener = preExecuteListener({ warn: noop });
-    const bare = await listener({ sessionId: sid, name: "bash", arguments: { command: "cat big.log" } }, allow);
+    const bare = await listener(execWith("cat big.log"), allow);
     assert.equal(bare.kind, "deny", "cat 应被拦（第 1.5 层环境替代 cat→bat）");
 
     // 说明：DSH 的第 1.5 层硬校验（环境指纹 cat→bat）先于体积闸触发，
     // 因此体积闸的"裸 cat"段在本环境**不可达**、保留仅作兜底；带管道的写法同样被 hardCheck 拦。
-    const piped = await listener({ sessionId: sid, name: "bash", arguments: { command: "cat big.log | head -100" } }, allow);
+    const piped = await listener(execWith("cat big.log | head -100"), allow);
     assert.equal(piped.kind, "deny", "含 cat 即被环境替代规则拦（与是否限量无关）");
     console.log("cat 拦于 hardCheck：", String(bare.reason).slice(0, 64));
     rmSync(statePath(sid), { force: true });
+    rmSync(fpDir, { recursive: true, force: true });
   });
 });
 
