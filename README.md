@@ -3,9 +3,8 @@
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.0.7-369eff)](CHANGELOG.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-ffcb47)](LICENSE)
-![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
+
+**v3.0.7** · MIT · Node ≥18.17
 
 **DSH 原生插件（3.0.5+）** + **ZCode 钩子** · 零依赖 · 钩子层 AI 行为治理
 
