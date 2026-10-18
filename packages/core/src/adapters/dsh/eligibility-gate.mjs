@@ -11,10 +11,63 @@
  */
 import { appendFileSync } from 'node:fs'
 import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
-import { redlineExempt } from '../../core/redlines.mjs'
+import { redlineExempt, isMutatingBashCmd } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
 import { AUDIT_FILE, appendAudit } from '../../core/audit-writer.mjs'
+
+/**
+ * FGA-PTC 策略开关（主图 L3「默认只读 / 隐藏高危」+「静默秒批」）。
+ *
+ * 默认**关闭**——它改变的是"默认放行还是默认拦截"这条主干语义，
+ * 不能被开关暗地里改掉。开启方式：
+ *   FG_PTC_READONLY=1      默认只读：写类工具与变更型 shell 一律先申请
+ *   FG_PTC_AUTO_GRANT=1    静默秒批：**可逆**类别（publish / global-install / chmod-wide）自动批准，
+ *                          不可逆类别（rm-rf / format-volume / drop-database / git-push-force /
+ *                          write-system-path）仍走人工
+ *
+ * 关于"隐藏高危工具"：工具 schema 由宿主注入，FG 改不了；能做的只有把高危工具变成
+ * "默认拒绝、按需解锁"（即本策略），以及在拒绝理由里明确指引 fg_apply。
+ */
+export const PTC = {
+  /** 默认只读：写类工具与变更型 shell 一律先申请。 */
+  get readOnlyDefault() {
+    return process.env.FG_PTC_READONLY === '1'
+  },
+  /** 静默秒批：可逆类别自动批准。 */
+  get autoGrant() {
+    return process.env.FG_PTC_AUTO_GRANT === '1'
+  },
+  /**
+   * 不可逆类别必须人工（2026-10-18 发现的口径漏洞）。
+   *
+   * 病根：`applyOneEligibility` 在审核期给该工具**临时授权**，让母版 L3 不要被"无授权"挡在自己入口上；
+   * 副作用是 L3 一律通过 —— 于是 `rm -rf ./src` 这类不可逆删除也是**自证自批**，
+   * 与主图"秒批只给可逆类别"的意图相反。
+   * 本开关（默认关，避免打断既有流程）打开后：不可逆类别申请不再自动放行，
+   * 返回 needApproval 并由调用方交人类；可逆类别行为不变。
+   */
+  get strictIrreversible() {
+    return process.env.FG_PTC_STRICT_IRREVERSIBLE === '1'
+  },
+}
+
+/** 写类工具（默认只读模式下必须申请）。 */
+const PTC_WRITE_TOOLS = /^(?:Write|Edit|MultiEdit|NotebookEdit|Delete|Move|Patch|ApplyPatch)$/i
+/** 命令执行类工具（要看命令是否变更型）。 */
+const PTC_SHELL_TOOLS = /^(?:Bash|Shell|sh|pwsh|powershell|cmd|Terminal|RunCommand)$/i
+
+/**
+ * 默认只读模式下的门槛判定：写类工具、以及变更型 shell 命令，未授权即拦。
+ * @returns {string|null} 门槛 id（ptc:write / ptc:shell），非门槛返回 null
+ */
+export function ptcReasonOf(tool, command = '') {
+  if (!PTC.readOnlyDefault) return null
+  const name = String(tool ?? '')
+  if (PTC_WRITE_TOOLS.test(name)) return 'ptc:write'
+  if (PTC_SHELL_TOOLS.test(name) && isMutatingBashCmd(String(command ?? ''))) return 'ptc:shell'
+  return null
+}
 
 /** 对系统路径的写入类工具：与命令型高危同属"必须先申请"的门槛清单（显式成文）。 */
 export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
@@ -220,6 +273,51 @@ async function applyOneEligibility({
     grants,
     audit: (row) => auditEligibility({ session, ...row }),
   })
+  // FGA-PTC 严格档：不可逆类别不得自证自批（默认关；见 PTC.strictIrreversible 注释）。
+  const selfGateId = gatedReasonOf(tool, command) || ptcReasonOf(tool, command)
+  if (PTC.strictIrreversible && selfGateId && IRREVERSIBLE_IDS.includes(selfGateId) && !preGranted) {
+    grants.revoke(tool)
+    auditEligibility({
+      session,
+      action: 'ptc-irreversible-blocked',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'needApproval',
+      evidence: selfGateId,
+    })
+    return {
+      decision: 'needApproval',
+      layer: 'gate',
+      reason: `不可逆类别（${selfGateId}）需人类明确批示：请先向人类说明不可回滚后果，得到许可后再申请；本次未授予任何授权。`,
+      modelSignal: null,
+      trace: [{ layer: 6, decision: 'needApproval', reason: `ptc-irreversible ${selfGateId}` }],
+    }
+  }
+  // FGA-PTC 静默秒批（主图 L3 FGA3）：**可逆类别**不必等人工，审核期内直接授予并留痕；
+  // 不可逆类别（IRREVERSIBLE_IDS）仍走原有 needApproval 路径，绝不静默批准。
+  if (PTC.autoGrant && result.decision === 'needApproval') {
+    const gateId = selfGateId
+    if (gateId && !IRREVERSIBLE_IDS.includes(gateId)) {
+      grants.grant(tool, { ttl, reason: `PTC 静默秒批（${gateId}）`, layer: '6' })
+      auditEligibility({
+        session,
+        action: 'ptc-auto-grant',
+        tool,
+        command: String(command ?? '').slice(0, 120),
+        layer: 'gate',
+        decision: 'allow',
+        evidence: gateId,
+      })
+      return {
+        decision: 'allow',
+        layer: '6',
+        reason: `PTC 静默秒批：${gateId} 属可逆类别，已自动授权（ttl=${ttl}）`,
+        modelSignal: null,
+        trace: [{ layer: 6, decision: 'allow', reason: `ptc-auto-grant ${gateId}` }],
+      }
+    }
+  }
   if (result.decision !== 'allow' && !preGranted) grants.revoke(tool)
   return result
 }
@@ -230,7 +328,8 @@ async function applyOneEligibility({
  *          {{kind:"deny", reason: string}} 属门槛且无授权 → 拦截
  */
 export function gateToolCall({ session, tool, command = '', filePath = '', state, profile = null } = {}) {
-  const reason = gatedReasonOf(tool, command, filePath)
+  // 默认只读（PTC）优先：写类工具 / 变更型 shell 在未授权时直接拦，与高危清单同一套授权表。
+  const reason = gatedReasonOf(tool, command, filePath) || ptcReasonOf(tool, command)
   if (!reason) return { kind: 'pass' }
   // 3.0.6（HANDOFF §十 缺陷 5）：与母版 L3 同源——审批层**不可被画像关闭**（只受 scope 约束），
   // 否则会出现"decide 放行而闸拦截"或"闸放行而母版拦截"的路径分叉。

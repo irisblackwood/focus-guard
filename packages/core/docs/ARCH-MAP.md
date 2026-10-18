@@ -45,10 +45,12 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L2** | 心跳自证 / 模块就位 | ✅ | 同上，模块自检 15 项 |
 | **L3** | 四大机械拦截点 | ✅ | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸 |
 | **L3** | XERJ 检索引擎（file:line / 降 token） | ✅ | 整文件闸直接指向 `xerj search` / `xerj def` |
-| **L3** | FGA · 默认只读 / 隐藏高危 | ⬜ | **工具暴露在宿主层，FG 改不了 schema**；要做得改宿主或加中间层 |
+| **L3** | FGA · 默认只读 | ✅ 开关 | `FG_PTC_READONLY=1`：写类工具与变更型 shell 未授权即拦（`ptcReasonOf`）|
+| **L3** | FGA · 隐藏高危工具 | ⬜ | schema 由宿主注入，FG 改不了；只能做"默认拒绝 + 按需解锁"（见上一条）|
 | **L3** | FGA · 按需申请 `fg_apply` | ✅ | `adapters/dsh/eligibility-gate.mjs`、工具注册 `src/dsh/tools.mjs` |
-| **L3** | FGA · 静默秒批 / 合并出示 | ✅ | 2026-10-18 补：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"` |
-| **L3** | FGA · TTL 临时权限令牌 | ✅ | 2026-10-18 补：`sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
+| **L3** | FGA · 静默秒批 / 合并出示 | ✅ | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
+| **L3** | FGA · 不可逆严格档 | ✅ 开关 | `FG_PTC_STRICT_IRREVERSIBLE=1`：不可逆类别不再自证自批，返回 needApproval |
+| **L3** | FGA · TTL 临时权限令牌 | ✅ | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
 | **L4** | DSH 原生压缩栈 | ✅ | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
 | **L4** | 卷宗哈希路由 + 新会话过滤注入 | ✅ | `workspace.mjs:125` 回合落账；hash 不符零注入 |
 | **L5** | 无 `[文件:行号]` 打回 | ✅ | `src/dsh/stopGuard.mjs` |

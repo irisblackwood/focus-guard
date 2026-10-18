@@ -22,6 +22,11 @@
 - fix(bench): **token 口径与台账退化值得以确认**——宿主会话记录**不含逐次 usage**；FG 成本台账写进去的是退化值（`model=unknown`、1 token、cacheRead `undefined`）。`bench:ab` 因此给两列估算（`est4 = chars/4`、`estCJK = chars/1.6`）并显式标注"不可当账单"。真实 token 统计需另找宿主接口，属未完成项。
 - fix(audit): **成本台账停止写假账**——`appendCostRow` 增加退化值守卫（`usageLooksReal`：模型名不得为 `unknown`，且输入+输出 > 2），不可信时整条不写、每进程 warn 一次，指向"真实用量以宿主面板为准"。同时**清空卷宗【五】历史 42 行**（全为 1 token/未知价目的退化值），保留标题与表头并追加清空说明；清理前已双备份到 `%TEMP%\CASE_FILE.bak-*.md` 与 `.ai/archive/`。
 - fix(gate): **`ttl` 真正生效（授权回收）**——`grants.mjs` 此前自述"ttl 只记录、不生效"，等于 `fg_apply` 申请一次就**进程内永久放行**，`ttl: turn` 是空话。现三档按事件回收：`turn` 在 `agent/turn-stopping` 回收（`sweepGrants(sid,'turn')`，放在监听器最前，避免 KPI 无增量的提前 return 跳过回收）、`task` 回收 turn+task、`persist` 只受会话寿命约束；另设硬上限 `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）防僵尸授权。回收留痕 `grants-swept`（trigger `ttl:turn`）。新增 `tests/grants-ttl.test.mjs` 5 条（含端到端：授权期内放行 → turn-stopping 后必须 deny）。
+- feat(gate): **FGA-PTC 补全（默认只读 / 静默秒批 / 不可逆严格档）**——主图 L3 的核心语义此前只有"按需申请"，缺两个端点，且藏着一个口径漏洞。
+  - `FG_PTC_READONLY=1`：默认只读。`ptcReasonOf()` 把**写类工具**（Write/Edit/MultiEdit/NotebookEdit/Delete/Move/Patch）与**变更型 shell**（`isMutatingBashCmd`）纳入门槛，未授权即拦；只读 shell 与 Read/Grep 不受影响。等价于"隐藏高危工具"的可执行替代（schema 在宿主层，FG 无法真正隐藏）。
+  - `FG_PTC_AUTO_GRANT=1`：静默秒批。可逆类别（publish / global-install / chmod-wide）自动批准并留痕 `ptc-auto-grant`；不可逆类别不批。
+  - `FG_PTC_STRICT_IRREVERSIBLE=1`：修口径漏洞——`applyOneEligibility` 审核期给的**临时授权**会让母版 L3 全部放行，导致 `rm -rf ./src` 这类不可逆删除**自证自批**。严格档下不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）申请返回 `needApproval` 且不授予任何授权，留痕 `ptc-irreversible-blocked`。
+  - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
