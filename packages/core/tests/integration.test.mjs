@@ -435,11 +435,19 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
 describe("f. 最后一公里 · 画像经 exec 在真实 pre-execute 生效", () => {
   const loadPipeline = () => import("../src/dsh/pipeline.mjs");
   const allowNext = () => ({ kind: "allow" });
+  // 2026-10-18：本组测的是"画像经 exec 生效"，不该被测环境里第 2 层哨兵的可用性绑架。
+  // CI（windows runner）上 python 哨兵会 ETIMEDOUT → judge_failed → ask，导致 f1/f3 必红
+  // （实测 run 39117676089）。用确定性 stub 顶掉语义层，把变量收敛到画像本身。
+  const benignRisk = async () => ({ risk: 0.1, category: "benign", reasons: [], backend: "stub" });
+  const stubListener = async () => {
+    const { preExecuteListener } = await loadPipeline();
+    return preExecuteListener({ warn: () => {}, riskOf: benignRisk });
+  };
 
   test("f1. exec.agent.model=gpt-astra → 闸按 scope 放行 publish（画像真生效）", async () => {
     const { preExecuteListener } = await loadPipeline();
     const s = freshSession("it-f1");
-    const listener = preExecuteListener({ warn: () => {} });
+    const listener = await stubListener();
     const exec = {
       name: "Bash",
       arguments: { command: PUBLISH },
@@ -455,7 +463,7 @@ describe("f. 最后一公里 · 画像经 exec 在真实 pre-execute 生效", ()
   test("f2. exec 无模型字段 → 最严 mutating，仍拦（安全默认）", async () => {
     const { preExecuteListener } = await loadPipeline();
     const s = freshSession("it-f2");
-    const listener = preExecuteListener({ warn: () => {} });
+    const listener = await stubListener();
     const exec = { name: "Bash", arguments: { command: PUBLISH }, sessionId: s };
     const out = await listener(exec, allowNext);
     console.log("[f2] 无模型:", JSON.stringify(out));
@@ -469,7 +477,7 @@ describe("f. 最后一公里 · 画像经 exec 在真实 pre-execute 生效", ()
     const s = freshSession("it-f3");
     process.env.FG_MODEL_ID = "gpt-astra";
     try {
-      const listener = preExecuteListener({ warn: () => {} });
+      const listener = await stubListener();
       const exec = { name: "Bash", arguments: { command: PUBLISH }, sessionId: s };
       const out = await listener(exec, allowNext);
       console.log("[f3] FG_MODEL_ID 兜底:", JSON.stringify(out));
