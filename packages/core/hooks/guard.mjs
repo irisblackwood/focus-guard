@@ -38,7 +38,7 @@ import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DA
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail } from "../src/core/audit.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize } from "../src/core/risk.mjs";
 import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
-import { readStdinJson, sessionId, projectDir } from "../src/adapters/dsh/protocol.mjs";
+import { readStdinJson, sessionId, projectDir } from "./protocol.mjs";
 import { quickShellId, detectEnv, platformBashViolation } from "../src/core/env.mjs";
 import { backupSeq, backupBeforeEdit } from "../src/core/backup.mjs";
 import { pushHighRiskPending, queueNote, consumeHighRisk, ladderNote } from "../src/core/approval.mjs";
