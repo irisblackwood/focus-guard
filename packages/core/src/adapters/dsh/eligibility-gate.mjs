@@ -119,6 +119,35 @@ export function auditEligibility(row) {
   return appendAudit({ ts: new Date().toISOString(), ...row })
 }
 
+// ── 原生侧批量审批（主图 L3 FGA「合并出示 / 静默秒批」）──
+// 母版 approval.mjs 的 highRiskQueue/queueNote 只服务 ZCode 路径；原生侧此前没有待批队列，
+// 于是每条高危都要"申请 + 重试"两次往返。这里补一个按会话的待批队列，配合 applyEligibility
+// 支持逗号分隔的批量工具名。
+const PENDING = new Map()
+const PENDING_MAX = 20
+
+/** 该会话的待批队列（副本）。 */
+export function pendingOf(session) {
+  return (PENDING.get(String(session || 'dsh-native')) || []).slice()
+}
+
+/** 记一条待批（同 tool+reason 去重，超上限丢最旧）。 */
+export function notePending(session, tool, reason, command = '') {
+  const key = String(session || 'dsh-native')
+  const list = PENDING.get(key) || []
+  if (!list.some((x) => x.tool === tool && x.reason === reason)) {
+    list.push({ tool, reason, at: Date.now(), brief: String(command || '').slice(0, 60) })
+    while (list.length > PENDING_MAX) list.shift()
+    PENDING.set(key, list)
+  }
+  return list.length
+}
+
+/** 清空该会话的待批队列（批量申请通过后调用）。 */
+export function clearPending(session) {
+  return PENDING.delete(String(session || 'dsh-native'))
+}
+
 /**
  * 入口一的核心：申请 → 审核 → 授权。
  *
@@ -128,7 +157,36 @@ export function auditEligibility(row) {
  *
  * @returns {Promise<{decision:"allow"|"deny"|"needApproval", layer:string, reason:string, modelSignal:object|null, trace:Array}>}
  */
-export async function applyEligibility({
+export async function applyEligibility(spec) {
+  // 批量申请（2026-10-18）：`tool` 支持 "Bash,Write" 这类逗号/空白分隔列表，
+  // 一次审核通过全部授权——与母版 approval.mjs 的"合并出示、回复 y 放行全部待批"同一意图。
+  const rawTool = String((spec && spec.tool) || '')
+  const list = rawTool
+    .split(/[,，;；\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (list.length > 1) {
+    const results = []
+    for (const one of list) results.push(await applyOneEligibility({ ...spec, tool: one }))
+    const blocked = results.find((r) => r.decision !== 'allow')
+    const decision = blocked ? blocked.decision : 'allow'
+    if (!blocked) clearPending(spec.session)
+    return {
+      decision,
+      layer: blocked ? blocked.layer : '6',
+      reason: blocked
+        ? `批量申请中 ${blocked.tool || ''} 未通过：${blocked.reason}`
+        : `批量授权通过：${list.join(', ')}`,
+      modelSignal: blocked ? blocked.modelSignal : null,
+      trace: blocked ? blocked.trace : [{ layer: 6, decision: 'allow', reason: '批量授权（合并出示）' }],
+      tools: list,
+    }
+  }
+  return applyOneEligibility({ ...spec, tool: list[0] ?? rawTool })
+}
+
+/** 单工具申请（applyEligibility 的内部实现；外部请走 applyEligibility）。 */
+async function applyOneEligibility({
   session,
   tool,
   command = '',
@@ -182,7 +240,16 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
   }
   const grants = grantsFor(session)
   if (grants.has(tool)) return { kind: 'pass', granted: true }
-  const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）`
+  // 2026-10-18 原生侧批量审批（主图 L3 FGA「静默秒批/合并出示」的原生实现）：
+  // 每次拦截都进待批队列，后续拦截的理由里带上"另有 N 条待批"，让模型可以一次 fg_apply 批量申请，
+  // 而不是每命中一条就往返两步（申请 + 重试）。
+  notePending(session, tool, reason, command)
+  const others = pendingOf(session).filter((x) => x.tool !== tool)
+  const batchHint =
+    others.length > 0
+      ? `；另有 ${others.length} 条待批已合并（可一次申请：tool="${[tool, ...others.map((x) => x.tool)].join(',')}"）`
+      : ''
+  const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）${batchHint}`
   auditEligibility({
     session,
     action: 'deny',
@@ -203,9 +270,13 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
 export const FG_APPLY_TOOL_SPEC = {
   name: 'fg_apply',
   description:
-    '向 FocusGuard 申请高危工具的临时执行资格。执行高危命令（rm -rf / 格式化 / git push -f / 发布 / 全局安装 / 系统路径写入）之前必须先申请；purpose 与 scope 必填。通过后本会话内按 ttl 放行，被拒则不得执行。',
+    '向 FocusGuard 申请高危工具的临时执行资格。执行高危命令（rm -rf / 格式化 / git push -f / 发布 / 全局安装 / 系统路径写入）之前必须先申请；purpose 与 scope 必填。通过后本会话内按 ttl 放行（turn/task/persist，到期回收），被拒则不得执行。支持批量：tool 可写 "Bash,Write" 一次覆盖多条待批（拦截理由里会给出可批量申请的工具名）。',
   parameters: {
-    tool: { type: 'string', required: true, description: '目标工具名，如 Bash / Write / Edit' },
+    tool: {
+      type: 'string',
+      required: true,
+      description: '目标工具名，如 Bash / Write / Edit；批量用逗号分隔，如 "Bash,Write"',
+    },
     command: { type: 'string', required: true, description: '命令或操作描述' },
     purpose: { type: 'string', required: true, description: '真实目的（必填，不得空白）' },
     scope: { type: 'string', required: true, description: '影响范围（必填，不得空白）' },

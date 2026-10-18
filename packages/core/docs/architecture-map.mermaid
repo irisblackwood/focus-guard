@@ -1,0 +1,186 @@
+%%{init: {"flowchart": {"defaultRenderer": "elk", "nodeSpacing": 25, "rankSpacing": 45}}}%%
+flowchart TB
+    %% ==========================================
+    %% 🟢 P0 级战果与基础设施 (已落地)
+    %% ==========================================
+    subgraph P0["🟢 已落地的底层基建 (Solid Foundation)"]
+        direction LR
+        F1["✅ L2 存活心跳<br/>(status.json / 独立 Watchdog)"]
+        F2["✅ L4 隔离路由<br/>(纯手搓 Workspace 哈希)"]
+        F3["✅ L5 压缩监察<br/>(compactionWatch 留痕)"]
+        F4["✅ L6 审计沙箱<br/>(自证写入 / 隔离污染)"]
+    end
+
+    %% ==========================================
+    %% ① 模型底座与画像干预层
+    %% ==========================================
+    subgraph L1["① 模型底座与画像干预 (Model & Profile)"]
+        direction TB
+        M["DeepSeek 4.1 Flash<br/>MoE架构 / 字面执行强 / 外推弱"]
+        
+        subgraph PROFILE["专属画像包 (Profile Patch)"]
+            direction LR
+            P1["规避风险等级<br/>evasionRisk: high"]
+            P2["相位对抗补丁<br/>(A/B/C变体破KV盲区)"]
+            P3["神鬼缓冲垫<br/>(Nudge重试 / 微创切除)"]
+        end
+        M --> PROFILE
+    end
+
+    %% ==========================================
+    %% ② 上下文策略与接入存活
+    %% ==========================================
+    subgraph L2["② 上下文策略与接入存活 (Context & Liveness)"]
+        direction TB
+        subgraph CTX["上下文与方法论"]
+            direction LR
+            C["系统提示 / 示例池 / 严格模式"]
+            SP["Superpowers<br/>澄清 -> 计划 -> TDD -> 验证"]
+            C --> SP
+        end
+        
+        subgraph HOST["接入与存活确认 (已落地)"]
+            direction LR
+            A["宿主接入<br/>ZCode / DSH"]
+            LV["心跳自证<br/>status.json / 模块就位"]
+            A --> LV
+        end
+    end
+
+    %% ==========================================
+    %% ③ 动作拦截与 FGA-PTC 工具层
+    %% ==========================================
+    subgraph L3["③ 动作拦截与动态工具暴露 (Hook & FGA-PTC)"]
+        direction TB
+        subgraph HOOKS["四大机械拦截点"]
+            direction LR
+            H1["beforeTool"]
+            H2["beforeCommand"]
+            H3["beforeRead"]
+            H4["beforeOutput"]
+        end
+        
+        subgraph TOOLS["工具与授权层"]
+            direction TB
+            X["XERJ 检索引擎<br/>返回 file:line / 降 Token"]
+            
+            subgraph FGA["FGA-PTC 动态授权"]
+                direction LR
+                FGA1["默认只读 / 隐藏高危"]
+                FGA2["按需申请 (fg_apply)"]
+                FGA3["静默秒批机制"]
+                FGA4["TTL 临时权限令牌"]
+                FGA1 --> FGA2 --> FGA3 --> FGA4
+            end
+        end
+        H1 & H3 -.-> TOOLS
+    end
+
+    %% ==========================================
+    %% ④ 跨会话防污染与原生持久化
+    %% ==========================================
+    subgraph L4["④ 跨会话防污染与原生持久化 (State & Handoff)"]
+        direction TB
+        NATIVE["DSH 原生引擎<br/>compaction-basic (1M窗口/0.3触发)"]
+        
+        subgraph ROUTE["FG 原生轻量路由 (DCR 替代品)"]
+            direction LR
+            R1["Workspace 哈希"] --> R2["读写 JSON 卷宗"]
+            R2 --> R3["新会话过滤/静默注入"]
+            R1 -.->|"❌ 不匹配"| CUT["彻底屏蔽 (零污染)"]
+        end
+        NATIVE --> ROUTE
+    end
+
+    %% ==========================================
+    %% ⑤ 执法引擎与监察
+    %% ==========================================
+    subgraph L5["⑤ 执法引擎与监察 (Enforcement & Watching)"]
+        direction TB
+        subgraph RULES["基础规则库"]
+            direction LR
+            R1["无[文件:行号]打回"]
+            R2["体积刺客阻断 (禁裸 cat)"]
+            R3["高危操作拦截"]
+        end
+        
+        subgraph ANTI["反规避机制"]
+            direction LR
+            AE1["不可预测检查点<br/>(2-5次随机熔断)"]
+            AE2["意图预警<br/>(重复试探侦测)"]
+            AE3["状态一致性"]
+        end
+        
+        subgraph WATCH["压缩监察"]
+            direction LR
+            W1["监听 compaction 事件<br/>留痕 shadowed_nodes"]
+            W2["撞窗告警"]
+        end
+        RULES & ANTI & WATCH --> MECH
+    end
+
+    %% ==========================================
+    %% ⑥ 处置结果与伪 RLHF
+    %% ==========================================
+    subgraph L6["⑥ 处置与反馈闭环 (Output & RLHF)"]
+        direction TB
+        O["处置结果<br/>allow / deny / ask / 注入记忆"]
+        F["伪 RLHF 闭环<br/>反馈落盘 -> A/B验证"]
+        O --> F
+    end
+
+    %% ==========================================
+    %% ⑦ 人机旁路与知识输入
+    %% ==========================================
+    subgraph L7["⑦ 人机协同与元审查 (Human-in-the-loop)"]
+        direction LR
+        Y["工作流：提方向 -> 验可行 -> 下需求"]
+        MT["元审查：L1输出 / L2日志 / L3查 status"]
+        Y --> MT
+    end
+
+    subgraph K["⑧ 知识输入层 (Knowledge Base)"]
+        direction LR
+        K1["安全与对齐"]
+        K2["风格与激活"]
+        K3["Harness架构"]
+        K4["XERJ边界"]
+    end
+
+    %% ==========================================
+    %% 主干连线 (严格自上而下)
+    %% ==========================================
+    L1 ==> L2 ==> L3 ==> L4 ==> L5 ==> L6
+    L6 -.->|"策略更新"| L2
+    L6 -.->|"反馈回流"| L1
+
+    %% ==========================================
+    %% 核心交叉干预连线
+    %% ==========================================
+    P1 -.->|"风险等级"| ANTI
+    P2 -.->|"相位干预"| HOOKS
+    P3 -.->|"缓冲兜底"| L5
+    X -.->|"证据支撑"| RULES
+    NATIVE -.->|"提供压缩事件"| WATCH
+    FGA -.->|"限制权限"| H1
+    MT -.->|"检查存活"| LV
+    K -.->|"理论支撑"| L5
+
+    %% ==========================================
+    %% 样式
+    %% ==========================================
+    classDef p0 fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px;
+    classDef layer fill:#f4f6f8,stroke:#ced4da,stroke-width:2px;
+    classDef profile fill:#ffebee,stroke:#d32f2f,stroke-width:2px;
+    classDef fga fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef anti fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px;
+    classDef watch fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef knowledge fill:#fff8e1,stroke:#f57f17;
+    
+    class P0,F1,F2,F3,F4 p0;
+    class L1,L2,L3,L4,L5,L6,L7 layer;
+    class PROFILE profile;
+    class FGA fga;
+    class ANTI anti;
+    class WATCH watch;
+    class K knowledge;

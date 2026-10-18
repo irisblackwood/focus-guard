@@ -64,6 +64,8 @@ AI 智能体最常见的三种失控：
 
 依赖方向由 `packages/core/tests/layering.test.mjs` 锁定：`core → adapter → seam` 单向，另禁止 `zcode → 适配层/宿主缝`。自检脚本 `packages/core/tools/selftest.mjs` 属工具层，不在生产源码目录。
 
+**架构主图**：能力全景（L1 画像 → L7 元审查 + 知识层）与逐项落地状态见 [`packages/core/docs/ARCH-MAP.md`](packages/core/docs/ARCH-MAP.md)（图源同目录 `architecture-map.mermaid`）。改动能力时须同步该表。
+
 ## 快速开始
 
 **核心版与扩展版的关系**：`focus-guard`（`packages/core/`）是零依赖范本包——引擎钩子、技能、核心工具、法条文档，所有人从这里开始；`focus-guard-extended`（`packages/extended/`）是扩展衍生包，依赖核心包，承载重型外接集成（OpenViking 同步桥 / Needle 2 本地模型外判 / Semantica 图谱导出）。核心版是范本，可衍生无数扩展变体；下载核心版时**不需要也不会拉取**任何扩展依赖。
