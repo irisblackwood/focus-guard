@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
 [![version](https://img.shields.io/badge/version-3.0.7-369eff)](CHANGELOG.md)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-orange.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
 **DSH 原生插件（3.0.5+）** + **ZCode 钩子** · 零依赖 · 钩子层 AI 行为治理
@@ -387,4 +387,4 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 ## License
 
-[Apache-2.0](LICENSE) © 2026 irisblackwood
+[PolyForm Noncommercial 1.0.0](LICENSE) © 2026 irisblackwood · 个人与社区免费，**商业使用需单独授权**

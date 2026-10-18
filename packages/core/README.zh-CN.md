@@ -95,4 +95,4 @@ hooks/guard.mjs   ZCode 执行壳（已封存：版本号独立，不随主版�
 
 ## License
 
-Apache-2.0 © 2026 irisblackwood
+PolyForm Noncommercial 1.0.0 © 2026 irisblackwood（个人与社区免费，商业使用需单独授权）

@@ -97,4 +97,4 @@ Currently `3.0.7`. Eight version surfaces are asserted equal to each other and t
 
 ## License
 
-Apache-2.0 © 2026 irisblackwood
+PolyForm Noncommercial 1.0.0 © 2026 irisblackwood (free for personal/community use; commercial use requires a license)
