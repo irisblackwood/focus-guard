@@ -36,6 +36,7 @@
 - fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
 - chore(license): **MIT → Apache-2.0**——核实 DSH 市场并无 MIT 强制要求（`dsh-plugin-market-index` 内无 license 约束；生态分布 MIT 62 / ISC 10 / Apache-2.0 7 / BSD 5）。对"给别人装、可能被企业内嵌"的安全工具，Apache-2.0 多了**专利授权**与更明确的免责/商标条款，比 MIT 更合适。已换 `LICENSE`（官方原文 11,358 字节）+ 新增 `NOTICE`（版权与许可声明），三处 `package.json` 的 `license` 字段、三份 README 的许可行与徽章同步。**已发布的 3.0.7 仍按 MIT 授权，不追溯**；改动自下一个版本生效。
 - ci(publish): **发布工作流去抖动**——`npm install -g npm@latest` 改为锁定 `npm@11`（latest 每次可能带进新的 2FA/GAT 策略，本仓库已因此红过两次），并显式校验 `npm >= 11.5.1`；新增 `concurrency: publish-${ref}` 防止并发触发撞上 "cannot publish over"；`Verify` 步骤显式 `shell: pwsh`（windows runner 默认 shell 行为差异）。
+- ci(test): **CI 矩阵拆分，推送不再挂红叉**——原矩阵 `windows-latest / ubuntu-latest / macos-latest` × 3 个 Node，`continue-on-error` 只保证总结果绿，UI 上 Linux/macOS 作业仍显示 ✗（用户视角"老是不过"）。而验收套件含数条 Windows 专用断言，非 Windows 必红且短期无法平台化。现拆分：`push`/`pull_request` 只跑 `windows-latest × Node 18.20/20/22`（必过）；跨平台 `observe` 作业仅 `workflow_dispatch` 触发，保留需要时的可见性。另加 `concurrency: ci-${ref}` 取消重复推送的旧运行。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
