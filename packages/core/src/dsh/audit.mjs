@@ -88,8 +88,38 @@ export function caseFilePath() {
 
 const COST_MARK = '【五】成本台账'
 
+/** 退化值守卫：宿主未提供可信 usage 时不再写假账（2026-10-18）。 */
+let warnedDegenerate = false
+
+/**
+ * usage 是否可信。
+ * 病根：`tools/post-execute` 收到的 usage 长期是 `{ input: 1, output: 1 }`（模型名也退化成 unknown），
+ * 于是台账写进去的全是 1 token / 未知价目。宿主面板能显示真实用量，说明数据在宿主内部，
+ * 只是没走这条缝。在拿到可信 usage 之前，宁可**不记**，也不留一页假账。
+ * 判据：模型名不能是 unknown，且输入+输出 > 2（真实一次调用不可能只有 1~2 token）。
+ */
+function usageLooksReal(model, usage) {
+  const input = Number(usage && (usage.input ?? usage.input_tokens))
+  const output = Number(usage && (usage.output ?? usage.output_tokens))
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return false
+  if (String(model || '').toLowerCase() === 'unknown') return false
+  return input + output > 2
+}
+
 /** 成本台账落卷：卷宗无该章节则先补表头，再逐行追加；失败只 warn 不阻塞 */
 export function appendCostRow(ts, model, inPeak, usage) {
+  if (!usageLooksReal(model, usage)) {
+    if (!warnedDegenerate) {
+      warnedDegenerate = true
+      console.warn(
+        '[focus-guard-native] 成本 usage 不可信（model=%s, input=%s, output=%s），台账暂停写入；真实用量以宿主面板为准。',
+        String(model || 'unknown'),
+        String(usage && usage.input),
+        String(usage && usage.output),
+      )
+    }
+    return false
+  }
   try {
     let header = ''
     try {
