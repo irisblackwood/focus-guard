@@ -6,9 +6,9 @@
 > （共 8 处版本点），且**必须等于本文件最新条目版本**——两条一致性均由验收用例锁定。
 > 引擎头注释（`hooks/guard.mjs`）例外：该文件已封存、版本号独立，由断言锁定其"封存标注"而非版本相等。
 
-## 未发版 · 2026-10-18（in-tree，版本号仍 3.0.6）
+## 3.0.7 · 2026-10-18（Trusted Publishing 首发）
 
-> 本节记录已进代码、但**未 bump 版本**的增量（人类决定：先补描述，不发版）。对应提交：`8f58bcf` / `861e9a7` / `cd7ad36` / `2d04d53`。
+> 本节记录 3.0.7 的增量。首次通过 GitHub Actions OIDC（Trusted Publishing）发布，包内容不含任何长期凭据。对应提交：`8f58bcf` / `861e9a7` / `cd7ad36` / `2d04d53`。
 
 - feat(runtime): **心跳与存活确认**——`heartbeat.mjs` 每 10s 原子覆写 `.focus-guard/status.json`（tmp→rename），`unref()` 不拖住宿主；`status.mjs` 按需判活，exit `0` 全绿 / `2` 缺模块 / `3` STALE（>30s）/ `4` 文件缺失。
 - feat(runtime): **11 模块启动自检**——10 条执法缝 + 心跳各自报到（`markModule`）；缺项写 `degraded`、宿主日志 warn、模型侧注入 `focus-guard-degraded` 段；心跳首写延后一 tick，避免首帧少报自己。

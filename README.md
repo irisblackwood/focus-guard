@@ -3,7 +3,7 @@
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.0.6-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.0.7-369eff)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-ffcb47)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
@@ -341,8 +341,9 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 ## 版本与变更
 
-当前 **v3.0.6**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
+当前 **v3.0.7**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
 
+- **3.0.7 运行面与自证**：心跳/存活确认（`status.json` + 11 模块自检 + `focus-guard-degraded` 注入）、L4 跨会话卷宗（按 `sha256(realpath(cwd))` 路由，hash 不符零注入）、第 1.4 层整文件读取闸（>300 行指向 XERJ `search`/`def`）、第 1.3 层 Superpowers 动笔闸（模糊开发任务先加载方法论）、破坏性 API 按目标分级、压缩监察、`FG_AUDIT_FILE` 优先 + deny 记录真实 trigger、审计零增长守卫；**首次通过 GitHub Actions OIDC（Trusted Publishing）发布，包内不含任何长期凭据**；
 - **3.0.6 绝对红线上下文豁免与司法救济**：`redlineExempt()` 三判据（引号内 / 数据标记 / 只读命令）把"被引用的危险命令字符串"**降级**到语义预判，执行外壳一律不豁免；新增 **误伤申辩程序** `fg_appeal`（司法救济通道，补齐"只有立法救济、没有个案当场申辩"的结构缺口）；画像接入真实 pre-execute 链路 + 画像/豁免在真实入口失效的 4 项修复；审批层不可被画像关闭；`approvalGate.scope` 由死配置变真判定；闸接入红线豁免、红线判据 span 稳定化、取证闸对新建文件不再死锁；条款清理 91→87；**版本面补全为 8 处**（此前漏了 monorepo 子包，导致"清单齐 3.0.4 而代码已 3.0.6"）；
 - **3.0.5 事前资格审核与模型画像**：`checkEligibility` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权留痕）+ `fg_apply` 双入口闭环（申请 → 审核 → 按 session 授权）；`src/profiles/` 五份纯参数模型画像 + `profileLoader` 按画像跳层；环境指纹与命令硬校验（`grep`→`rg`、`find`→`fd`）；`guard.mjs` 三次拆出 `src/core/` 九个模块与 `src/adapters/dsh/protocol.mjs`（1707 → 1142 行）；
 - **3.0.4 双包 monorepo**：`packages/core`（`focus-guard` 零依赖范本包）+ `packages/extended`（`focus-guard-extended` 扩展包，承载外接三件套）；`npm install focus-guard` 永不拉取扩展依赖；中心蜂群强化——调度三分法、派单给目标不给方法脚本、跨任务授权不对称、模型分层蜂群、对抗验证三怀疑者（第八十条增订七～十、第八十一条增订四）；library-build 幂等键改纯内容指纹；

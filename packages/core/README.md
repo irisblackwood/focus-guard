@@ -87,7 +87,7 @@ hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not
 
 ## Version
 
-Currently `3.0.6`. Eight version surfaces are asserted equal to each other and to the latest `CHANGELOG.md` entry.
+Currently `3.0.7`. Eight version surfaces are asserted equal to each other and to the latest `CHANGELOG.md` entry.
 
 ## Docs
 
