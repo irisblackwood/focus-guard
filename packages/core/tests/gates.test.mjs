@@ -163,3 +163,30 @@ describe("3.0.8 · 污染核实闸与风险文件留痕（移植批 2）", () =>
     console.log("沙箱审计:", AUDIT_TMP.replace(tmpdir(), "<tmp>"));
   });
 });
+
+describe("成本台账停摆可见性（2026-10-18 修）", () => {
+  test("连续 5 次拿不到 usage → warn 一次；恢复后重新计数", async () => {
+    const { postExecuteListener } = await import("../src/dsh/pipeline.mjs");
+    const warns = [];
+    const listener = postExecuteListener({ warn: (...a) => warns.push(a.join(" ")) });
+    const noUsage = { name: "bash" };
+    for (let i = 0; i < 5; i += 1) await listener(noUsage, { ok: true }, allow);
+    assert.equal(
+      warns.filter((w) => w.includes("成本台账停摆")).length,
+      1,
+      "第 5 次无 usage 应告警一次",
+    );
+    // 第 6 次不再重复告警
+    await listener(noUsage, { ok: true }, allow);
+    assert.equal(warns.filter((w) => w.includes("成本台账停摆")).length, 1, "不应重复告警");
+    // 一次带 usage 的成功调用清零计数；再连续 5 次应再次告警
+    await listener({ name: "bash", usage: { input_tokens: 1, output_tokens: 1 } }, { ok: true }, allow);
+    for (let i = 0; i < 5; i += 1) await listener(noUsage, { ok: true }, allow);
+    assert.equal(
+      warns.filter((w) => w.includes("成本台账停摆")).length,
+      2,
+      "成功后计数应清零，再次连续 5 次应重新告警",
+    );
+    console.log("成本台账停摆告警:", warns.filter((w) => w.includes("成本台账停摆")).length, "次");
+  });
+});

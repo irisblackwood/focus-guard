@@ -84,6 +84,34 @@ describe("3.0.8 · 补充宿主缝（agent/created · agent/pre-step · agent/tu
     rmSync(statePath(sid), { force: true });
   });
 
+  test("agent/turn-stopping → KPI 增量结算：同一累计值不重复累加（修 ΣΣ）", async () => {
+    const sid = `seams-kpi-delta-${process.pid}`;
+    rmSync(statePath(sid), { force: true });
+    resetAudit();
+    saveState(statePath(sid), { kpi: 0, delegateBudget: 20, kpiCarry: 0, readSet: {} });
+    const run = turnStoppingListener({ warn: noop });
+    // 三个回合，会话累计依次 -5 → -10 → -15；每回合只应结算增量 -5
+    for (const kpi of [-5, -10, -15]) {
+      const st0 = loadState(statePath(sid));
+      st0.kpi = kpi;
+      saveState(statePath(sid), st0);
+      await run({ agent: mkAgent(sid) });
+    }
+    const st = loadState(statePath(sid));
+    assert.equal(st.kpiCarry, -15, "跨任务累计应为增量之和（-15），而不是累计值重复相加（-30）");
+    assert.equal(st.kpiSettled, -15, "结算基线应跟上当前累计值");
+    // 无增量的回合：不新增 kpi-settle 行
+    const settlesBefore = auditLines().filter((r) => r.action === "kpi-settle").length;
+    await run({ agent: mkAgent(sid) });
+    assert.equal(
+      auditLines().filter((r) => r.action === "kpi-settle").length,
+      settlesBefore,
+      "无增量的回合不应再记 kpi-settle",
+    );
+    console.log("kpi 增量：", JSON.stringify({ kpiCarry: st.kpiCarry, kpiSettled: st.kpiSettled }));
+    rmSync(statePath(sid), { force: true });
+  });
+
   test("agent/turn-stopping → KPI 不称职：委托池 -5 且跌破阈值提醒一次 kpi-low", async () => {
     const sid = `seams-kpi-lo-${process.pid}`;
     rmSync(statePath(sid), { force: true });

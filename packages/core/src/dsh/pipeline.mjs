@@ -181,6 +181,10 @@ export function riskOfHeuristic(cmd, tool) {
   }
 }
 
+/** 成本台账停摆检测（2026-10-18）：连续多少条工具结果拿不到 usage 就告警一次。 */
+const COST_MISS_WARN_AT = 5
+let costMissStreak = 0
+
 /** 审批单形状（对齐 dsh-tools/lib/index.js:3439-3458：reason 必填，displayReason 可选） */
 function buildAsk(cmd, risk, category, extra) {
   return {
@@ -893,12 +897,23 @@ export function postExecuteListener({ warn }) {
         usageOf(exec && exec.usage) ||
         usageOf(result && result.meta && result.meta.usage)
       if (usage) {
+        costMissStreak = 0
         const model =
           (exec && ((exec.agent && (exec.agent.model || exec.agent.modelId)) || exec.model)) ||
           (result && result.model) ||
           'unknown'
         const { inPeak } = isPeakAt(new Date())
         appendCostRow(new Date().toISOString(), model, inPeak, usage)
+      } else {
+        // 2026-10-18 修（REPORT-2026-10-12「成本台账静默停摆」）：原实现无 else——
+        // 宿主不提供 usage 时整条成本核算静默失效（台账 10-08 起零新增，没人发现）。
+        // 连续多次拿不到就 warn 一次，把"停摆"变成可见信号。
+        costMissStreak += 1
+        if (costMissStreak === COST_MISS_WARN_AT) {
+          warn(
+            `成本台账停摆：连续 ${COST_MISS_WARN_AT} 次工具结果都没有 usage 字段（宿主未提供），本会话成本未记账。`,
+          )
+        }
       }
     } catch (error) {
       warn('成本核算异常（不阻塞）:', (error && error.message) || error)

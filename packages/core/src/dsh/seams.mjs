@@ -411,7 +411,19 @@ export function turnStoppingListener({ warn } = {}) {
   return async ({ agent } = {}) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
-      const kpiNow = state.kpi || 0
+      // 2026-10-18 修（REPORT-2026-10-12「KPI 重复结算」）：state.kpi 是**会话累计值**，
+      // 而本缝每回合都跑一次。原实现把累计值当成"本任务 KPI"：
+      //   ① `kpiCarry += kpiNow` 每回合重复累加 → ΣΣ（实测 -10 被记成 -80）；
+      //   ② 委托池按累计值每回合重复扣/加。
+      // 改为按**增量**结算：kpiNow = 当前累计 - 上次已结算基线；无增量则零动作。
+      const settledBase = Number.isFinite(state.kpiSettled) ? state.kpiSettled : 0
+      const kpiNow = (state.kpi || 0) - settledBase
+      if (kpiNow === 0) {
+        state.kpiSettled = state.kpi || 0
+        saveState(file, state)
+        return
+      }
+      state.kpiSettled = state.kpi || 0
       let grade = '称职'
       let poolDelta = 0
       if (kpiNow >= 15) {
