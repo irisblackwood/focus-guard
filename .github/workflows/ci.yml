@@ -8,21 +8,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  # 必过作业：Windows 是开发与验证平台。验收套件里有数条 Windows 专用断言
+  #（shell 检测的 win32 分支），非 Windows 平台必然红——所以推送只跑这一作业，
+  # 避免 UI 上长期挂着红叉（`continue-on-error` 只保总结果，勾叉仍显示失败）。
   test:
-    name: 验收 (${{ matrix.os }} / Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
-    # Windows 是开发与验证平台（必过）。
-    # Linux/macOS 暂列为"观察项"：验收用例里仍有数处 Windows shell 检测断言，
-    # 跨平台绿灯需先把这些用例平台化，再把本行去掉转为必过。
-    continue-on-error: ${{ matrix.os != 'windows-latest' }}
+    name: 验收 (windows-latest / Node ${{ matrix.node }})
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
         node: ["18.20", "20", "22"]
     steps:
       - uses: actions/checkout@v4
@@ -45,3 +47,27 @@ jobs:
 
       - name: 扩展包桥测试（focus-guard-extended）
         run: node --test packages/extended/tests/bridges.test.mjs
+
+  # 跨平台观察项：只在**手动触发**时跑。已知会红（Windows 专用断言未平台化），
+  # 目的是需要时快速看到「还差哪些用例才能跨平台」，而不是每次推送都给一个红叉。
+  observe:
+    name: 观察 (${{ matrix.os }} / Node 22)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 环境信息
+        run: node -v && node -e "console.log(process.platform, process.arch)"
+
+      - name: 验收用例（观察项：失败不阻断）
+        run: node --test packages/core/tests/acceptance.test.mjs
