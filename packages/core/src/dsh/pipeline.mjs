@@ -12,7 +12,7 @@
  *   - dsh-tools/lib/index.js:3504  post-execute 三参瀑布 (exec, result, next)。
  */
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
-import { redlineExempt, MUTATOR_HEAD_RE } from '../core/redlines.mjs'
+import { redlineExempt, MUTATOR_HEAD_RE, isMutatingBashCmd } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
 import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
@@ -434,14 +434,22 @@ function layer3Check(exec, warn, statePathOverride) {
   // 实测绕过路径：`pwsh Add-Content -Path README.md`（A/B 会话对照 B 组第 2 条）。
   // 参数读取必须防炸：DSH 允许 arguments 为惰性 getter，解析失败应降级而非中断整条判定链。
   let shellTargets = []
+  let shellMutating = false
   if (SHELL_TOOL.test(tool)) {
     try {
-      shellTargets = shellWriteTargets(commandOf(exec))
+      const cmd = commandOf(exec)
+      shellTargets = shellWriteTargets(cmd)
+      // 2026-10-18 再补口：熔断/降权的判定此前也挂在"有写目标"上，于是
+      // `git commit`、`npm install` 这类**无重定向但会改文件**的命令在熔断期照样放行
+      //（本次实测：会话被判熔断后 write 被拒，Bash git commit 却提交成功）。
+      // 统一口径：变更型 shell 与写类工具同等对待，熔断期一律只读放行。
+      shellMutating = isMutatingBashCmd(String(cmd ?? ''))
     } catch {
-      shellTargets = [] // 取不到命令就不做取证判定，与其余分支的 fail-open 口径一致
+      shellTargets = []
+      shellMutating = false
     }
   }
-  if (!isMutating && shellTargets.length === 0) return null
+  if (!isMutating && shellTargets.length === 0 && !shellMutating) return null
 
   const gs = readGuardStateExact(exec, statePathOverride)
   if (gs === null) {

@@ -33,6 +33,7 @@
   - 默认只严抓 `rm-rf`（format-volume / drop-database / git-push-force 已被绝对红线层直接拦，到不了申请通道）；逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1`。
   - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
   - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
+- fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
