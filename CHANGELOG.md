@@ -13,6 +13,10 @@
 - fix(ci): **`test:all` 改为发现式**——原为硬编码 11 文件清单，今天新增的 `casePaths` / `layering` 测试不在其中，会出现"CI 全绿但没测"。现统一走 `tests/audit-isolation.mjs`（自动发现 + 真实审计零增长守卫）。
 - docs: 新增 `packages/core/docs/BENCH.md`（四类基准的跑法与已知热路径成本），README 命令表补 `bench:decision` / `bench:cost`。
 - perf(gate): **哨兵结论缓存**——判定基准量出每条 Bash 命令都要付约 60ms 的 python 冷启动，而同一命令在会话里反复出现（重试/复测/同脚本多轮）。`riskOfSentinel` 现按命令原文缓存**成功结论**（LRU 500，`FG_SENTINEL_CACHE=0` 关闭、`FG_SENTINEL_CACHE_SIZE` 调容量），失败（超时/缺 python/解析失败）一律不缓存，不把错误固化成判定。实测 **p95 61.19ms → 2.37ms**，p50 0.58ms → 0.36ms；每条新命令首次仍付约 60ms（常驻进程方案未做）。
+- test(bench): **任务测试 50 组**（`tests/task-bench.mjs` + `task-suite.json`）——组 = 一串真实调用（读→改→跑→查），任一环被错拦整组失败。覆盖只读/改代码/命令/高危/资格/边界六类，`--group` 单跑、`--json` 机器读，零 API 花费。首轮 46/50，暴露并修掉下列四个真问题后 **50/50**。
+- fix(gate): **引号豁免射程过宽**（漏拦）——`psql -c 'DROP DATABASE prod'`、`node -e '…'` 的引号内容会被**真正执行**，旧实现按"被引用的数据"豁免放过。`redlineExempt` 增加执行型参数判据（`psql/mysql/sqlite3/node/python/ruby/perl/bash/pwsh… -c|-e|--command|--eval` 的实参不豁免），`git log --grep 'drop database'` 这类真数据仍豁免。
+- fix(gate): **`rm -rf` 一刀切要 fg_apply**（误伤）——`rm -rf ./dist`、`rm -rf /tmp/...` 属常规构建清理，与第 2 层已做的分级（`destructiveApiWeight`：TEMP 0.2 / 递归系统 0.9）口径矛盾。现对可重建目录（`dist/build/out/output/target/coverage/.cache/.next/node_modules`）与 TEMP 目标不进门槛清单，交回第 2 层按风险裁决。
+- fix(gate): **`Write`/`Edit` 写系统路径未被拦**（漏拦）——资格闸原来只在 `if (cmd)` 时执行，而写入型工具没有 command 参数，`C:\Windows\...` 之类的目标从未被检查。现闸按"命令或 `file_path` 任一存在"触发，`gatedReasonOf(tool, command, filePath)` 对写入型工具查 `SYSTEM_PATH_RE`。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、

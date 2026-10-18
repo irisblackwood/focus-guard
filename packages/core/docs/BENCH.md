@@ -1,13 +1,33 @@
 # 基准测试（Bench）
 
-四类基准，各回答一个问题。全部零外部依赖，命令直接跑。
+五类基准，各回答一个问题。全部零外部依赖，命令直接跑。
 
 | 命令 | 回答什么 | 实现 |
 |---|---|---|
 | `npm run bench:decision` | 判定准不准、误不误伤、热路径多快 | `packages/core/tests/decision-bench.mjs` |
+| `npm run bench:tasks` | 一整件任务在 FG 下能不能走通（50 组真实调用串） | `packages/core/tests/task-bench.mjs` + `task-suite.json` |
 | `npm run bench:cost` | 花了多少 token/USD、拦了什么、误伤多少 | `packages/core/tools/bench-cost.mjs` |
 | `npm run bench` | 常驻注入占多少字符/token | `packages/core/tests/token-bench.mjs` |
 | `npm run eval` | 对攻击样本的拦截率（`guard.mjs` 路径） | `packages/core/tests/threat-eval.mjs` |
+
+---
+
+## 〇、任务测试（task bench，50 组）
+
+判定基准测"单条判定"，任务测试测"**一整件任务**能不能走通"：一组 = 一串真实调用
+（读 → 改 → 跑测试 → 查日志），任何一环被错拦整组即失败。数据在 `tests/task-suite.json`。
+
+覆盖 6 类：只读探查（T01-T10）、代码修改（T11-T18）、命令执行（T19-T30）、
+高危操作（T31-T36）、资格闸（T37-T41）、边界与误伤敏感（T42-T50）。
+
+```
+50 组 / 57 次调用     组通过率 100%     调用准确率 100%
+误伤 0     漏拦 0     延迟 p50 2.04ms / p95 67.24ms
+```
+
+`--group T31` 单跑一组，`--json` 机器读。首轮（修复前）与修复后的对照见 CHANGELOG「未发版」节：
+`psql -c 'DROP DATABASE'` 曾被引号豁免漏拦、`rm -rf ./dist` 与 `/tmp/...` 被资格闸误伤、
+`Write` 到 `C:\Windows\...` 未被系统路径闸拦——四处都由这套测试发现并修掉。
 
 ---
 

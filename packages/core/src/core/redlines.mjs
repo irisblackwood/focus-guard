@@ -196,6 +196,17 @@ function redlineSpan(c, m) {
 }
 
 /**
+ * 执行型参数：`psql -c 'DROP DATABASE x'`、`node -e '…'`、`python -c '…'` 的引号内容
+ * 会被**真正执行**，不是"被引用的数据"。2026-10-18 任务测试 T34 实证：
+ * `psql -c 'DROP DATABASE prod'` 因落在引号内被豁免放过 —— 漏拦。
+ * 判据只认"引号前紧邻的动词 + 执行旗标"，避免把 `git log --grep 'drop database'` 误判。
+ * 注意尾部的可选引号：quotedSpans 给出的起点是**内容**起点（不含开引号），
+ * 所以切出来的前缀会以 `'` / `"` 结尾，判据必须容忍它（否则 T34 仍被豁免）。
+ */
+const EXEC_ARG_RE =
+  /(?:^|[\s;|&(])(?:psql|mysql|mariadb|sqlite3?|node|deno|bun|python3?|py|ruby|perl|pwsh|powershell|bash|sh|zsh|dash|cmd)(?:\s+[^\s;|&]+)*\s+(?:-c|-e|--command|--eval|--execute)\s*['"`]?\s*$/
+
+/**
  * 红线上下文豁免判定。
  * @param {string} cmd 待检命令原文
  * @param {{name: string, re: RegExp}} hit 命中的红线条目
@@ -214,6 +225,8 @@ export function redlineExempt(cmd, hit) {
   // 判据 1：命中片段完整落在某个引号字面量内 → 内容是字符串数据
   const inside = quotedSpans(c).find(([s, e]) => s <= span[0] && span[1] <= e);
   if (inside) {
+    // 例外：该引号是 -c / -e 这类"执行型参数"的实参 → 会被真正执行，不属数据。
+    if (EXEC_ARG_RE.test(c.slice(0, inside[0]))) return null;
     return {
       basis: "quoted-literal",
       detail: `命中片段位于引号字面量内 [${inside[0]},${inside[1]})`,

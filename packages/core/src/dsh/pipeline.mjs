@@ -716,7 +716,14 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
 
     // ===== 3.0.5 第二步：资格审核闸 —— 高危工具须先调 fg_apply 取得授权 =====
     // 按需加载适配层模块：本文件不在顶部静态 import，以免与适配层的注入关系形成环形依赖。
-    if (cmd) {
+    // 2026-10-18（任务测试 T39 修）：原条件为 `if (cmd)`，而 Write/Edit 没有 command 参数，
+    // 于是"写系统路径"这类只能靠 file_path 判定的门槛**从未被执行**。改为命令或路径任一存在即过闸。
+    const gateFilePath = (() => {
+      const a = (exec && exec.arguments) || {}
+      const p = a.file_path ?? a.filePath ?? a.path ?? a.notebook_path
+      return typeof p === 'string' ? p : ''
+    })()
+    if (cmd || gateFilePath) {
       try {
         const { gateToolCall } = await import('../adapters/dsh/eligibility-gate.mjs')
         const session =
@@ -728,12 +735,13 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         const gate = gateToolCall({
           session,
           tool: String((exec && exec.name) || ''),
-          command: cmd,
+          command: cmd || '',
+          filePath: gateFilePath,
           profile: modelId ? loadProfile(modelId) : null,
         })
         if (gate.kind === 'deny') {
           warn('资格审核闸拦截：', gate.reason)
-          auditDeny(exec, cmd, { trigger: 'gate:fg_apply', level: 6 })
+          auditDeny(exec, cmd || gateFilePath, { trigger: 'gate:fg_apply', level: 6 })
           return { kind: 'deny', reason: `focus-guard-native: ${gate.reason}` }
         }
       } catch (error) {

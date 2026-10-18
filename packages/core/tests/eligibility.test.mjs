@@ -107,7 +107,7 @@ describe("第一步 · 逻辑层 checkEligibility", () => {
 
   test("第 3 层：高危且无授权 → needApproval", async () => {
     const { calls, audit } = recorder();
-    const r = await checkEligibility({ ...BASE, command: "rm -rf ./dist", redlines: REDLINES, audit });
+    const r = await checkEligibility({ ...BASE, command: "rm -rf ./app-src", redlines: REDLINES, audit });
     console.log("L3 无授权:", layerLine(r));
     assert.equal(r.decision, "needApproval");
     assert.equal(r.layer, "3");
@@ -119,7 +119,7 @@ describe("第一步 · 逻辑层 checkEligibility", () => {
     const grants = createGrantTable();
     grants.grant("Bash", { ttl: "task", reason: "先前批准" });
     const { calls, audit } = recorder();
-    const r = await checkEligibility({ ...BASE, command: "rm -rf ./dist", redlines: REDLINES, grants, audit });
+    const r = await checkEligibility({ ...BASE, command: "rm -rf ./app-src", redlines: REDLINES, grants, audit });
     console.log("L3 已有授权:", layerLine(r));
     assert.equal(r.decision, "allow");
     assert.equal(r.layer, "6");
@@ -256,7 +256,7 @@ describe("第一步 · 逻辑层 checkEligibility", () => {
   });
 
   test("第 3 层特征库：高危样例命中、良性不命中", () => {
-    assert.equal(highRiskOf("rm -rf ./dist").id, "rm-rf");
+    assert.equal(highRiskOf("rm -rf ./app-src").id, "rm-rf");
     assert.equal(highRiskOf("Format-Volume -DriveLetter D").id, "format-volume");
     assert.equal(highRiskOf("git push -f origin main").id, "git-push-force");
     assert.equal(highRiskOf("npm publish").id, "publish");
@@ -318,7 +318,7 @@ describe("第二步 · 双入口闭环（fg_apply 授权 + pre-execute 闸）", 
     const g = await load();
     const s = "gate-a";
     g.resetGrants(s);
-    const r = g.gateToolCall({ session: s, tool: "Bash", command: "rm -rf ./dist" });
+    const r = g.gateToolCall({ session: s, tool: "Bash", command: "rm -rf ./app-src" });
     console.log("验收①闸:", r.kind, "|", r.reason);
     assert.equal(r.kind, "deny");
     assert.match(r.reason, /fg_apply/);
@@ -331,7 +331,7 @@ describe("第二步 · 双入口闭环（fg_apply 授权 + pre-execute 闸）", 
     const applied = await g.applyEligibility({
       session: s,
       tool: "Bash",
-      command: "rm -rf ./dist",
+      command: "rm -rf ./app-src",
       purpose: "清理构建产物",
       scope: "仅 ./dist 目录",
       ttl: "turn",
@@ -340,7 +340,7 @@ describe("第二步 · 双入口闭环（fg_apply 授权 + pre-execute 闸）", 
     });
     console.log("验收②申请:", applied.decision, applied.layer, "|", applied.reason);
     assert.equal(applied.decision, "allow");
-    const after = g.gateToolCall({ session: s, tool: "Bash", command: "rm -rf ./dist" });
+    const after = g.gateToolCall({ session: s, tool: "Bash", command: "rm -rf ./app-src" });
     console.log("验收②再执行:", after.kind);
     assert.equal(after.kind, "pass");
     g.resetGrants(s);
@@ -660,3 +660,4 @@ describe("审计日志体积轮转（2026-10-09）", () => {
     assert.match(readFileSync(AUDIT_TMP, "utf8"), /"n":3/);
   });
 });
+

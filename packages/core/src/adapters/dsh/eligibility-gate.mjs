@@ -19,11 +19,30 @@ import { AUDIT_FILE, appendAudit } from '../../core/audit-writer.mjs'
 /** 对系统路径的写入类工具：与命令型高危同属"必须先申请"的门槛清单（显式成文）。 */
 export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 
+/** 可直接重建的 rm -rf 目标：构建产物 / 缓存 / TEMP。命中则不进门槛清单（交回第 2 层分级判定）。 */
+const DISPOSABLE_TARGET_RE =
+  /(?:^|[\\/])(?:dist|build|out|output|target|coverage|\.cache|\.next|\.nuxt|\.turbo|node_modules)(?:[\\/]|$)|^(?:\/tmp|\/var\/tmp|\$TMPDIR|%TEMP%|%TMP%)|[\\/]AppData[\\/]Local[\\/]Temp(?:[\\/]|$)/i
+
+/** 取 rm 命令的最后一个非旗标 token 作为删除目标。 */
+function rmTargetOf(cmd) {
+  const m = String(cmd ?? '').match(/\brm\b([^\n;&|]*)/i)
+  if (!m) return ''
+  const tokens = m[1]
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t && !t.startsWith('-'))
+  if (tokens.length === 0) return ''
+  return tokens[tokens.length - 1].replace(/^["']|["']$/g, '')
+}
+
 /**
  * 判定本次调用是否属"必须先申请"的类别。
+ * @param {string} tool
+ * @param {string} [command] 命令型工具的命令原文
+ * @param {string} [filePath] 写入型工具的目标路径（Write/Edit 的 file_path）
  * @returns {string|null} 命中的门槛 id（rm-rf / format-volume / … / write-system-path），不属门槛则 null
  */
-export function gatedReasonOf(tool, command = '') {
+export function gatedReasonOf(tool, command = '', filePath = '') {
   const cmd = String(command ?? '')
   const hit = HIGH_RISK_TOOLS.find((r) => r.re.test(cmd))
   if (hit) {
@@ -34,12 +53,19 @@ export function gatedReasonOf(tool, command = '') {
     // 交回原有判定链（pipeline 文本层 → 硬校验 → 本闸 → 语义预判），由下游按正常语义裁决。
     // 豁免不成立（裸危险命令、执行外壳包装）时行为不变，仍按门槛拦。
     if (redlineExempt(cmd, hit)) return null
+    // 2026-10-18 任务测试 T35/T36：`rm -rf ./dist`、`rm -rf /tmp/...` 属常规构建清理，
+    // 与第 2 层已做的分级（destructiveApiWeight：TEMP 0.2 / 递归系统 0.9）口径统一——
+    // 目标是可重建目录/TEMP 时不进门槛清单，交给第 2 层按风险分级裁决，不再一律要 fg_apply。
+    if (hit.id === 'rm-rf' && DISPOSABLE_TARGET_RE.test(rmTargetOf(cmd))) return null
     return hit.id
   }
   const name = String(tool ?? '').toLowerCase()
-  // 注意：本支由 SYSTEM_PATH_RE 判定的**路径检查**，不是命令红线，不套命令豁免
-  //（豁免函数只对 HIGH_RISK_TOOLS 中的命令型条目有意义）。
-  if (GATED_WRITE_TOOLS.some((t) => t.toLowerCase() === name) && SYSTEM_PATH_RE.test(cmd)) return 'write-system-path'
+  // 写入型工具的系统路径检查（2026-10-18 任务测试 T39 修）：此前只拿命令字符串去匹配，
+  // 而 Write/Edit 的路径在 file_path 里、command 恒为空 → 写系统目录从未被拦（漏拦）。
+  if (GATED_WRITE_TOOLS.some((t) => t.toLowerCase() === name)) {
+    const target = String(filePath || cmd || '')
+    if (SYSTEM_PATH_RE.test(target)) return 'write-system-path'
+  }
   return null
 }
 
@@ -122,8 +148,8 @@ export async function applyEligibility({
  * @returns {{kind:"pass", granted?: boolean}} 不属门槛清单、或已有授权 → 交回原有判定链
  *          {{kind:"deny", reason: string}} 属门槛且无授权 → 拦截
  */
-export function gateToolCall({ session, tool, command = '', state, profile = null } = {}) {
-  const reason = gatedReasonOf(tool, command)
+export function gateToolCall({ session, tool, command = '', filePath = '', state, profile = null } = {}) {
+  const reason = gatedReasonOf(tool, command, filePath)
   if (!reason) return { kind: 'pass' }
   // 3.0.6（HANDOFF §十 缺陷 5）：与母版 L3 同源——审批层**不可被画像关闭**（只受 scope 约束），
   // 否则会出现"decide 放行而闸拦截"或"闸放行而母版拦截"的路径分叉。
