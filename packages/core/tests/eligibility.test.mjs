@@ -324,23 +324,23 @@ describe("第二步 · 双入口闭环（fg_apply 授权 + pre-execute 闸）", 
     assert.match(r.reason, /fg_apply/);
   });
 
-  test("验收②：fg_apply 通过 → 同一命令放行", async () => {
+  test("验收②：fg_apply 通过 → 同一命令放行（用可逆类别；rm-rf 自 2026-10-18 起默认走人工闸）", async () => {
     const g = await load();
     const s = "gate-b";
     g.resetGrants(s);
     const applied = await g.applyEligibility({
       session: s,
       tool: "Bash",
-      command: "rm -rf ./app-src",
-      purpose: "清理构建产物",
-      scope: "仅 ./dist 目录",
+      command: "npm publish --access public",
+      purpose: "发布包",
+      scope: "npm registry",
       ttl: "turn",
       redlines: REDLINES,
       model: null,
     });
     console.log("验收②申请:", applied.decision, applied.layer, "|", applied.reason);
     assert.equal(applied.decision, "allow");
-    const after = g.gateToolCall({ session: s, tool: "Bash", command: "rm -rf ./app-src" });
+    const after = g.gateToolCall({ session: s, tool: "Bash", command: "npm publish --access public" });
     console.log("验收②再执行:", after.kind);
     assert.equal(after.kind, "pass");
     g.resetGrants(s);

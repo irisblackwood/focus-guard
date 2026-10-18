@@ -22,7 +22,8 @@
     "bench:cost": "node packages/core/tools/bench-cost.mjs",
     "bench:tasks": "node packages/core/tests/task-bench.mjs",
     "bench:control": "node packages/core/tests/task-control.mjs",
-    "bench:ab": "node packages/core/tools/bench-ab.mjs"
+    "bench:ab": "node packages/core/tools/bench-ab.mjs",
+    "focusguard": "node packages/core/tools/focusguard.mjs"
   },
   "license": "MIT",
   "engines": {

@@ -29,7 +29,8 @@
     "bench:cost": "node tools/bench-cost.mjs",
     "bench:tasks": "node tests/task-bench.mjs",
     "bench:control": "node tests/task-control.mjs",
-    "bench:ab": "node tools/bench-ab.mjs"
+    "bench:ab": "node tools/bench-ab.mjs",
+    "focusguard": "node tools/focusguard.mjs"
   },
   "dsh": {
     "bundle": {

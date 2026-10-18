@@ -49,7 +49,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L3** | FGA · 隐藏高危工具 | ⬜ | schema 由宿主注入，FG 改不了；只能做"默认拒绝 + 按需解锁"（见上一条）|
 | **L3** | FGA · 按需申请 `fg_apply` | ✅ | `adapters/dsh/eligibility-gate.mjs`、工具注册 `src/dsh/tools.mjs` |
 | **L3** | FGA · 静默秒批 / 合并出示 | ✅ | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
-| **L3** | FGA · 不可逆严格档 | ✅ 开关 | `FG_PTC_STRICT_IRREVERSIBLE=1`：不可逆类别不再自证自批，返回 needApproval |
+| **L3** | FGA · 人工闸门（文件审批） | ✅ **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
 | **L3** | FGA · TTL 临时权限令牌 | ✅ | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
 | **L4** | DSH 原生压缩栈 | ✅ | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
 | **L4** | 卷宗哈希路由 + 新会话过滤注入 | ✅ | `workspace.mjs:125` 回合落账；hash 不符零注入 |

@@ -26,6 +26,12 @@
   - `FG_PTC_READONLY=1`：默认只读。`ptcReasonOf()` 把**写类工具**（Write/Edit/MultiEdit/NotebookEdit/Delete/Move/Patch）与**变更型 shell**（`isMutatingBashCmd`）纳入门槛，未授权即拦；只读 shell 与 Read/Grep 不受影响。等价于"隐藏高危工具"的可执行替代（schema 在宿主层，FG 无法真正隐藏）。
   - `FG_PTC_AUTO_GRANT=1`：静默秒批。可逆类别（publish / global-install / chmod-wide）自动批准并留痕 `ptc-auto-grant`；不可逆类别不批。
   - `FG_PTC_STRICT_IRREVERSIBLE=1`：修口径漏洞——`applyOneEligibility` 审核期给的**临时授权**会让母版 L3 全部放行，导致 `rm -rf ./src` 这类不可逆删除**自证自批**。严格档下不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）申请返回 `needApproval` 且不授予任何授权，留痕 `ptc-irreversible-blocked`。
+- feat(gate): **人工闸门改为默认开（B 方案）+ 文件审批链路**——上面那条"严格档默认关"等于安全幻觉，人类批示改为默认拦截 `rm-rf`：
+  - 拦截即写 `.focus-guard/approvals/pending_request.json`，`id = sha256(工具+命令) 前 12 位`（换一个字符即失效，防偷换）；理由里直接给出可照抄的命令：`node packages/core/tools/focusguard.mjs approve <id>`。
+  - 新增 CLI `tools/focusguard.mjs`：`pending` / `approve <id>` / `list` / `status`（`npm run focusguard -- approve <id>`）。
+  - 消费语义**一次性**：`consumeApproval()` 命中后删除批准文件与 pending，下一次同命令重新拦、重新申请；批错 id 一律失败。
+  - 默认只严抓 `rm-rf`（format-volume / drop-database / git-push-force 已被绝对红线层直接拦，到不了申请通道）；逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1`。
+  - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
   - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、

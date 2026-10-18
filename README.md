@@ -315,6 +315,9 @@ npm run check                                        # test + eval（pre-push �
 npm run library                                      # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
 npm run chain -- <AUDIT.log路径> [--mermaid]         # 执法档案因果树渲染
 npm run sentinel -- --check "<命令>"                  # 本地哨兵单条预判
+npm run focusguard -- pending                        # 查看待批请求（rm-rf 人工闸门）
+npm run focusguard -- approve <id>                   # 人类在终端批准该次不可逆操作（一次性）
+npm run focusguard -- list                           # 已批准未消费的请求
 npm run test:bridges                                 # 扩展包桥测试（单独跑）
 ```
 

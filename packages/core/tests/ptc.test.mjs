@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 // 两个开关都默认关，测试里显式打开，避免主线语义被悄悄改掉。
 
 process.env.FG_AUDIT_FILE = join(tmpdir(), `fg-ptc-audit-${process.pid}-${Date.now()}.log`);
+// 审批目录必须指向 tmpdir：人工闸门会写 pending_request.json，不能污染真实工作区
+process.env.FG_APPROVAL_DIR = join(tmpdir(), `fg-ptc-approvals-${process.pid}-${Date.now()}`);
 process.env.FG_SHELL = "";
 
 const gate = await import("../src/adapters/dsh/eligibility-gate.mjs");
@@ -84,8 +86,7 @@ test("静默秒批：可逆类别（publish）自动批准并留痕", async () =
   delete process.env.FG_PTC_AUTO_GRANT;
 });
 
-test("严格档：不可逆类别（rm-rf）不再自证自批", async () => {
-  process.env.FG_PTC_STRICT_IRREVERSIBLE = "1";
+test("人工闸门（默认开）：rm-rf 不再自证自批，且生成审批请求", async () => {
   const sid = `ptc-strict-${process.pid}`;
   gate.resetGrants(sid);
   const r = await gate.applyEligibility({
@@ -97,11 +98,13 @@ test("严格档：不可逆类别（rm-rf）不再自证自批", async () => {
     ttl: "turn",
     redlines: [],
   });
-  assert.equal(r.decision, "needApproval", "不可逆类别必须交人类");
-  assert.match(String(r.reason), /需人类明确批示/);
-  assert.equal(gate.gateToolCall({ session: sid, tool: "Bash", command: "rm -rf ./app-src" }).kind, "deny", "未授权前仍应拦");
+  assert.equal(r.decision, "needApproval", "rm-rf 默认应交人类");
+  assert.match(String(r.reason), /必须人类批准/);
+  assert.match(String(r.reason), /focusguard\.mjs approve/);
+  const pending = (await import("../src/core/approvals.mjs")).readApprovalRequest();
+  assert.ok(pending && pending.id, "应生成 pending_request.json");
+  assert.equal(gate.gateToolCall({ session: sid, tool: "Bash", command: "rm -rf ./app-src" }).kind, "deny", "未批准前仍应拦");
   gate.resetGrants(sid);
-  delete process.env.FG_PTC_STRICT_IRREVERSIBLE;
 });
 
 test("静默秒批：不可逆类别（write-system-path）不被秒批", async () => {

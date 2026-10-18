@@ -15,6 +15,19 @@ import { redlineExempt, isMutatingBashCmd } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
 import { AUDIT_FILE, appendAudit } from '../../core/audit-writer.mjs'
+import { createApprovalRequest, consumeApproval } from '../../core/approvals.mjs'
+
+/** 需要人工批准的不可逆类别（默认只严抓 rm-rf；strictAll 时扩到全部）。 */
+function strictGateHit(gateId) {
+  if (!PTC.strictIrreversible || !gateId) return false
+  if (gateId === 'rm-rf') return true
+  return PTC.strictAll && IRREVERSIBLE_IDS.includes(gateId)
+}
+
+/** 人工闸门的提示文案（模型侧可见，含可直接照抄的 CLI 命令）。 */
+function approvalHint(id) {
+  return `已生成审批请求 ${id}：请在终端执行 node packages/core/tools/focusguard.mjs approve ${id}，批准后重试本次调用即放行（一次性，ttl=turn）。`
+}
 
 /**
  * FGA-PTC 策略开关（主图 L3「默认只读 / 隐藏高危」+「静默秒批」）。
@@ -39,16 +52,21 @@ export const PTC = {
     return process.env.FG_PTC_AUTO_GRANT === '1'
   },
   /**
-   * 不可逆类别必须人工（2026-10-18 发现的口径漏洞）。
+   * 不可逆类别必须人工（2026-10-18 人类定 B 方案：**默认开**）。
    *
    * 病根：`applyOneEligibility` 在审核期给该工具**临时授权**，让母版 L3 不要被"无授权"挡在自己入口上；
-   * 副作用是 L3 一律通过 —— 于是 `rm -rf ./src` 这类不可逆删除也是**自证自批**，
-   * 与主图"秒批只给可逆类别"的意图相反。
-   * 本开关（默认关，避免打断既有流程）打开后：不可逆类别申请不再自动放行，
-   * 返回 needApproval 并由调用方交人类；可逆类别行为不变。
+   * 副作用是 L3 一律通过 —— 于是 `rm -rf ./src` 这类不可逆删除也是**自证自批**。
+   *
+   * 默认策略（人类批示）：**只严抓 `rm-rf`**（真正能走到申请通道的不可逆操作；
+   * format-volume / drop-database / git-push-force 已由绝对红线层直接拦，不经过申请）。
+   * 逃生口：`FG_PTC_ALLOW_RM_RF=1` 允许 rm-rf 自证自批（应急用，会在审计里留痕）。
+   * 扩展：`FG_PTC_STRICT_ALL=1` 把全部 IRREVERSIBLE_IDS 纳入人工闸。
    */
   get strictIrreversible() {
-    return process.env.FG_PTC_STRICT_IRREVERSIBLE === '1'
+    return process.env.FG_PTC_ALLOW_RM_RF !== '1'
+  },
+  get strictAll() {
+    return process.env.FG_PTC_STRICT_ALL === '1'
   },
 }
 
@@ -273,10 +291,40 @@ async function applyOneEligibility({
     grants,
     audit: (row) => auditEligibility({ session, ...row }),
   })
-  // FGA-PTC 严格档：不可逆类别不得自证自批（默认关；见 PTC.strictIrreversible 注释）。
+  // FGA-PTC 人工闸门（B 方案，默认开）：不可逆类别不得自证自批。
   const selfGateId = gatedReasonOf(tool, command) || ptcReasonOf(tool, command)
-  if (PTC.strictIrreversible && selfGateId && IRREVERSIBLE_IDS.includes(selfGateId) && !preGranted) {
+  if (selfGateId && !preGranted) {
+    // 人类已在终端批准过这条（同命令哈希）？消费后直接放行一次。
+    const consumed = consumeApproval(tool, command)
+    if (consumed.consumed) {
+      grants.grant(tool, { ttl, reason: `人工批准（approvals ${consumed.id}）`, layer: '6' })
+      auditEligibility({
+        session,
+        action: 'approval-consumed',
+        tool,
+        command: String(command ?? '').slice(0, 120),
+        layer: 'gate',
+        decision: 'allow',
+        evidence: consumed.id,
+      })
+      return {
+        decision: 'allow',
+        layer: '6',
+        reason: `人工已批准（${consumed.id}），本次放行（ttl=${ttl}）`,
+        modelSignal: null,
+        trace: [{ layer: 6, decision: 'allow', reason: `approval-consumed ${consumed.id}` }],
+      }
+    }
+  }
+  if (strictGateHit(selfGateId) && !preGranted && result.decision === 'allow') {
     grants.revoke(tool)
+    const req = createApprovalRequest({
+      session,
+      tool,
+      command,
+      gateId: selfGateId,
+      reason: '不可逆类别需人类批准（B 方案：rm-rf 默认拦截）',
+    })
     auditEligibility({
       session,
       action: 'ptc-irreversible-blocked',
@@ -284,14 +332,23 @@ async function applyOneEligibility({
       command: String(command ?? '').slice(0, 120),
       layer: 'gate',
       decision: 'needApproval',
-      evidence: selfGateId,
+      evidence: `${selfGateId} | request=${req.id}`,
+    })
+    auditEligibility({
+      session,
+      action: 'approval-requested',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'needApproval',
+      evidence: req.id,
     })
     return {
       decision: 'needApproval',
       layer: 'gate',
-      reason: `不可逆类别（${selfGateId}）需人类明确批示：请先向人类说明不可回滚后果，得到许可后再申请；本次未授予任何授权。`,
+      reason: `不可逆类别（${selfGateId}）必须人类批准，本次未授予任何授权。${approvalHint(req.id)}`,
       modelSignal: null,
-      trace: [{ layer: 6, decision: 'needApproval', reason: `ptc-irreversible ${selfGateId}` }],
+      trace: [{ layer: 6, decision: 'needApproval', reason: `ptc-irreversible ${selfGateId} request=${req.id}` }],
     }
   }
   // FGA-PTC 静默秒批（主图 L3 FGA3）：**可逆类别**不必等人工，审核期内直接授予并留痕；
@@ -339,6 +396,21 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
   }
   const grants = grantsFor(session)
   if (grants.has(tool)) return { kind: 'pass', granted: true }
+  // B 方案人工闸门：人类已在终端批准过这条命令 → 消费批准并放行一次。
+  const consumedHere = consumeApproval(tool, command)
+  if (consumedHere.consumed) {
+    grants.grant(tool, { ttl: 'turn', reason: `人工批准（approvals ${consumedHere.id}）`, layer: '6' })
+    auditEligibility({
+      session,
+      action: 'approval-consumed',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'allow',
+      evidence: consumedHere.id,
+    })
+    return { kind: 'pass', granted: true }
+  }
   // 2026-10-18 原生侧批量审批（主图 L3 FGA「静默秒批/合并出示」的原生实现）：
   // 每次拦截都进待批队列，后续拦截的理由里带上"另有 N 条待批"，让模型可以一次 fg_apply 批量申请，
   // 而不是每命中一条就往返两步（申请 + 重试）。
@@ -348,7 +420,28 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
     others.length > 0
       ? `；另有 ${others.length} 条待批已合并（可一次申请：tool="${[tool, ...others.map((x) => x.tool)].join(',')}"）`
       : ''
-  const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）${batchHint}`
+  // rm-rf（默认人工闸）：生成审批请求并把 CLI 命令直接写进理由，模型无需再猜怎么解。
+  let approvalPart = ''
+  if (strictGateHit(reason)) {
+    const req = createApprovalRequest({
+      session,
+      tool,
+      command,
+      gateId: reason,
+      reason: '不可逆类别需人类批准（B 方案：rm-rf 默认拦截）',
+    })
+    auditEligibility({
+      session,
+      action: 'approval-requested',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'needApproval',
+      evidence: req.id,
+    })
+    approvalPart = `；**不可逆操作需人类批准**：${approvalHint(req.id)}`
+  }
+  const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）${batchHint}${approvalPart}`
   auditEligibility({
     session,
     action: 'deny',
