@@ -1,5 +1,14 @@
 # 变更记录（CHANGELOG）
 
+## 未发版（3.0.7 之后累积）
+
+> 按人类决定的发版策略：不逐次升版本，累积约 100 条改动后统一 bump 并发布。
+
+- fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
+- fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
+- feat(tools): **卷宗【三】路径自检**——新增 `packages/core/tools/verify-case-paths.mjs`（只读核查，不删不改，`--json` 可机器读）。实测 81 行 / 有效 75 / 失效 6（均为 monorepo 迁移前布局，待人类批准后归档）。
+- refactor(layers): **消除三处分层越界**并固化断言——`protocol.mjs` 移入 `hooks/`（去掉 `zcode → adapter`）；审计写入器下沉 `src/core/audit-writer.mjs`、绝对红线表下沉 `src/core/redlines.mjs`（去掉 `adapter → seam`，`pipeline.mjs` 保留 re-export）；自检脚本移入 `tools/selftest.mjs`（工具不再放生产目录）。新增 `tests/layering.test.mjs` 锁死方向：`core → adapter → seam` 单向，禁止 `zcode → 适配层/宿主缝`，并显式承认组装根 `seam → adapter` 合法。
+
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
 > `packages/core/package.json`、`packages/extended/package.json`）及引擎 `ENGINE_VERSION` **完全相同**

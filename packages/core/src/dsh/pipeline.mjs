@@ -71,23 +71,10 @@ export function checkDiskVersion(warn = console.warn) {
 const RM_RF = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\b/
 
 // ── 第 1 层·绝对红线（零延迟短路 deny，不进第 2 层）──
-// rm 递归强删根/HOME 族：rm -rf / ... 、rm -rf ~ ...（后随任意字符即命中本档）
-// 2026-10-18 补两处射程（自检 A4 钉死）：
-//   ① 长旗标写法 `rm --recursive --force X`（正序/反序）——旧式短簇 `-\w*(r..f|f..r)` 认不出
-//      `--force`（第二个 `-` 不在 \w 里），于是最危险的那种写法反而漏网；
-//   ② 系统顶层目录 `/usr /etc ...`——`rm -rf /usr` 与 `rm -rf /` 是同一量级破坏，不能只认裸根。
-//      不含 `/tmp`：临时目录递归删除是常规构建行为，已由体积闸/资格闸覆盖，收进来就是误伤。
-const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*(?:-\w*(?:r\w*f|f\w*r)\w*|--recursive\s+(?:-{1,2}[\w-]+\s+)*--force|--force\s+(?:-{1,2}[\w-]+\s+)*--recursive)\s+["']?(?:[\/~][\/\s"']*(?=\s|["']|$)|\/(?:usr|etc|bin|sbin|lib(?:32|64)?|boot|dev|proc|sys|var|opt|root|home|media|mnt|srv|run)(?=[\/\s"']|$))/
-/** 破坏库结构：DROP DATABASE / DROP SCHEMA / TRUNCATE TABLE */
-const DROP_DB = /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i
-/** 强制推送：git push -f / --force / --force-with-lease */
-const GIT_PUSH_FORCE = /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i
-
-export const ABSOLUTE_REDLINES = [
-  { name: 'rm-rf-root', re: RM_RF_ROOT },
-  { name: 'drop-database', re: DROP_DB },
-  { name: 'git-push-force', re: GIT_PUSH_FORCE },
-]
+// 2026-10-18：红线表下沉到 src/core/redlines.mjs —— 适配层资格闸要用它，
+// 而适配层不能反向依赖宿主缝。此处保留 re-export，避免打断既有引用面。
+import { ABSOLUTE_REDLINES } from "../core/redlines.mjs"
+export { ABSOLUTE_REDLINES }
 
 /** 命中哪条绝对红线；未命中返回 null */
 export function redlineOf(cmd) {

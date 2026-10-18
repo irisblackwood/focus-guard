@@ -13,7 +13,7 @@
  */
 
 import { applyEligibility, grantFromAppeal, FG_APPLY_TOOL_SPEC, FG_APPEAL_TOOL_SPEC } from '../adapters/dsh/eligibility-gate.mjs'
-import { ABSOLUTE_REDLINES } from './pipeline.mjs'
+import { ABSOLUTE_REDLINES } from '../core/redlines.mjs'
 
 /** 简化参数表（{type,required,description,enum}）→ JSON Schema。 */
 function specToJsonSchema(spec = {}) {

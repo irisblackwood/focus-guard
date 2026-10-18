@@ -57,10 +57,12 @@ AI 智能体最常见的三种失控：
 
 | 层 | 位置 | 职责 |
 |---|---|---|
-| **母版层** | `packages/core/src/core/` | 零依赖、宿主无关的判定逻辑：六层资格审核 / 模型画像 / 绝对红线与上下文豁免 / 申辩 / 卷宗状态。**不得反向依赖适配层**（有验收用例锁定） |
-| **适配层** | `packages/core/src/adapters/dsh/` | 把母版接进 DSH：`fg_apply` / `fg_appeal` 工具注册 + 资格闸 |
-| **宿主缝** | `packages/core/src/dsh/pipeline.mjs` | DSH 原生插件的三条缝：pre-execute / system-prompt / post-execute |
-| **ZCode 执行壳** | `packages/core/hooks/guard.mjs` | 六事件钩子入口。**已封存**——ZCode 兼容层，版本号独立、不随主版本更新，改动须谨慎 |
+| **母版层** | `packages/core/src/core/` | 零依赖、宿主无关的判定逻辑：六层资格审核 / 模型画像 / 绝对红线与上下文豁免 / 申辩 / 卷宗状态 / 审计写入器。**不得反向依赖适配层**（有验收用例锁定） |
+| **适配层** | `packages/core/src/adapters/dsh/` | 把母版接进 DSH：`fg_apply` / `fg_appeal` 工具注册 + 资格闸。**只许向下依赖母版** |
+| **宿主缝** | `packages/core/src/dsh/pipeline.mjs` | DSH 原生插件的三条缝：pre-execute / system-prompt / post-execute。作为**组装根**允许调用适配层 |
+| **ZCode 执行壳** | `packages/core/hooks/guard.mjs` | 六事件钩子入口（`hooks.json` 协议接口保持不变）。**已封存**——ZCode 兼容层，版本号独立、不随主版本更新，改动须谨慎 |
+
+依赖方向由 `packages/core/tests/layering.test.mjs` 锁定：`core → adapter → seam` 单向，另禁止 `zcode → 适配层/宿主缝`。自检脚本 `packages/core/tools/selftest.mjs` 属工具层，不在生产源码目录。
 
 ## 快速开始
 

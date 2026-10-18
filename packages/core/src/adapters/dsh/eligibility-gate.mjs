@@ -14,7 +14,7 @@ import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVE
 import { redlineExempt } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
-import { AUDIT_FILE, appendAudit } from '../../dsh/audit.mjs'
+import { AUDIT_FILE, appendAudit } from '../../core/audit-writer.mjs'
 
 /** 对系统路径的写入类工具：与命令型高危同属"必须先申请"的门槛清单（显式成文）。 */
 export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
@@ -257,7 +257,7 @@ export async function grantFromAppeal({ session, tool, command = '' } = {}) {
   let redline = null
   try {
     // 路径相对本文件（src/adapters/dsh/）：上溯两级到 src/，再进 dsh/
-    const { ABSOLUTE_REDLINES } = await import('../../dsh/pipeline.mjs')
+    const { ABSOLUTE_REDLINES } = await import('../../core/redlines.mjs')
     const hit = (ABSOLUTE_REDLINES || []).find((r) => r && r.re && r.re.test(String(command)))
     if (hit) {
       grants.grant(`${REDLINE_GRANT_PREFIX}${hit.name}`, { ttl: 'turn', reason: '申辩获批红线豁免' })

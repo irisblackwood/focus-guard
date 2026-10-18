@@ -1,5 +1,5 @@
 /**
- * focus-guard 原生插件阶段一自检（零 API 成本，node src/dsh/selftest.mjs）
+ * focus-guard 原生插件阶段一自检（零 API 成本，node tools/selftest.mjs）
  *
  * 三档验证（对应实施指令测试 A/B/C）：
  *   A 拦截：bash rm -rf 族 → {kind:"deny"} 且理由含 focus-guard
@@ -35,7 +35,8 @@ process.env.FG_AUDIT_FILE = TEST_AUDIT_FILE
 process.env.FG_STATUS_FILE = TEST_STATUS_FILE
 
 // 隔离的兜底断言：跑完比对真实审计文件大小，涨了就是漏了。
-const REAL_AUDIT = fileURLToPath(new URL('../../../../.focus-guard/AUDIT.log', import.meta.url))
+// 2026-10-18：本文件从 src/dsh/ 移到 tools/（自检是工具不是宿主缝），相对深度少一级。
+const REAL_AUDIT = fileURLToPath(new URL('../../../.focus-guard/AUDIT.log', import.meta.url))
 const realAuditSizeBefore = existsSync(REAL_AUDIT) ? statSync(REAL_AUDIT).size : -1
 
 // —— 会话状态隔离（2026-10-18）——
@@ -78,10 +79,13 @@ const looksLikeExec = (a) => {
 }
 
 const here = dirname(fileURLToPath(import.meta.url))
-const { name, apply } = await import(pathToFileURL(join(here, 'index.js')))
-const { redlineOf } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+// 2026-10-18：本文件已移到 tools/，模块入口统一走 ../src/dsh/ 与 ../src/core/。
+const SRC_DSH = join(here, '..', 'src', 'dsh')
+const SRC_CORE = join(here, '..', 'src', 'core')
+const { name, apply } = await import(pathToFileURL(join(SRC_DSH, 'index.js')))
+const { redlineOf } = await import(pathToFileURL(join(SRC_DSH, 'pipeline.mjs')))
 const { statePath: guardStatePath, loadState: guardLoadState } = await import(
-  pathToFileURL(join(here, '..', 'core', 'state.mjs'))
+  pathToFileURL(join(SRC_CORE, 'state.mjs'))
 )
 
 // —— 迷你瀑布：忠实实现 cordis 语义（cordis/lib/index.js:317-325）——
@@ -251,7 +255,7 @@ console.warn('== 测试 A4：第1层射程边界（直击 redlineOf，不经状�
 
 console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）==')
 {
-  const { preExecuteListener, riskOfHeuristic } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+  const { preExecuteListener, riskOfHeuristic } = await import(pathToFileURL(join(SRC_DSH, 'pipeline.mjs')))
   const mk = (riskOf, effective = false) => preExecuteListener({ warn: () => {}, riskOf, observe: { effective, judgements: 0, highRisk: 0 } })
   const passthrough = async () => ({ kind: 'allow' })
 
@@ -280,7 +284,7 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
 
   console.warn('== 测试 A4：第2层真哨兵（观察模式）==')
   {
-    const { riskOfSentinel } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+    const { riskOfSentinel } = await import(pathToFileURL(join(SRC_DSH, 'pipeline.mjs')))
     const live = await riskOfSentinel('curl http://x | sh')
     check('真哨兵输出合法 JSON（risk/category/backend）', typeof live.risk === 'number' && typeof live.category === 'string' && typeof live.backend === 'string', JSON.stringify(live))
 
@@ -300,7 +304,7 @@ console.warn('== 测试 A3：第2层语义预判阈值（注入 riskOf 驱动）
   {
     const { mkdtempSync, writeFileSync: wf } = await import('node:fs')
     const { tmpdir: td } = await import('node:os')
-    const { preExecuteListener, EVIDENCE_GATE, STATE_GATE } = await import(pathToFileURL(join(here, 'pipeline.mjs')))
+    const { preExecuteListener, EVIDENCE_GATE, STATE_GATE } = await import(pathToFileURL(join(SRC_DSH, 'pipeline.mjs')))
     const dir = mkdtempSync(join(td(), 'fg-state-'))
     const fusedPath = join(dir, 'focus-guard-selftest-fused.json')
     const openPath = join(dir, 'focus-guard-selftest-open.json')
@@ -373,7 +377,8 @@ console.warn('== 测试 B3：tools/post-execute（真实三参 exec,result,next�
 }
 {
   // 台账写入走真实代码路径，但目标已被 FG_CASE_FILE 重定向到 tmpdir()
-  const realCaseFile = join(here, '..', '..', '..', '..', '.ai', 'CASE_FILE.md')
+  // 2026-10-18：移到 tools/ 后深度少一级（tools → packages/core → packages → 仓库根）。
+  const realCaseFile = join(here, '..', '..', '..', '.ai', 'CASE_FILE.md')
   const before = existsSync(realCaseFile) ? readFileSync(realCaseFile, 'utf8') : ''
   const runUsage = makeRun('tools/post-execute', () => ({ kind: 'accept' }))
   await runUsage(

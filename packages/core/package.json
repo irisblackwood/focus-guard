@@ -24,7 +24,7 @@
     "bench": "node tests/token-bench.mjs hooks/guard.mjs",
     "check": "npm run test:all && npm run eval && npm run selftest",
     "test:all": "cd ../.. && node packages/core/tests/audit-isolation.mjs",
-    "selftest": "node src/dsh/selftest.mjs"
+    "selftest": "node tools/selftest.mjs"
   },
   "dsh": {
     "bundle": {
