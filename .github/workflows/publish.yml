@@ -24,7 +24,9 @@ permissions:
 jobs:
   publish:
     name: npm publish (OIDC)
-    runs-on: ubuntu-latest
+    # 验收套件里有 4 条 Windows 专用断言（shell 检测的 win32 分支），仓库 CI 同样把 Linux 标为观察项。
+    # 发布闸必须跑在必过平台上，否则会被这些用例挡住（2026-10-18 实测：ubuntu 上 Test suite 红）。
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
