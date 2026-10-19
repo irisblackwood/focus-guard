@@ -36,7 +36,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **P0** | 压缩监察留痕 | ✅ | `src/dsh/compactionWatch.mjs:239` |
 | **P0** | 审计沙箱（自证写入 / 隔离污染） | ✅ | `tests/audit-isolation.mjs`、`src/core/audit-writer.mjs` |
 | **L1** | 模型底座（DeepSeek Flash，MoE/字面执行） | ✅ | 画像文件 `src/profiles/deepseek-flash.mjs` |
-| **L1** | 画像包 · `evasionRisk: high` | ⬜ | 全仓 0 命中（`evasionRisk`） |
+| **L1** | 画像包 · `evasionRisk: high` | ✅ | 字段在五份画像（`src/profiles/*.mjs`，取值标 TODO(实测)）；解析**唯一真源** `src/core/profileLoader.mjs` 的 `approvalScopeOf()`：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high`/缺省/非法 → `mutating`；`checkEligibility.profileScope()` 委托它，pre-execute 闸 `gateToolCall` 走同一入口；用例 `tests/profile.test.mjs` g1-g4（含「low 放行 publish、rm-rf 仍转人工」与「显式优先」） |
 | **L1** | 画像包 · 相位对抗（A/B/C 变体破 KV 盲区） | ⬜ | 全仓 0 命中（`相位`）|
 | **L1** | 画像包 · 神鬼缓冲垫（Nudge 重试 / 微创切除） | ⬜ | 全仓 0 命中（`Nudge`）|
 | **L2** | 系统提示 / 示例池 / 严格模式 | ✅ | `src/dsh/pipeline.mjs` assemble 注入（rules + cost + workspace 三段）|
@@ -73,9 +73,10 @@ L6 处置结果与伪 RLHF 反馈闭环
 | # | 缺口 | 影响 | 建议做法 |
 |---|---|---|---|
 | 1 | **FGA 默认只读 / 隐藏高危工具** | 每步固定前缀实测 **≈127k tokens（253 个工具）**——主图里唯一真正压 token 的一块 | 需宿主支持"按任务动态暴露工具"；FG 侧只能建议。落地前先用 `bench:ab` 记基线 |
-| 2 | 画像包三件（evasionRisk / 相位对抗 / Nudge） | 影响"越狱抵抗"与重试成本，不影响主流程 | 先做 `evasionRisk` 字段（纯参数）→ 再评估相位对抗（对抗同前缀缓存盲区）|
+| 2 | 画像包剩余两件（相位对抗 / Nudge 缓冲垫） | 影响"越狱抵抗"与重试成本，不影响主流程；`evasionRisk` **已接**（见状态表，取值未实测） | 相位对抗需要 KV 缓存盲区的测量手段，当前没有 → 记缺不做；Nudge 缓冲垫同理（先有测量再加机制）|
 | 3 | 伪 RLHF 闭环只做了一半 | 有 A/B 与成本数据，但**没有回流** | 把 `bench:ab` 结论写回 `src/profiles/*.mjs` 的参数（人工批准制），形成"测量→调参→再测" |
 | 4 | 反规避的随机熔断未参数化 | 抽查有、随机熔断没有 | 用 `RANDOM_AUDIT_EVERY` 之外的独立参数，2-5 次随机一次，勿与抽查混 |
+| 5 | **缺 3.0.8 面板基线**（人类 2026-10-19 确认暂无数据） | 没有基线，L1/L6 的任何"优化了多少"都无法复算，只能写条件性结论 | 按 `AB-PROMPTS.md` P0 节采集：同 web profile、同 8 任务、每轮开新会话、被拦禁止重试，连跑 ≥5 次；只记面板六项 + session id + steps/denies，取中位数；判定口径必须能由「3 个面板数 + 1 个 session id + 1 个公式」复算 |
 
 ---
 

@@ -17,7 +17,7 @@
 
 import { isMutating } from "./risk.mjs";
 import { createGrantTable } from "./grants.mjs";
-import { layerEnabled, unimplementedSwitches } from "./profileLoader.mjs";
+import { layerEnabled, unimplementedSwitches, approvalScopeOf } from "./profileLoader.mjs";
 import { redlineExempt } from "./redlines.mjs";
 
 /** 第 5 层语义风险的审批阈值（与 pipeline 的 RISK_ASK_THRESHOLD 同值）。 */
@@ -50,11 +50,14 @@ export const IRREVERSIBLE_IDS = ["rm-rf", "format-volume", "drop-database", "git
 /**
  * 取画像的审批范围。缺字段或非法值一律按最严 'mutating'（保守优先）。
  * 注意：本函数只决定"哪些类别需审批"，**不决定审批层是否启用**——审批层不可被画像关闭。
+ *
+ * 3.0.8 后：解析逻辑收敛到 `profileLoader.approvalScopeOf`（唯一真源）——
+ * 显式 `approvalGate.scope` 优先，否则由 L1 画像包的 `evasionRisk` 派生
+ * （low → 'irreversible' 只收不可逆类别；high / 缺省 → 'mutating'，与旧行为一致）。
+ * 本函数保留为既有调用点的稳定入口（`eligibility-gate.mjs` 直接 import 它）。
  */
 export function profileScope(profile) {
-  const entry = profile && profile.approvalGate;
-  const scope = entry && typeof entry === "object" ? entry.scope : undefined;
-  return scope === "irreversible" ? "irreversible" : "mutating";
+  return approvalScopeOf(profile);
 }
 
 /** 命中哪条高危特征（未命中返回 null）。 */

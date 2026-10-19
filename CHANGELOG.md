@@ -1,5 +1,15 @@
 # 变更记录（CHANGELOG）
 
+## 未发版 · 2026-10-19
+
+> 本区为 3.0.8 之后的累积改动：**不自行 bump 版本**，满一批后由人类决定统一升版发布（npm 上最新仍是 3.0.7 / MIT / 不可撤销）。
+
+- feat(profile): **L1 画像包 `evasionRisk` 接线**（ARCH-MAP 主图 L1 第一件）——五份画像新增纯参数字段 `evasionRisk`（`high` / `low`，取值标 `TODO(实测)`，当前一律 `high` = 与 3.0.8 行为一致）；解析收敛到 `src/core/profileLoader.mjs` 的 `approvalScopeOf()`（**唯一真源**）：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high` / 缺省 / 非法 → `mutating`；`checkEligibility.profileScope()` 改为委托它，pre-execute 闸 `gateToolCall` 因此天然同源。
+  - 安全边界：不可逆类别（`rm-rf` / `format-volume` / `drop-database` / `git-push-force` / `write-system-path`）在**任何** scope 下都要审批——本字段只能把范围「收窄到不可逆」，永远放不掉它们；审批层仍不可被画像关闭（`FORCED_ON_SWITCHES`）。
+  - 数据整理：`deepseek-flash` / `deepseek-pro` / `glm` / `default` 去掉冗余的 `scope: 'mutating'`（= 派生默认值，行为不变）；`gpt-astra` 保留显式 `scope: 'irreversible'`，并用例锁死「显式优先」。
+  - 测试：`tests/profile.test.mjs` 新增 g1-g4（五画像派生回归锁 / 派生三分支与显式优先 / low 放行 `publish` 但 `rm-rf` 仍转人工 / 闸与母版同源）。实测 `node --test packages/core/tests/profile.test.mjs` **12/12** 通过。
+- docs: `ARCH-MAP.md` 同步——L1 `evasionRisk` 由 ⬜ 改 ✅，缺口 #2 改为「剩余两件」，并新增缺口 #5「**缺 3.0.8 面板基线**」（本轮人类确认暂无面板数据，故不出环比表、不编造基线）。
+
 ## 3.0.8 · 2026-10-19
 
 > v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3

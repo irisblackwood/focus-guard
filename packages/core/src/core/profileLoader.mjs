@@ -1,6 +1,7 @@
 // FocusGuard 母版层 · 画像加载器（3.0.5）
 //
-// 职责：① modelId → 画像对象；② 层 → 子开关映射；③ 开关判定；④ 未实现开关登记。
+// 职责：① modelId → 画像对象；② 层 → 子开关映射；③ 开关判定；④ 未实现开关登记；
+//      ⑤ 审批 scope 解析（显式 `approvalGate.scope` 优先，否则由 L1 的 `evasionRisk` 派生）。
 // 纪律：**只做数据查表**，禁止按 modelId 做全等判断的硬编码分支；
 //      匹配不到一律回落 default 画像（最严治理）。
 // 层→开关的拆分依据：领导 2026-10-09 批复——L1 拆成 stalledFuse 与 budgetGate 两个子判据；
@@ -61,6 +62,40 @@ export function normalizeModelId(modelId) {
  * （HANDOFF §十 安全项，子代理实测）。加载时强制启用并留痕，不静默接受。
  */
 export const FORCED_ON_SWITCHES = ['approvalGate']
+
+/** 审批范围合法值（与 checkEligibility 的 L3 判定对齐）。 */
+export const APPROVAL_SCOPES = ['mutating', 'irreversible']
+
+/** 规避风险合法值。 */
+export const EVASION_RISKS = ['high', 'low']
+
+/**
+ * 画像的规避风险（`evasionRisk`，L1 画像包的纯参数字段）。
+ * 缺失、非字符串、非法值一律按最严 `high`（保守优先，不误放行）。
+ * 取值尚未实测（各画像标 TODO(实测)），当前一律 `high` = 与 3.0.8 行为一致。
+ */
+export function evasionRiskOf(profile) {
+  const raw = profile && profile.evasionRisk
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return EVASION_RISKS.includes(value) ? value : 'high'
+}
+
+/**
+ * 画像的**审批范围**——全仓唯一真源（`checkEligibility.profileScope` 委托到这里）。
+ *
+ * 解析顺序：① 显式 `approvalGate.scope`（合法即用，数据优先）→ ② 由 `evasionRisk` 派生：
+ *   low → `irreversible`（只收不可逆类别）；high / 缺省 / 非法 → `mutating`（全部高危类别）。
+ *
+ * 安全边界：`IRREVERSIBLE_IDS`（rm-rf / format-volume / drop-database / git-push-force /
+ * write-system-path）在**任何** scope 下都需要审批——本函数只能把范围收窄到不可逆，永远放不掉它们。
+ * 本函数也不决定审批层是否启用：审批层不可被画像关闭（FORCED_ON_SWITCHES）。
+ */
+export function approvalScopeOf(profile) {
+  const entry = profile && profile.approvalGate
+  const explicit = entry && typeof entry === 'object' ? entry.scope : undefined
+  if (APPROVAL_SCOPES.includes(explicit)) return explicit
+  return evasionRiskOf(profile) === 'low' ? 'irreversible' : 'mutating'
+}
 
 /**
  * 落地画像：浅拷贝 + 标注来源 + 强制不可关闭的开关保持启用。

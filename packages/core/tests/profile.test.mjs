@@ -5,9 +5,22 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { checkEligibility } from "../src/core/checkEligibility.mjs";
-import { loadProfile, PROFILES, LAYER_SWITCHES, layerEnabled, unimplementedSwitches } from "../src/core/profileLoader.mjs";
+import { checkEligibility, profileScope } from "../src/core/checkEligibility.mjs";
+import {
+  loadProfile,
+  PROFILES,
+  LAYER_SWITCHES,
+  layerEnabled,
+  unimplementedSwitches,
+  approvalScopeOf,
+  evasionRiskOf,
+  EVASION_RISKS,
+} from "../src/core/profileLoader.mjs";
+import { gateToolCall } from "../src/adapters/dsh/eligibility-gate.mjs";
 import { decide, skippedFromTrace, activeFromTrace } from "../src/core/decisionEngine.mjs";
 
 const PROFILE_IDS = ["deepseek-flash", "deepseek-pro", "glm", "gpt-astra", "default"];
@@ -129,5 +142,105 @@ describe("3.0.5 · 模型画像", () => {
     assert.equal(calls[0].action, "grant");
     assert.ok(Array.isArray(calls[0].skipped), "audit 记录应含 skipped 数组");
     assert.ok(calls[0].skipped.some((s) => s.layer === "4"), "L4 应写进审计 skipped");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L1 画像包 · evasionRisk → 审批 scope（未发版）
+//
+// 口径：evasionRisk 是**纯参数**（画像文件里只有数据），解析收敛到 profileLoader.approvalScopeOf：
+// ① 显式 approvalGate.scope 优先；② 否则 low → 'irreversible'、high/缺省/非法 → 'mutating'。
+// 安全边界：不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）
+// 在任何 scope 下都要审批——本字段只能「收窄到不可逆」，放不掉它们。
+// ─────────────────────────────────────────────────────────────────────────────
+describe("L1 画像包 · evasionRisk → 审批 scope", () => {
+  const LEGACY_SCOPE = {
+    "deepseek-flash": "mutating",
+    "deepseek-pro": "mutating",
+    glm: "mutating",
+    "gpt-astra": "irreversible",
+    default: "mutating",
+  };
+
+  test("g1. 五画像带合法 evasionRisk，派生结果与旧口径逐一相同（回归锁）", () => {
+    for (const id of PROFILE_IDS) {
+      const p = loadProfile(id);
+      assert.ok(EVASION_RISKS.includes(p.evasionRisk), `${id}.evasionRisk 应为 ${EVASION_RISKS.join("/")}`);
+      assert.equal(evasionRiskOf(p), p.evasionRisk, `${id} 的 evasionRisk 应被原样识别`);
+      assert.equal(approvalScopeOf(p), LEGACY_SCOPE[id], `${id} 的审批 scope 必须与 3.0.8 前口径一致`);
+      assert.equal(profileScope(p), approvalScopeOf(p), "profileScope 必须委托 approvalScopeOf（单一真源）");
+    }
+    // 兜底画像不得被低设成「只收不可逆」
+    assert.equal(loadProfile("").evasionRisk, "high");
+  });
+
+  test("g2. 派生三分支 / 显式 scope 优先 / 非法值一律按最严", () => {
+    assert.equal(approvalScopeOf({ evasionRisk: "low" }), "irreversible");
+    assert.equal(approvalScopeOf({ evasionRisk: "low" }), "irreversible");
+    assert.equal(approvalScopeOf({ evasionRisk: " HIGH " }), "mutating", "大小写/空白应归一化");
+    assert.equal(approvalScopeOf({}), "mutating", "缺字段按最严");
+    assert.equal(approvalScopeOf(null), "mutating");
+    assert.equal(approvalScopeOf({ evasionRisk: "medium" }), "mutating", "非法值按最严");
+    assert.equal(evasionRiskOf({ evasionRisk: 1 }), "high", "非字符串按最严");
+    // 显式 scope 优先（数据 > 派生）
+    assert.equal(approvalScopeOf({ evasionRisk: "low", approvalGate: { scope: "mutating" } }), "mutating");
+    assert.equal(approvalScopeOf({ evasionRisk: "high", approvalGate: { scope: "irreversible" } }), "irreversible");
+    assert.equal(
+      approvalScopeOf({ evasionRisk: "low", approvalGate: { scope: "bogus" } }),
+      "irreversible",
+      "非法显式值应回落到派生",
+    );
+  });
+
+  test("g3. 端到端：low 画像放行 publish，但不放行不可逆 rm-rf", async () => {
+    const low = { id: "low", evasionRisk: "low", approvalGate: { enabled: true } };
+    const high = { id: "high", evasionRisk: "high", approvalGate: { enabled: true } };
+    const base = { tool: "Bash", purpose: "依赖发布演练", scope: "仅本地 dry-run", redlines: [], state: {} };
+
+    const pubLow = await checkEligibility({ ...base, command: "npm publish --dry-run", profile: low });
+    const pubHigh = await checkEligibility({ ...base, command: "npm publish --dry-run", profile: high });
+    console.log("[g3] publish @low:", pubLow.decision, "L" + pubLow.layer, "| @high:", pubHigh.decision, "L" + pubHigh.layer);
+    assert.equal(pubLow.decision, "allow", "publish 属可逆类别，超出 low 画像的审批范围 → 放行");
+    assert.equal(pubHigh.decision, "needApproval", "high 画像 scope=mutating → publish 转人工");
+    assert.equal(pubHigh.layer, "3");
+
+    const rmLow = await checkEligibility({ ...base, command: "rm -rf ./src", profile: low });
+    const rmHigh = await checkEligibility({ ...base, command: "rm -rf ./src", profile: high });
+    console.log("[g3] rm-rf @low:", rmLow.decision, "L" + rmLow.layer, "| @high:", rmHigh.decision, "L" + rmHigh.layer);
+    assert.equal(rmLow.decision, "needApproval", "不可逆类别在 low 画像下仍必须审批");
+    assert.equal(rmHigh.decision, "needApproval");
+    assert.equal(rmLow.layer, "3");
+  });
+
+  test("g4. pre-execute 闸同源：low 画像下 publish 以 outOfScope 放行、high 画像下仍 deny", () => {
+    // 闸的 deny 分支会写审计 → 必须重定向到 tmpdir（2026-10-09 事故：套件写进真实 AUDIT.log）。
+    const tmpAudit = join(tmpdir(), `fg-profile-evasion-${process.pid}.log`);
+    const prev = process.env.FG_AUDIT_FILE;
+    process.env.FG_AUDIT_FILE = tmpAudit;
+    try {
+      const low = { id: "low", evasionRisk: "low", approvalGate: { enabled: true } };
+      const out = gateToolCall({ session: "profile-evasion-g4", tool: "Bash", command: "npm publish --dry-run", profile: low });
+      console.log("[g4] gate @low:", JSON.stringify(out));
+      assert.equal(out.kind, "pass", "闸必须与母版 L3 同源，不得在此分叉出 deny");
+      assert.equal(out.outOfScope, true, "应明确标记为「超出审批范围」而非「已授权」");
+
+      const strict = gateToolCall({
+        session: "profile-evasion-g4",
+        tool: "Bash",
+        command: "npm publish --dry-run",
+        profile: { id: "high", evasionRisk: "high", approvalGate: { enabled: true } },
+      });
+      assert.equal(strict.kind, "deny", "high 画像下 publish 无授权 → 闸应拦，并指引 fg_apply");
+      assert.match(strict.reason, /fg_apply/);
+      assert.ok(existsSync(tmpAudit), "deny 必须留痕（写的是 tmpdir，不是真实工作区）");
+    } finally {
+      if (prev === undefined) delete process.env.FG_AUDIT_FILE;
+      else process.env.FG_AUDIT_FILE = prev;
+      try {
+        rmSync(tmpAudit, { force: true });
+      } catch {
+        /* 清理失败可忽略 */
+      }
+    }
   });
 });

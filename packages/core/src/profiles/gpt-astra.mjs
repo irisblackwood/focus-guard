@@ -9,10 +9,15 @@
 //   stalledFuse   off  → 停滞熔断子判据不启用
 //   emotionFilter off  → 仅登记项，本就不绑定执行
 //   approvalGate scope: 'irreversible' → 高危资格收窄到不可逆操作
+//   evasionRisk: 'low' → 与上面同向；但**显式 scope 优先**，本文件保留显式值作数据
 
 export default {
   id: 'gpt-astra',
   displayName: 'GPT Astra',
+
+  // —— 规避风险（L1 画像包）——
+  // 决定审批 scope 的派生默认（见 core/profileLoader.mjs 的 approvalScopeOf）。
+  evasionRisk: 'low', // TODO(实测)：未校准；下方 approvalGate.scope 是显式值，优先于本派生
 
   // —— 治理层开关（每个维度独立）——
   stalledFuse: { enabled: false, threshold: 3 }, // TODO(实测)：关闭
@@ -20,7 +25,7 @@ export default {
   reasoningWatch: { enabled: true, maxSeconds: 90 }, // TODO：引擎未实现，仅登记
   evidenceGate: { enabled: false }, // 差异化：关闭 L4 未取证闸
   emotionFilter: { enabled: false }, // TODO：引擎未实现，仅登记
-  approvalGate: { enabled: true, scope: 'irreversible' }, // L3：仅不可逆操作需审批
+  approvalGate: { enabled: true, scope: 'irreversible' }, // L3：仅不可逆操作需审批（显式 scope 优先于 evasionRisk）
   redlineGate: { enabled: true }, // L2 绝对红线
 
   // —— API 兼容度（供适配层选路）——

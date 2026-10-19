@@ -8,13 +8,19 @@ export default {
   id: 'deepseek-flash',
   displayName: 'DeepSeek V4.1 Flash',
 
+  // —— 规避风险（L1 画像包）——
+  // 决定审批 scope 的派生默认（见 core/profileLoader.mjs 的 approvalScopeOf）：
+  //   low → 审批只收不可逆类别（IRREVERSIBLE_IDS）；high / 缺省 → 全部高危类别都需审批。
+  // 不可逆类别在任何取值下都要审批，本字段只会「收窄到不可逆」，不会放掉它们。
+  evasionRisk: 'high', // TODO(实测)：未校准，'high' = 与 3.0.8 行为一致（全部高危类别需审批）
+
   // —— 治理层开关（每个维度独立）——
   stalledFuse: { enabled: true, threshold: 3 }, // TODO(实测)：停滞熔断阈值
   budgetGate: { enabled: true, ceiling: 200 }, // TODO(实测)：预算上限
   reasoningWatch: { enabled: true, maxSeconds: 90 }, // TODO：引擎未实现，仅登记
   evidenceGate: { enabled: true }, // L4 未取证
   emotionFilter: { enabled: true }, // TODO：引擎未实现，仅登记
-  approvalGate: { enabled: true, scope: 'mutating' }, // L3 高危资格
+  approvalGate: { enabled: true }, // L3 高危资格（scope 派生自 evasionRisk，显式 scope 优先）
   redlineGate: { enabled: true }, // L2 绝对红线
 
   // —— API 兼容度（供适配层选路）——
