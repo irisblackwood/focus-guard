@@ -1,8 +1,11 @@
 # 变更记录（CHANGELOG）
 
-## 未发版（3.0.7 之后累积）
+## 3.0.8 · 2026-10-19
 
-> 按人类决定的发版策略：不逐次升版本，累积约 100 条改动后统一 bump 并发布。
+> v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3
+
+> 发布状态：in-tree（未发布到 npm）。npm 上最新仍是 `3.0.7`（MIT 授权、不可撤销）。
+> 本节原为「未发版」累积区，人类于 2026-10-19 要求升版本并切换 AGPLv3，故转为正式条目。
 
 - fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
 - fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
@@ -34,7 +37,8 @@
   - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
   - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
 - fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
-- chore(license): **改为 PolyForm Noncommercial 1.0.0（个人/社区免费，禁止商用）**——人类明确了授权意图：个人电脑部署与社区使用免费，但不允许盈利。Apache-2.0 与 MIT 都是商业友好的宽松许可，表达不了"非商业"，故整体替换：
+- chore(license): **全面切换为 AGPLv3 + 商业双授权**——`LICENSE` 换为标准 GNU Affero GPL v3.0 全文（34.5KB，含版权头与商业授权说明），三处 `package.json` 的 `license` 改为 `AGPL-3.0-only`，`NOTICE` 写清双授权与商标，README 顶部加显眼双授权声明、底部 License 节重写。相比 PolyForm NC：AGPL 允许商用但强制开源网络服务，对"资本入场"的约束是**同化**而非**禁止**，同时保留商业授权通道。
+- chore(license): **（已被上一条取代）曾改为 PolyForm Noncommercial 1.0.0**——人类明确了授权意图：个人电脑部署与社区使用免费，但不允许盈利。Apache-2.0 与 MIT 都是商业友好的宽松许可，表达不了"非商业"，故整体替换：
   - `LICENSE` = PolyForm Noncommercial 1.0.0 原文（4,563 字节）+ `Required Notice` 行 + 中英双语商用授权说明（个人学习/研究/业余项目/非营利社区免费；企业内部生产、收费产品/服务、SaaS 转售一律禁止；商用需单独授权）。
   - `NOTICE` 同步；三处 `package.json` 的 `license` 改为 `PolyForm-Noncommercial-1.0.0`；三份 README 的许可行与徽章同步。
   - 说明：**非 OSI 开源**（source-available）。已发布的 `focus-guard@3.0.7` 仍是 MIT，许可不可撤销、不追溯；本许可自下一个发布版本生效。上一版短暂的 Apache-2.0 从未发布，无对外影响。

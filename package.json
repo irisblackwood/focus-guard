@@ -1,6 +1,6 @@
 {
   "name": "focus-guard-monorepo",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "private": true,
   "description": "FocusGuard 聚焦护栏 monorepo：packages/core（focus-guard，零依赖范本）+ packages/extended（focus-guard-extended，外接三件套衍生包）。下载核心包永不拉取扩展依赖。",
   "workspaces": [
@@ -25,7 +25,7 @@
     "bench:ab": "node packages/core/tools/bench-ab.mjs",
     "focusguard": "node packages/core/tools/focusguard.mjs"
   },
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=18.17"
   },

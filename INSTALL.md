@@ -1,4 +1,4 @@
-# FocusGuard 安装指南（v3.0.7）
+# FocusGuard 安装指南（v3.0.8）
 
 前置要求：Node.js ≥ 18.17（引擎零依赖，仅用内置模块；与 `package.json` 的 `engines` 一致）。逐行验证：
 

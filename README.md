@@ -3,17 +3,23 @@
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.0.7-369eff)](CHANGELOG.md)
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-orange.svg)](LICENSE)
+[![version](https://img.shields.io/badge/version-3.0.8-369eff)](CHANGELOG.md)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-**DSH 原生插件（3.0.5+）** + **ZCode 钩子** · 零依赖 · 钩子层 AI 行为治理
+> ### License
 
-> **Hook-level guardrails for DSH**: blocks unverified edits, high-risk commands, and context-burning reads — with an auditable trail for every block.
+**This project is licensed under the GNU Affero General Public License v3.0 (AGPLv3).**
+**For commercial use (including but not limited to SaaS, closed-source internal enterprise deployment), a commercial license is required.**
 
-> **FocusGuard 不是另一把 Hook 枪，它是 AI 行为治理的完整体系**：立法（法条定标准）→ 执法（引擎机械执行）→ 监察（全程留痕可复核）。日常对话零打扰，一旦出现未取证就改、结论无锚点、整读大文件烧上下文、无限空转等失控行为，立刻按梯度处罚——打回、强制取证、熔断、记档、降权、上报，人类随时可复核。
+本项目采用 **GNU Affero General Public License v3.0（AGPL-3.0-only）** 授权。
+**商业使用（包括但不限于 SaaS、闭源企业内部部署、收费产品与服务）需另行取得商业授权。**
 
-它不是提示词里的一句"请不要乱来"，而是把失控行为变成**钩子层可机械拦截的事件**。
+- 个人 / 学习 / 研究 / 非营利使用：直接按 AGPLv3 使用，无需申请
+- 修改后通过网络向用户提供服务：按 AGPLv3 第 13 条，须向这些用户提供你修改版的完整对应源码
+- 商业授权与商标使用：联系作者（GitHub: [@irisblackwood](https://github.com/irisblackwood)）
+- 商标：`FocusGuard`、`聚焦护栏` 及项目标识保留，衍生版本不得沿用或暗示背书
+- 贡献条款见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 30 秒速览
 
@@ -351,8 +357,9 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 ## 版本与变更
 
-当前 **v3.0.7**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
+当前 **v3.0.8**。完整历史见 [CHANGELOG.md](CHANGELOG.md)。近期版本：
 
+- **3.0.8 AGPLv3 + 按需自证**：许可切换为 AGPL-3.0-only + 商业双授权；存活状态改为 Lazy Liveness（心跳只写 `status.json`、不进 Prompt，徽标只在拦截/申请/压缩三处出现）；
 - **3.0.7 运行面与自证**：心跳/存活确认（`status.json` + 11 模块自检 + `focus-guard-degraded` 注入）、L4 跨会话卷宗（按 `sha256(realpath(cwd))` 路由，hash 不符零注入）、第 1.4 层整文件读取闸（>300 行指向 XERJ `search`/`def`）、第 1.3 层 Superpowers 动笔闸（模糊开发任务先加载方法论）、破坏性 API 按目标分级、压缩监察、`FG_AUDIT_FILE` 优先 + deny 记录真实 trigger、审计零增长守卫；**首次通过 GitHub Actions OIDC（Trusted Publishing）发布，包内不含任何长期凭据**；
 - **3.0.6 绝对红线上下文豁免与司法救济**：`redlineExempt()` 三判据（引号内 / 数据标记 / 只读命令）把"被引用的危险命令字符串"**降级**到语义预判，执行外壳一律不豁免；新增 **误伤申辩程序** `fg_appeal`（司法救济通道，补齐"只有立法救济、没有个案当场申辩"的结构缺口）；画像接入真实 pre-execute 链路 + 画像/豁免在真实入口失效的 4 项修复；审批层不可被画像关闭；`approvalGate.scope` 由死配置变真判定；闸接入红线豁免、红线判据 span 稳定化、取证闸对新建文件不再死锁；条款清理 91→87；**版本面补全为 8 处**（此前漏了 monorepo 子包，导致"清单齐 3.0.4 而代码已 3.0.6"）；
 - **3.0.5 事前资格审核与模型画像**：`checkEligibility` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权留痕）+ `fg_apply` 双入口闭环（申请 → 审核 → 按 session 授权）；`src/profiles/` 五份纯参数模型画像 + `profileLoader` 按画像跳层；环境指纹与命令硬校验（`grep`→`rg`、`find`→`fd`）；`guard.mjs` 三次拆出 `src/core/` 九个模块与 `src/adapters/dsh/protocol.mjs`（1707 → 1142 行）；

@@ -1,12 +1,19 @@
 FocusGuard (focus-guard)
-Copyright 2026 irisblackwood
+Copyright (C) 2026 irisblackwood
 
-Required Notice: Copyright 2026 irisblackwood (https://github.com/irisblackwood/focus-guard)
+Dual licensing
+--------------
+This project is licensed under the GNU Affero General Public License v3.0
+(AGPL-3.0-only). See LICENSE for the full text.
 
-Licensed under the PolyForm Noncommercial License 1.0.0.
-License text: https://polyformproject.org/licenses/noncommercial/1.0.0
+For commercial use — including but not limited to SaaS products, closed-source
+internal enterprise deployment, paid products or services, and redistribution
+as part of a commercial offering — a separate commercial license is required.
+Contact the copyright holder (GitHub: @irisblackwood) for pricing and terms.
 
-Commercial use requires a separate license from the copyright holder.
+AGPL-3.0 obligations in one line: if you modify this software and make it
+available to users over a network, you must offer those users the complete
+corresponding source of your modified version.
 
 Trademark notice
 ----------------
@@ -15,11 +22,3 @@ are reserved. This license grants no right to use them to endorse, promote, or
 rebrand a derivative work. You may not present a modified version as FocusGuard,
 and you may not use the names in a way that suggests the copyright holder
 endorses your product or service.
-
-Noncommercial statement
------------------------
-This project is source-available, not open source. Personal use, study,
-research, hobby projects, and noncommercial community use are free. Production
-use inside a company, paid products or services, and SaaS resale require a
-commercial license from the copyright holder.
-

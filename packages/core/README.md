@@ -87,7 +87,7 @@ hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not
 
 ## Version
 
-Currently `3.0.7`. Eight version surfaces are asserted equal to each other and to the latest `CHANGELOG.md` entry.
+Currently `3.0.8`. Eight version surfaces are asserted equal to each other and to the latest `CHANGELOG.md` entry.
 
 ## Docs
 
@@ -97,4 +97,4 @@ Currently `3.0.7`. Eight version surfaces are asserted equal to each other and t
 
 ## License
 
-PolyForm Noncommercial 1.0.0 © 2026 irisblackwood (free for personal/community use; commercial use requires a license)
+AGPL-3.0-only © 2026 irisblackwood — commercial use requires a separate license

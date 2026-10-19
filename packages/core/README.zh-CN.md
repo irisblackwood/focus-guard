@@ -85,7 +85,7 @@ hooks/guard.mjs   ZCode 执行壳（已封存：版本号独立，不随主版�
 
 ## 版本
 
-当前 `3.0.7`。版本面共 8 处由验收断言锁定"彼此相等且等于 CHANGELOG 最新条目"。
+当前 `3.0.8`。版本面共 8 处由验收断言锁定"彼此相等且等于 CHANGELOG 最新条目"。
 
 ## 文档
 
@@ -95,4 +95,4 @@ hooks/guard.mjs   ZCode 执行壳（已封存：版本号独立，不随主版�
 
 ## License
 
-PolyForm Noncommercial 1.0.0 © 2026 irisblackwood（个人与社区免费，商业使用需单独授权）
+AGPL-3.0-only © 2026 irisblackwood（商业使用需单独授权）
