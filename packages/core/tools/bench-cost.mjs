@@ -96,6 +96,24 @@ for (const r of auditRows) {
 const denies = byAction.get('deny') || 0
 const appealsGranted = byAction.get('appeal-granted') || 0
 
+// ── 熔断浪费（2026-10-19 人类批示"熔断步数改成每个会话独立计数"）──
+// 数据源：`stall-fuse` 行（现在带 turn/step）+ `fuse-waste` 行（回合结束结算，wasted 字段）。
+// 口径：每个会话的 step 从 1 重新开始，**跨会话不可相加**——所以先按会话分组，再由人判断。
+// 历史行没有 turn/step（2026-10-19 之前），无法回溯，明确单独计数，不假装能算。
+const fuseRows = auditRows.filter((r) => r.action === 'stall-fuse')
+const fuseWithMeta = fuseRows.filter((r) => Number.isInteger(r.turn) && Number.isInteger(r.step))
+const wasteBySession = new Map()
+for (const r of auditRows) {
+  if (r.action !== 'fuse-waste') continue
+  const key = String(r.session || 'dsh-native')
+  const cur = wasteBySession.get(key) || { session: key, turns: 0, wastedSteps: 0, maxWastedSingleTurn: 0 }
+  const wasted = Number(r.wasted) || 0
+  cur.turns += 1
+  cur.wastedSteps += wasted
+  cur.maxWastedSingleTurn = Math.max(cur.maxWastedSingleTurn, wasted)
+  wasteBySession.set(key, cur)
+}
+
 const report = {
   ts: new Date().toISOString(),
   since,
@@ -112,6 +130,12 @@ const report = {
     appealsGranted,
     falsePositiveRatio: denies === 0 ? 0 : Number((appealsGranted / denies).toFixed(4)),
     topTriggers: [...byTrigger.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([trigger, n]) => ({ trigger, n })),
+  },
+  fuseWaste: {
+    stallFuse: fuseRows.length,
+    withMeta: fuseWithMeta.length,
+    bySession: [...wasteBySession.values()].sort((a, b) => b.wastedSteps - a.wastedSteps),
+    note: '按会话独立计数（step 每会话从 1 重新开始，跨会话不可相加）；历史行无 turn/step，无法回溯',
   },
   files: { CASE_FILE, AUDIT_FILE },
 }
@@ -135,5 +159,18 @@ if (jsonOut) {
   }
   if (report.cost.rows === 0) {
     console.log('  ⚠ 台账为空：宿主可能未提供 usage（FG 会连续 5 次缺失后告警），或本机从未跑过带成本的调用')
+  }
+  console.log(
+    `熔断 ${report.fuseWaste.stallFuse} 次（带 turn/step 元数据 ${report.fuseWaste.withMeta} 次；旧行无元数据）`,
+  )
+  if (report.fuseWaste.bySession.length === 0) {
+    console.log('  ⚠ 尚无 fuse-waste 结算行：需新会话里真熔断一次（旧行无 turn/step，无法回溯）')
+  } else {
+    console.log('  熔断后步数（按会话，跨会话不可相加）：')
+    for (const s of report.fuseWaste.bySession) {
+      console.log(
+        `    ${s.session}: 熔断 ${s.turns} 回合 / 累计 ${s.wastedSteps} 步 / 单回合最多 ${s.maxWastedSingleTurn} 步`,
+      )
+    }
   }
 }

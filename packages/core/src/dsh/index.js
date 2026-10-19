@@ -20,6 +20,7 @@ import { startHeartbeat } from './heartbeat.mjs'
 import { degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
 import { registerGateTools } from './tools.mjs'
+import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
 
 export const name = 'focus-guard'
 // 2026-10-18：`ctx.tools` 是 Cordis 服务，未声明 inject 就访问会抛
@@ -58,6 +59,15 @@ export function apply(ctx) {
       }
       return decision
     }
+  }
+
+  // 2026-10-19 人类批示：AUDIT.log 补 turn/step 元数据（熔断浪费按会话独立计数）。
+  // 位置只有 `agent/pre-step` 拿得到，注册 provider 后所有审计行自动带 turn/step；
+  // 回合结束时由 recordFuseWaste 结算"熔断后步数"。失败只降级可观测性，不影响执法缝。
+  try {
+    installTraceMeta()
+  } catch (error) {
+    warn('位置元数据装配失败（审计仍写，只是没有 turn/step）:', (error && error.message) || error)
   }
 
   register('tools/pre-execute', withLivenessBadge(preExecuteListener), 'tools/pre-execute')
@@ -114,6 +124,13 @@ export function apply(ctx) {
           recordWorkspaceTurn(payload && payload.agent)
         } catch (error) {
           warn('工作区卷宗写入失败（不阻断回合）:', (error && error.message) || error)
+        }
+        // 熔断浪费结算（2026-10-19 人类批示，按会话独立计数）：
+        // 只在本回合真熔断过时写一行 fuse-waste，正常回合零写入。
+        try {
+          recordFuseWaste(payload && payload.agent)
+        } catch (error) {
+          warn('熔断浪费结算失败（不阻断回合）:', (error && error.message) || error)
         }
         return decision
       }

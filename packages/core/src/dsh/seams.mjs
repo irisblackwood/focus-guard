@@ -49,6 +49,7 @@ import {
   STOP_ORDER_RE,
 } from '../core/constants.mjs'
 import { appendAudit } from './audit.mjs'
+import { noteTracePosition } from './traceMeta.mjs'
 
 /** 会话标识：与桥同源（agent.session.header.id）。取不到才退化为 dsh-native。 */
 function sidOf(agent) {
@@ -292,9 +293,12 @@ export function systemPromptRulesListener({ warn } = {}) {
  * 去掉脚本特有部分：process.exit / detectEnv 环境重检（依赖 env.mjs 探测链，留待后续批次）。
  */
 export function preStepListener({ warn } = {}) {
-  return async ({ agent, messages } = {}, next) => {
+  return async ({ agent, messages, turn, step } = {}, next) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
+      // 位置元数据（2026-10-19 人类批示）：pre-step 是唯一能拿到 {turn, step} 的缝，
+      // 记下来供 audit-writer 的 provider 注入（exec 上没有这两个字段）。
+      noteTracePosition(sid, turn, step)
       // ── 子代理：只做回合重置，跳过批示识别 ──
       // 子代理的 prompt 由父 agent 生成、不是人类输入。实测（hermes-loop 复盘子代理）：
       // 其复盘 prompt 含"审计/全量"等词 → 命中 KEY50_RE → 额度被误判为 50，还记了无意义的 goal-preauth。

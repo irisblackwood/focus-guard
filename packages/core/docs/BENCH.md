@@ -150,6 +150,28 @@ node packages/core/tools/bench-cost.mjs --since 2026-10-18 --json
 - 关 FG 的轮次**不会写** `AUDIT.log`，所以只能比 token/轮次，这是设计使然
 - 单次差异会被 prompt 缓存命中率掩盖，样本少于 5 次没有意义
 
+### 熔断浪费（fuse-waste，2026-10-19 人类批示）
+
+`AUDIT.log` 每行自 2026-10-19 起带 `turn`（回合号）与 `step`（回合内步号）。来源**只有一个**：
+宿主 `agent/pre-step` 的载荷 `{ messages, turn, step, signal }`（`dsh-agent-loop/lib/index.js:956`）；
+`tools/pre-execute` 的 exec 里没有这两个字段（`dsh-tools/lib/index.js:3239`）。
+所以位置由 `src/dsh/traceMeta.mjs` 记录、`src/core/audit-writer.mjs` 的 provider **单点注入**，所有写点自动受益。
+
+口径（别改，改了历史就不可比）：
+
+- 熔断点 = 本回合第一条 `action:"stall-fuse"` 时的 `(turn, step)`
+- `action:"fuse-waste"` 只在 `agent/turn-stopping` 结算**真熔断过的回合**：`wasted = 回合末 step − 熔断 step`
+  （被拦也算一步；被拦的是什么另查同回合的 `deny` 行）
+- **按会话独立计数**：每个会话的 `step` 从 1 重新开始，**跨会话不可相加**
+- 2026-10-19 之前的行没有 `turn`/`step` → **无法回溯**；`bench:cost` 会单独报"带元数据 N 次"，不假装能算
+
+```powershell
+node packages/core/tools/bench-cost.mjs          # 人读：熔断次数 / 带元数据次数 / 按会话的熔断后步数
+node packages/core/tools/bench-cost.mjs --json   # 机器读：report.fuseWaste
+```
+
+正常回合**零写入**（只有熔断过的回合才有 `fuse-waste` 行），所以不会把审计文件撑大。
+
 #### 2026-10-18 实测样本（n=1/臂，仅作方向参考，不可外推）
 
 ```

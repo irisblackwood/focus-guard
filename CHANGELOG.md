@@ -13,6 +13,14 @@
   - 口径修正：`evidence-gate` 的 deny 是设计内「首次改动提醒」（拒一次、重试即放行），`bench:cost` 的 `falsePositiveRatio` 必须扣除它，否则高估误伤。
   - 边界：不做自动调参、不做无人批准的回写；自动化只允许只读汇总。
 - docs: `ARCH-MAP.md` 同步——L6 闭塞项补「回流台账已建、本轮 0 条可批」，缺口 #3 改为「缺测量侧而非回流侧」。
+- feat(audit): **审计行补 `turn`/`step` 元数据 + 熔断浪费按会话独立计数**（2026-10-19 人类批示）——此前 `AUDIT.log` 只有 `seq`（进程内序号，跨会话不可比），"熔断后浪费了几步"算不出来，`stalledFuse.threshold` 无从校准（缺口 #3）。
+  - 位置来源单一：`agent/pre-step` 载荷的 `{turn, step}`（`dsh-agent-loop/lib/index.js:956`）；`tools/pre-execute` 的 exec 里没有这两个字段（`dsh-tools/lib/index.js:3239`），所以由 `src/dsh/traceMeta.mjs` 记录、不由 exec 猜。
+  - 注入单点：`src/core/audit-writer.mjs` 新增 `setTraceMetaProvider()`，所有写点（`auditDeny` / `auditEligibility` / `compactionWatch` / `preGuard` / `stopGuard` / `postProgress` / `seams`）自动带 `turn`/`step`；行里已有值时以行为准；provider 抛错按"无元数据"处理，绝不阻断留痕。
+  - 结算：`agent/turn-stopping` 调 `recordFuseWaste()`，**只在本回合真熔断过时**写一行 `action:"fuse-waste"`，`wasted = 回合末 step − 熔断 step`（被拦也算一步）；换回合作废上一回合熔断点。**按会话独立计数**——每会话 `step` 从 1 起，跨会话不可相加。
+  - `bench:cost` 新增 `report.fuseWaste`（`stallFuse` / `withMeta` / `bySession`）；历史 57 次熔断无元数据 → 明确报"带元数据 0 次、无法回溯"，不假装能算。
+  - 新增 `tests/trace-meta.test.mjs` 6 条（provider 注入 / 显式值优先 / 无 provider 不添加 / pre-step 记录 / fuse-waste 结算 / 换回合作废 / 两会话互不相加）。
+  - 验证：`npm run check` → `337/337`，`audit-isolation` Δ 0 PASS。
+- docs: `BENCH.md` 增「熔断浪费（fuse-waste）」小节（来源、口径、命令）；`ARCH-MAP.md` 缺口 #3 改为「T3 指标已补、待样本」；`PROFILE-TUNING.md` T3 状态改为「指标已可达（待样本）」并补 `fuse-waste` 快照行。
 
 ## 3.0.8 · 2026-10-19
 

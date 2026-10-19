@@ -74,6 +74,41 @@ export function rotateAuditIfNeeded(file = auditFilePath(), max = AUDIT_MAX_BYTE
 }
 
 /**
+ * 位置元数据提供者（`turn` / `step`）——由**宿主缝**注册，母版不反向依赖宿主。
+ *
+ * 背景（2026-10-19 人类批示）：AUDIT.log 原来只有 `seq`（进程内单调序号，跨会话不可比），
+ * 算不出"熔断后浪费了几步"，于是 `stalledFuse.threshold` 该松该紧无从判断（ARCH-MAP 缺口 #3）。
+ * 宿主只在 `agent/pre-step` 的载荷里给出 position `{turn, step}`，`tools/pre-execute` 的 exec 里没有；
+ * 所以位置由缝记录、由本写入器统一注入——只在这一处，所有写点自动受益。
+ *
+ * 契约：provider `(session, row) => {turn, step} | null`，同步、不得抛错（抛错按无元数据处理）。
+ * 行里已有 `turn`/`step` 时以行为准（不覆盖调用方显式给的值）。
+ */
+let traceMetaProvider = null
+
+/** 注册位置元数据提供者；传非函数即卸载（测试与 zcode 路径共用）。 */
+export function setTraceMetaProvider(fn) {
+  traceMetaProvider = typeof fn === 'function' ? fn : null
+}
+
+/** 给一条审计行补位置元数据（缺字段才补；provider 异常不阻断写入）。 */
+function withTraceMeta(row) {
+  if (!traceMetaProvider || !row || typeof row !== 'object') return row
+  if (row.turn !== undefined && row.step !== undefined) return row
+  let meta = null
+  try {
+    meta = traceMetaProvider(row.session, row)
+  } catch {
+    meta = null /* 留痕优先：元数据失败不影响写入 */
+  }
+  if (!meta || typeof meta !== 'object') return row
+  const extra = {}
+  if (row.turn === undefined && Number.isInteger(meta.turn)) extra.turn = meta.turn
+  if (row.step === undefined && Number.isInteger(meta.step)) extra.step = meta.step
+  return Object.keys(extra).length > 0 ? { ...row, ...extra } : row
+}
+
+/**
  * 统一审计写入入口：所有写点共用，轮转只在这一处生效。
  * @returns {boolean} 是否写入成功
  */
@@ -81,7 +116,7 @@ export function appendAudit(row, file = auditFilePath()) {
   try {
     rotateAuditIfNeeded(file)
     mkdirSync(dirname(file), { recursive: true })
-    appendFileSync(file, JSON.stringify(row) + '\n')
+    appendFileSync(file, JSON.stringify(withTraceMeta(row)) + '\n')
     return true
   } catch (error) {
     console.warn('[focus-guard] AUDIT 留痕失败（不阻断）:', (error && error.message) || error)

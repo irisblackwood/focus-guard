@@ -34,6 +34,7 @@
 | 熔断 `stall-fuse` | 57 行 / 4 会话（`session-7bd3f3fb…` 37、`dsh-native` 18、另两会话各 1） | `rg -o -r '$1' '2026-10-1[89].*"session":"([^"]+)".*"action":"stall-fuse"'` |
 | 预算延期 `budget-extend` | 19 行 / 3 会话（evidence 形如「自动续杯 budget=60 eff=50」） | 同上口径，动作名换成 `budget-extend` |
 | 随机审计 `random-audit` | 61 行 / 2 会话（抽查参数在跑，供 P3 参照） | 同上口径，动作名换成 `random-audit` |
+| 熔断浪费 `fuse-waste` | 0 行（历史 57 次熔断发生在 `turn`/`step` 元数据接入之前，无法回溯）；指标已接通 | `node packages/core/tools/bench-cost.mjs --json` → `report.fuseWaste` |
 | 误伤比（全期） | 0（`appealsGranted` 0 / `denies` 182） | `npm run bench:cost -- --json` |
 | 成本台账 | `cost.rows = 0`（退化值守卫已停写，**无 token 数据**） | 同上 |
 | **面板 token 基线** | **缺失**（ARCH-MAP 缺口 #5） | 无面板数据 → 本轮不出任何成本类建议 |
@@ -55,13 +56,14 @@
 |---|---|---|---|---|---|
 | T1 | `evasionRisk`（五画像，`src/profiles/*.mjs`） | `high` ×5（`gpt-astra` 另带显式 `scope:'irreversible'`） | 任务基准应拦 15/15、误伤 0；`appealsGranted` 0/182；无面板基线 | **保持 `high`**。调低（`low`）只会把审批范围收窄到不可逆类别，属**放松**，在没有"放松后仍 0 误伤"的会话证据前不批 | 不改（无收益证据） |
 | T2 | `budgetGate.ceiling`（flash/glm/default 200，pro 300） | 200 / 300 | `budget-extend` 19 行 / 3 会话，分母 53 个会话（10-18~19）→ 触发续杯的会话占 **3/53 ≈ 5.7%**；`inv-pool-exceeded` 4 行 / 4 会话；续杯是**自动机制**在跑，不是耗尽卡死 | **不改数值**。数值已有、判据没有：缺"续杯率到多少才算 ceiling 偏紧"的经验阈值，先攒样本 | 已有初步数值（不足以判） |
-| T3 | `stalledFuse.threshold`（flash/glm/default 3，pro 4） | 3 / 4 | `stall-fuse` 57 行但集中在 1 个会话（37）——更像该会话本身停滞，而非阈值过紧 | **保持 3/4**。校准需要「熔断后浪费了多少步」这一指标，当前没有工具 | 待测量 |
+| T3 | `stalledFuse.threshold`（flash/glm/default 3，pro 4） | 3 / 4 | `stall-fuse` 57 行但集中在 1 个会话（37）——更像该会话本身停滞，而非阈值过紧。指标已于 2026-10-19 接通：`fuse-waste` 行按会话结算「熔断后步数」，但历史 57 次熔断无 `turn`/`step`，**无法回溯** | **保持 3/4**。等新会话真熔断后读 `bench:cost` 的 `fuseWaste.bySession`；样本够了再谈阈值 | 指标已可达（待样本） |
 | T4 | `approvalGate.scope`（派生链） | 显式 scope 优先，否则 `evasionRisk` 派生 | `gate:fg_apply` 4 行；人工闸门动作（`approval-requested` / `ptc-irreversible-blocked`）近期 **0 行** = 真实会话尚未走到该通道（rm-rf 多被红线先拦） | **保持派生逻辑**；`gpt-astra` 的显式 `irreversible` 只服务验收差异化，不迁移到生产画像 | 不改 |
 | T5 | 误伤统计口径（`bench:cost` 读法） | `falsePositiveRatio = appealsGranted / denies` | `evidence-gate` 21 行为设计内提醒，会污染该比值 | **口径修正，不改参数**：报误伤时扣除 `trigger = evidence-gate` 与 `gate:fg_apply`（申请通道）两类 | 已修正（文档） |
 
 **本轮可批的数值改动：0 条。** 两级原因分开看：
 - **T2**：数字有了（3/53 会话触发续杯），缺的是**判据**（多高算偏紧），所以只能写"不改"；
-- **T3**：连指标都没有——「熔断后浪费了几步」需要 step 边界，`AUDIT.log` 只记 `seq`，采不到；编一个数就是造假。
+- **T3**：指标 2026-10-19 已接通（审计行带 `turn`/`step`，回合结束结算 `fuse-waste`，按会话独立计数），
+  但历史熔断**无法回溯**，需要新会话样本；编一个数就是造假。
 
 ---
 
