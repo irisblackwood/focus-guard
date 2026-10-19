@@ -62,18 +62,17 @@ import {
 /**
  * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。
  *
- * - 默认 **关闭**（改变默认行为的东西不偷偷开，与 FG_PTC_* 同一纪律）
+ * - **默认开启**（2026-10-19 晚人类批示）：间隔在 [2,5] 次写操作之间随机；`FG_RANDOM_FUSE=0` 关闭
  * - 抽查A（`RANDOM_AUDIT_EVERY`）是"确定性每 5 次全量审计"；抽查B 是"不可预测的检查点"，两回事
+ * - `FG_RANDOM_FUSE_EVERY=N` 固定间隔，优先级高于随机（运维/测试用）
  * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间
  */
 export function randomFuseInterval() {
+  if (process.env.FG_RANDOM_FUSE === '0') return null
   const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)
   if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }
-  if (process.env.FG_RANDOM_FUSE === '1') {
-    const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1
-    return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }
-  }
-  return null
+  const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1
+  return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }
 }
 
 const RE_WRITE = /^(?:write|edit|multiedit)$/i

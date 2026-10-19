@@ -44,9 +44,16 @@ const clearEnv = () => {
 };
 
 describe("反规避抽查B · 随机检查点", () => {
-  test("r1. 默认关闭：写操作不计数、不挂检查点、无 random-fuse 行", async () => {
+  test("r1. 默认开启（间隔随机 2-5）；显式 FG_RANDOM_FUSE=0 才关闭", async () => {
     clearEnv();
-    assert.equal(randomFuseInterval(), null, "默认必须关闭");
+    const itv = randomFuseInterval();
+    assert.equal(itv.kind, "random", "默认应为随机模式（2026-10-19 晚人类批示）");
+    for (let i = 0; i < 20; i += 1) {
+      const n = itv.pick();
+      assert.ok(n >= RANDOM_FUSE_MIN && n <= RANDOM_FUSE_MAX, `间隔 ${n} 越界`);
+    }
+    process.env.FG_RANDOM_FUSE = "0";
+    assert.equal(randomFuseInterval(), null, "显式 0 才是关闭");
     const sid = `rf-off-${process.pid}`;
     withState(sid);
     resetAudit();
