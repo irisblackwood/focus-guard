@@ -9,6 +9,10 @@
   - 数据整理：`deepseek-flash` / `deepseek-pro` / `glm` / `default` 去掉冗余的 `scope: 'mutating'`（= 派生默认值，行为不变）；`gpt-astra` 保留显式 `scope: 'irreversible'`，并用例锁死「显式优先」。
   - 测试：`tests/profile.test.mjs` 新增 g1-g4（五画像派生回归锁 / 派生三分支与显式优先 / low 放行 `publish` 但 `rm-rf` 仍转人工 / 闸与母版同源）。实测 `node --test packages/core/tests/profile.test.mjs` **12/12** 通过。
 - docs: `ARCH-MAP.md` 同步——L1 `evasionRisk` 由 ⬜ 改 ✅，缺口 #2 改为「剩余两件」，并新增缺口 #5「**缺 3.0.8 面板基线**」（本轮人类确认暂无面板数据，故不出环比表、不编造基线）。
+- feat(docs): **P2 回流台账（伪 RLHF 最小闭环）**——新增 `packages/core/docs/PROFILE-TUNING.md`：人工批准制四步（采数据 → 建议 → 人类批准 → 改画像再测），含可复算的数据快照（`bench:decision` 100% / 误伤 0 / p95 2.79ms；`bench:tasks --ab` 57/57 双向、介入 15 次应拦 15 误伤 0；`AUDIT.log` 10-18~19 共 3,132 行、deny 139 行 / 13 会话及 trigger 分布，快照 `2026-10-19T20:17:18+08:00`）与 5 条建议条目（T1 `evasionRisk` 保持 `high`、T2 `budgetGate.ceiling` 待测量、T3 `stalledFuse.threshold` 待测量、T4 `approvalGate.scope` 保持派生、T5 误伤口径扣除 `evidence-gate`/`gate:fg_apply`）。**本轮可批的数值改动 = 0 条**（T2/T3 校标准指标采不到，不编数）。
+  - 口径修正：`evidence-gate` 的 deny 是设计内「首次改动提醒」（拒一次、重试即放行），`bench:cost` 的 `falsePositiveRatio` 必须扣除它，否则高估误伤。
+  - 边界：不做自动调参、不做无人批准的回写；自动化只允许只读汇总。
+- docs: `ARCH-MAP.md` 同步——L6 闭塞项补「回流台账已建、本轮 0 条可批」，缺口 #3 改为「缺测量侧而非回流侧」。
 
 ## 3.0.8 · 2026-10-19
 
