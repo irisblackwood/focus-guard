@@ -53,9 +53,28 @@ import {
   INV_POOL_DEFAULT,
   OUTPUT_GATE_BYTES,
   RANDOM_AUDIT_EVERY,
+  RANDOM_FUSE_MAX,
+  RANDOM_FUSE_MIN,
   REFILL,
   STALL_FUSE,
 } from '../core/constants.mjs'
+
+/**
+ * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。
+ *
+ * - 默认 **关闭**（改变默认行为的东西不偷偷开，与 FG_PTC_* 同一纪律）
+ * - 抽查A（`RANDOM_AUDIT_EVERY`）是"确定性每 5 次全量审计"；抽查B 是"不可预测的检查点"，两回事
+ * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间
+ */
+export function randomFuseInterval() {
+  const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)
+  if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }
+  if (process.env.FG_RANDOM_FUSE === '1') {
+    const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1
+    return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }
+  }
+  return null
+}
 
 const RE_WRITE = /^(?:write|edit|multiedit)$/i
 const RE_READ = /^(?:read|notebookread)$/i
@@ -349,6 +368,29 @@ export function postProgressListener({ warn } = {}) {
             evidence: `第 ${state.writeOps} 次写操作全量审计 ${normalize(ti.file_path)}`,
           })
           reason = `抽查A：第 ${state.writeOps} 次写操作已留痕。确认有锚点([文件:行号])，无则补【假设】。`
+        }
+      }
+
+      // ── 抽查B：反规避随机检查点（2026-10-19；与抽查A 的 RANDOM_AUDIT_EVERY **完全独立**）──
+      // 目的：让"何时被检查"不可预测，"攒着批量绕过"无法规划。
+      // 触发时机只能是 post-execute（那次写已经发生），所以这里只**挂检查点**：
+      // 由 pre-execute 第 3 层对**下一次**变更型调用拒一次（与取证闸「拒一次」同手感），不冻结会话。
+      const fuseInterval = randomFuseInterval()
+      if (!reason && !isFail && RE_WRITE.test(tool) && fuseInterval) {
+        state.fuseOps = (state.fuseOps || 0) + 1
+        const nextAt = Number(state.fuseNextAt) || 0
+        if (nextAt <= 0) {
+          // 第一轮先定阈值，不在本轮就触发（否则"2-5 次"会退化成"第一次就查"）
+          state.fuseNextAt = state.fuseOps + fuseInterval.pick()
+        } else if (state.fuseOps >= nextAt) {
+          const gap = state.fuseOps - nextAt
+          state.randomFusePending = true
+          state.randomFuseAt = state.fuseOps
+          state.fuseNextAt = state.fuseOps + fuseInterval.pick()
+          audit(sid, 'random-fuse', {
+            level: null,
+            evidence: `反规避抽查B：第 ${state.fuseOps} 次写操作命中随机检查点（间隔 ${fuseInterval.kind === 'fixed' ? fuseInterval.n : '2-5 随机'}${gap > 0 ? `，超出阈值 ${gap} 次` : ''}）`,
+          })
         }
       }
 

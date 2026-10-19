@@ -56,7 +56,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L5** | 无 `[文件:行号]` 打回 | ✅ | `src/dsh/stopGuard.mjs` |
 | **L5** | 体积刺客阻断（禁裸 cat 等） | ✅ | `pipeline.mjs` 体积三闸 + 硬校验 |
 | **L5** | 高危操作拦截 | ✅ | 红线 + 资格闸 + 语义层观察模式 |
-| **L5** | 反规避 · 不可预测检查点 | 🟡 | `RANDOM_AUDIT_EVERY` 存在（随机抽查），但"2-5 次随机熔断"未按此参数化 |
+| **L5** | 反规避 · 不可预测检查点 | ✅ **默认关** | 抽查A：`RANDOM_AUDIT_EVERY`（确定性每 5 次全量审计，`postProgress.mjs:362`）。抽查B（2026-10-19 参数化）：独立参数 `FG_RANDOM_FUSE=1`（间隔 `[2,5]` 随机，`core/constants.mjs` 的 `RANDOM_FUSE_MIN/MAX`）或 `FG_RANDOM_FUSE_EVERY=N`（固定）；post-execute 只挂检查点（`postProgress.mjs:374`），pre-execute 第 3 层对下一次变更**拒一次**并由 `trigger:"random-fuse"` 留痕（`pipeline.mjs` 的 `layer3Check`）；与抽查A 完全独立。**默认关**（会改变使用手感），未开前等于不生效 |
 | **L5** | 反规避 · 意图预警（重复试探侦测） | 🟡 | 停滞/无效调用计数存在（`stalledStreak`/`ineffCalls`），未做"意图"级预警 |
 | **L5** | 反规避 · 状态一致性 | ✅ | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
 | **L5** | 压缩监察 | ✅ | 同 P0 |
@@ -75,7 +75,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | 1 | **FGA 默认只读 / 隐藏高危工具** | 每步固定前缀实测 **≈127k tokens（253 个工具）**——主图里唯一真正压 token 的一块 | 需宿主支持"按任务动态暴露工具"；FG 侧只能建议。落地前先用 `bench:ab` 记基线 |
 | 2 | 画像包剩余两件（相位对抗 / Nudge 缓冲垫） | 影响"越狱抵抗"与重试成本，不影响主流程；`evasionRisk` **已接**（见状态表，取值未实测） | 相位对抗需要 KV 缓存盲区的测量手段，当前没有 → 记缺不做；Nudge 缓冲垫同理（先有测量再加机制）|
 | 3 | 伪 RLHF 闭环缺的是**测量侧**，不是回流侧 | 回流台账（`docs/PROFILE-TUNING.md`）已建。**T2 已有数字缺判据**（`budget-extend` 19 行 / 3 会话，分母 53 会话 ≈ 5.7%，但"多高算偏紧"没有经验阈值）。**T3 的指标 2026-10-19 已补**：审计行带 `turn`/`step`（`src/dsh/traceMeta.mjs` + `core/audit-writer.mjs` provider），回合结束结算 `fuse-waste`（`bench:cost` 的 `fuseWaste`，按会话独立计数）；但历史 57 次熔断无元数据 → 仍需新会话样本 | T2：攒样本定判据；T3：等新会话真熔断后读 `fuseWaste.bySession`，样本够再谈调阈值。在此之前保持参数不动 |
-| 4 | 反规避的随机熔断未参数化 | 抽查有、随机熔断没有 | 用 `RANDOM_AUDIT_EVERY` 之外的独立参数，2-5 次随机一次，勿与抽查混 |
+| 4 | 反规避抽查B **默认关闭**，且未写入 RULES | 代码已参数化（`FG_RANDOM_FUSE` / `FG_RANDOM_FUSE_EVERY`），但默认关 → 反规避实际为 0；打开会随机拒一次写操作（改变手感） | 由人类决定是否默认开；开前先补 `RULES.md` 第三十五条旁的随机抽查条款（新增法条需批示），开后按 `AUDIT.log` 的 `random-fuse` 行观察误伤 |
 | 5 | **缺 3.0.8 面板基线**（人类 2026-10-19 确认暂无数据） | 没有基线，L1/L6 的任何"优化了多少"都无法复算，只能写条件性结论 | 按 `AB-PROMPTS.md` P0 节采集：同 web profile、同 8 任务、每轮开新会话、被拦禁止重试，连跑 ≥5 次；只记面板六项 + session id + steps/denies，取中位数；判定口径必须能由「3 个面板数 + 1 个 session id + 1 个公式」复算 |
 
 ---

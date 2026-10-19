@@ -489,6 +489,24 @@ function layer3Check(exec, warn, statePathOverride) {
     }
   }
 
+  // 反规避抽查B（2026-10-19 人类批示）：随机检查点消费——「拒一次」语义，不冻结会话。
+  // 触发点在 post-execute（那次写已发生、无法回滚），所以检查点挂在**下一次**变更型调用上。
+  // 安全取向：状态清不掉就**不拒**（宁可不拦，也不做永久死锁）——与其余 fail-open 口径一致。
+  if (state.randomFusePending) {
+    try {
+      saveState(gs.file, { ...state, randomFusePending: false })
+      return {
+        kind: 'deny',
+        trigger: 'random-fuse',
+        reason:
+          `focus-guard-native 反规避抽查B：随机检查点命中（第 ${Number(state.randomFuseAt) || 0} 次写操作），本次变更被拒一次；` +
+          '这不是报错，是防「攒批量绕过」的不可预测抽查，重试即放行。',
+      }
+    } catch (error) {
+      warn('反规避抽查B：检查点状态回写失败 → 本次放行（不做永久死锁）:', (error && error.message) || error)
+    }
+  }
+
   if (EVIDENCE_GATE.effective) {
     // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
     // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
@@ -685,7 +703,8 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
 
     const layer3 = layer3Check(exec, warn, statePath)
     if (layer3) {
-      auditDeny(exec, layer3.reason, { trigger: 'evidence-gate', level: 3 })
+      // trigger 由判定点给出（反规避抽查B 记 random-fuse；其余仍是 evidence-gate），审计才能回答"为什么被拦"。
+      auditDeny(exec, layer3.reason, { trigger: layer3.trigger || 'evidence-gate', level: 3 })
       warn('第3层拦截：', layer3.reason)
       return layer3
     }

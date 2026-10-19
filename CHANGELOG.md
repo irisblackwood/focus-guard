@@ -21,6 +21,13 @@
   - 新增 `tests/trace-meta.test.mjs` 6 条（provider 注入 / 显式值优先 / 无 provider 不添加 / pre-step 记录 / fuse-waste 结算 / 换回合作废 / 两会话互不相加）。
   - 验证：`npm run check` → `337/337`，`audit-isolation` Δ 0 PASS。
 - docs: `BENCH.md` 增「熔断浪费（fuse-waste）」小节（来源、口径、命令）；`ARCH-MAP.md` 缺口 #3 改为「T3 指标已补、待样本」；`PROFILE-TUNING.md` T3 状态改为「指标已可达（待样本）」并补 `fuse-waste` 快照行。
+- feat(gate): **反规避抽查B 参数化（不可预测检查点，2026-10-19 人类批示）**——`ARCH-MAP` L5 的「2-5 次随机熔断」此前只有抽查A（确定性每 5 次全量审计），两者混在一个参数里。
+  - 新参数**与抽查A 完全独立**：`FG_RANDOM_FUSE=1` → 间隔在 `[RANDOM_FUSE_MIN=2, RANDOM_FUSE_MAX=5]` 次写操作间**随机**（`core/constants.mjs`）；`FG_RANDOM_FUSE_EVERY=N` → 固定间隔（运维/测试用，优先级更高）。**默认关闭**——会随机拒一次写操作，属改变默认手感的行为，不偷偷开。
+  - 语义：post-execute 只能"挂检查点"（那次写已经发生，无法回滚），由 pre-execute 第 3 层对**下一次**变更型调用**拒一次**（与取证闸同手感），审计 `trigger:"random-fuse"`，重试即放行；状态回写失败时**不拒**（宁可不拦也不做永久死锁）。换回合作废检查点，写操作计数（会话级）保留。
+  - 计数与留痕：`fuseOps` 独立于抽查A 的 `writeOps`；命中写 `action:"random-fuse"`（含第几次写操作、间隔、超出阈值几次）。
+  - 新增 `tests/random-fuse.test.mjs` 6 条（默认关不计数 / 固定间隔第 3 次命中 / 拒一次后放行且 trigger 正确 / 与抽查A 独立 / 换回合作废 / 随机间隔落在 2–5 两端可达）。
+  - 验证：`npm run check` → `343/343`，`audit-isolation` Δ 0 PASS。
+- docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」🟡 → ✅（默认关），缺口 #4 改为「默认关闭 + 未写入 RULES，待人类批示」。
 
 ## 3.0.8 · 2026-10-19
 

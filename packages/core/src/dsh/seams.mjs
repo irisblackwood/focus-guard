@@ -375,6 +375,7 @@ export function preStepListener({ warn } = {}) {
         turnCount: 0,
         fused: stopOrdered,
         stopBlocked: false,
+        randomFusePending: false, // 反规避抽查B：检查点属回合内状态，换回合作废（写操作计数 fuseOps 保留）
         mercy,
         goalPush,
         violations: stopOrdered ? Math.max(state.violations || 0, 3) : 0,

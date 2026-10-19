@@ -3,6 +3,10 @@
 
 export const OUTPUT_GATE_BYTES = 50 * 1024; // 触发③：体积闸值
 export const RANDOM_AUDIT_EVERY = 5; // 抽查A：每 N 次写操作全量审计 1 次
+// 抽查B（反规避随机检查点，2026-10-19）：间隔在 [MIN, MAX] 次写操作之间随机，**与抽查A 完全独立**。
+// 默认关闭：FG_RANDOM_FUSE=1 开随机；FG_RANDOM_FUSE_EVERY=N 固定间隔（运维/测试用）。
+export const RANDOM_FUSE_MIN = 2; // 反规避抽查B：随机间隔下限（次写操作）
+export const RANDOM_FUSE_MAX = 5; // 反规避抽查B：随机间隔上限（次写操作）
 export const BUDGET_DEFAULT = 10; // 默认任务预算
 export const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 export const REFILL = 10; // 自动续杯步长
