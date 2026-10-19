@@ -40,7 +40,7 @@
  */
 
 import { appendAudit } from './audit.mjs'
-import { moduleSnapshot } from './heartbeat.mjs'
+import { moduleSnapshot, livenessBadge, noteLivenessEvent } from './heartbeat.mjs'
 
 const EV_START = 'compaction/start'
 const EV_END = 'compaction/end'
@@ -118,6 +118,9 @@ function auditCompaction(state, { failed, durationMs, open, summary, error }) {
     `输入 ${state.lastInputTokens}`,
   ]
   if (failed) parts.push(`error=${clampText(error, 120)}`)
+  // 按需自证（2026-10-19）：压缩是第三个局部点。压缩后模型的上下文被改写过，
+  // 这时告诉它"FG 还活着、刚才发生过压缩"才有解释价值；平时不注入。
+  noteLivenessEvent(failed ? 'compaction(failed)' : 'compaction')
   appendAudit(
     row(state, 'compaction', failed ? 'compaction/end(error)' : 'compaction/end', {
       basis: open.sourceCommandId ? 'builtin:command-compact' : 'builtin:compaction-basic',
@@ -132,6 +135,7 @@ function auditCompaction(state, { failed, durationMs, open, summary, error }) {
       // 剪枝累计：不逐条留痕，但要让它随压缩记录一起可见（"释放了多少"）
       prunes_so_far: state.prunes,
       pruned_tokens: state.prunedTokens,
+      liveness: livenessBadge({ drain: false }),
       error: failed ? clampText(error, 300) : null,
       evidence: clampText(parts.join(' | ')),
     }),

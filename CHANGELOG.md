@@ -42,6 +42,12 @@
   - **修不一致**：`packages/core/LICENSE` 此前仍是 MIT 文本（**npm 发布时带的正是这一份**），根目录已是 PolyForm → 两份法律文本互相矛盾。现根 `LICENSE`/`NOTICE` 同步到 `packages/core` 与 `packages/extended`，两个子包的 `files` 显式加入 `NOTICE`；`npm pack --dry-run` 已确认 `LICENSE`、`NOTICE` 均入包。
 - ci(publish): **发布工作流去抖动**——`npm install -g npm@latest` 改为锁定 `npm@11`（latest 每次可能带进新的 2FA/GAT 策略，本仓库已因此红过两次），并显式校验 `npm >= 11.5.1`；新增 `concurrency: publish-${ref}` 防止并发触发撞上 "cannot publish over"；`Verify` 步骤显式 `shell: pwsh`（windows runner 默认 shell 行为差异）。
 - ci(test): **CI 矩阵拆分，推送不再挂红叉**——原矩阵 `windows-latest / ubuntu-latest / macos-latest` × 3 个 Node，`continue-on-error` 只保证总结果绿，UI 上 Linux/macOS 作业仍显示 ✗（用户视角"老是不过"）。而验收套件含数条 Windows 专用断言，非 Windows 必红且短期无法平台化。现拆分：`push`/`pull_request` 只跑 `windows-latest × Node 18.20/20/22`（必过）；跨平台 `observe` 作业仅 `workflow_dispatch` 触发，保留需要时的可见性。另加 `concurrency: ci-${ref}` 取消重复推送的旧运行。
+- refactor(liveness): **按需自证（Lazy Liveness）**——存活状态不再进系统提示，改为三处局部附带。
+  - **先纠正一个事实**：旧实现 `livenessNote()` 在全部模块报到时返回 `null`，`index.js` 里又有 `if (note)` 守卫，所以**正常态本来就没有注入**（真实节省为 0）。真正的浪费在**降级时**：一旦缺模块，`focus-guard-degraded` 段会随每一次装配重复进入 Prompt（约 100+ 字/轮），而且它描述的是"启动那一刻"的快照——模型后续每轮都被提醒一次早已过期的状态。
+  - 现改为 `livenessBadge()`：正常态 `[FG 存活 15/15]`（≈14 字），异常带 `；降级: <模块名>`，并支持 `事件: compaction` 这类一次性附注。`livenessNote()` 仅保留为兼容别名。
+  - **只在这三处出现**：① `tools/pre-execute` 返回 `deny`/`ask` 时给理由追加徽标（`index.js` 的 `withLivenessBadge` 包裹，两条执行缝都套）；② `fg_apply` 结果文本末尾（`src/dsh/tools.mjs`）；③ 压缩落定（`compactionWatch.mjs` 调 `noteLivenessEvent('compaction')`，下一次徽标带上 `事件: compaction` 后即清除）。系统提示装配里**彻底移除** `focus-guard-degraded` 段。
+  - **降噪核对**：`heartbeat.mjs` 的 `beat()` 只做 `status.json` 的 tmp+rename 覆写，不含任何 `appendAudit` —— 心跳 10s 一次也不会往 `AUDIT.log` 写行（新增用例断言"跑一次心跳后 AUDIT.log 仍不存在"）。
+  - 新增 `tests/liveness-lazy.test.mjs` 5 条（正常态短徽标 / 事件一次性 / 降级带模块名 / 心跳不写审计 / 装配层不再含 degraded 段）。
 
 > 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
 > `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、

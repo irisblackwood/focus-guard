@@ -63,18 +63,43 @@ export function degradedModules() {
 }
 
 /**
- * 模型侧告警文本；全部报到时返回 null（正常路径零注入）。
- * 只在真的缺模块时占用系统提示 token。
+ * 模型侧告警文本（**已停用**）。
+ *
+ * 2026-10-19「按需自证（Lazy Liveness）」：存活状态不再作为系统提示的一部分注入。
+ * 原因：常驻注入既占 token 又稀释注意力，而"模块是否活着"只在**需要解释一次拦截**时才有意义。
+ * 现改由 `livenessBadge()` 在拦截 / fg_apply / 压缩事件这三个局部点附带。保留本函数仅为兼容，
+ * 新代码请勿调用。
  */
 export function livenessNote() {
+  return livenessBadge({ full: true })
+}
+
+// ── 按需自证：局部徽标 ──
+// 设计三条：
+//   ① 心跳继续后台写 status.json，但**不进 Prompt**；
+//   ② 徽标只在"模型需要知道 FG 是否在场"的三个点出现：拦截（deny/ask）、fg_apply 结果、压缩事件后首次交互；
+//   ③ 徽标读取后即清空待报告事件（一次性），避免长期携带同一句噪音。
+let pendingEvent = null
+
+/** 记录一个需要在下一次局部输出里报告的生存相关事件（如 compaction）。 */
+export function noteLivenessEvent(kind) {
+  pendingEvent = String(kind || 'event')
+  return pendingEvent
+}
+
+/**
+ * 生成一次性存活徽标。正常时极短（`[FG 存活 15/15]`），异常时带降级模块名。
+ * @param {{ full?: boolean, drain?: boolean }} [opts] full=true 返回冗长版；drain=false 不消费待报告事件
+ */
+export function livenessBadge(opts = {}) {
+  const drain = opts.drain !== false
   const bad = degradedModules()
-  if (bad.length === 0) return null
-  const detail = bad.map((id) => `${id}（${MODULES.get(id)?.error ?? '未报到'}）`).join('；')
-  return (
-    `[FG-DEGRADED] FocusGuard 启动自检：${MODULES.size - bad.length}/${MODULES.size} 个模块报到，` +
-    `缺失 ${bad.length} 个 —— ${detail}。` +
-    '这些缝的执法能力当前不可用，不要假设它们仍在拦；收尾时提示人类重启 DSH。'
-  )
+  const ok = MODULES.size - bad.length
+  const degradedPart = bad.length ? `；降级: ${bad.join(',')}` : ''
+  const persistPart = opts.full && bad.length ? '。这些缝的执法能力当前不可用，不要假设它们仍在拦；收尾时提示人类重启 DSH' : ''
+  const eventPart = pendingEvent ? `；事件: ${pendingEvent}` : ''
+  if (drain) pendingEvent = null
+  return `[FG 存活 ${ok}/${MODULES.size}${degradedPart}${eventPart}${persistPart}]`
 }
 
 /**

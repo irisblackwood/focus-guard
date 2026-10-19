@@ -42,7 +42,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L2** | 系统提示 / 示例池 / 严格模式 | ✅ | `src/dsh/pipeline.mjs` assemble 注入（rules + cost + workspace 三段）|
 | **L2** | Superpowers 澄清→计划→TDD→验证 | 🟡 | 动笔闸 ✅（`pipeline.mjs` SP 闸）；方法论本体是外部技能 |
 | **L2** | 宿主接入 ZCode / DSH | ✅ | `hooks/hooks.json`（ZCode）+ `src/dsh/index.js`（DSH 原生）|
-| **L2** | 心跳自证 / 模块就位 | ✅ | 同上，模块自检 15 项 |
+| **L2** | 心跳自证 / 模块就位（**按需自证 Lazy Liveness**，2026-10-19） | ✅ | 心跳只写 `.focus-guard/status.json`（10s，不进 Prompt）；系统提示**不再注入** `focus-guard-degraded` 段。存活徽标 `[FG 存活 n/m]` 只在三处出现：pre-execute 返回 deny/ask 时追加（`index.js` 的 `withLivenessBadge`）、`fg_apply` 结果文本（`src/dsh/tools.mjs`）、压缩落定事件（`compactionWatch.mjs` 的 `noteLivenessEvent` → 下次徽标带 `事件: compaction`，一次性消费）|
 | **L3** | 四大机械拦截点 | ✅ | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸 |
 | **L3** | XERJ 检索引擎（file:line / 降 token） | ✅ | 整文件闸直接指向 `xerj search` / `xerj def` |
 | **L3** | FGA · 默认只读 | ✅ 开关 | `FG_PTC_READONLY=1`：写类工具与变更型 shell 未授权即拦（`ptcReasonOf`）|

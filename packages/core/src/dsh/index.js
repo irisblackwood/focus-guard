@@ -17,7 +17,7 @@ import { stopGuardListener } from './stopGuard.mjs'
 import { preGuardListener } from './preGuard.mjs'
 import { announceWatchReady, compactionEventListener, contextOverflowListener } from './compactionWatch.mjs'
 import { startHeartbeat } from './heartbeat.mjs'
-import { degradedModules, livenessNote, markModule } from './heartbeat.mjs'
+import { degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
 import { registerGateTools } from './tools.mjs'
 
@@ -45,9 +45,24 @@ export function apply(ctx) {
     }
   }
 
-  register('tools/pre-execute', preExecuteListener, 'tools/pre-execute')
+  // 按需自证（Lazy Liveness，2026-10-19）：存活状态只在这一刻对模型可见——
+  // 判定返回 deny/ask 时，给理由补一个 `[FG 存活 n/m]` 徽标（异常时带降级模块名）。
+  // 其余时候（放行、正常回合）零注入：心跳只写 status.json。
+  const withLivenessBadge = (factory) => (opts) => {
+    const base = factory(opts)
+    return async (exec, next) => {
+      const decision = await base(exec, next)
+      if (decision && (decision.kind === 'deny' || decision.kind === 'ask')) {
+        const reason = String(decision.reason || '')
+        if (!reason.includes('[FG 存活')) return { ...decision, reason: `${reason} ${livenessBadge()}` }
+      }
+      return decision
+    }
+  }
+
+  register('tools/pre-execute', withLivenessBadge(preExecuteListener), 'tools/pre-execute')
   // 3.0.8 移植批 5：结构性执法（图书馆隔离/环境规则/大小写冲突/子代理闸/熔断白名单/L2·L5）
-  register('tools/pre-execute', preGuardListener, 'tools/pre-execute(structural)')
+  register('tools/pre-execute', withLivenessBadge(preGuardListener), 'tools/pre-execute(structural)')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
   // 3.0.8 移植批 4：常驻规则注入（guard.mjs 的 SESSION_RULES，原文走 stdout，原生改走注入缝）
   // 2026-10-18：再包一层——启动自检缺模块时追加 `focus-guard-degraded` 段，让模型自己也看得见。
@@ -60,8 +75,8 @@ export function apply(ctx) {
         if (!downstream || !Array.isArray(downstream.sections)) return downstream
         /** @type {{name: string, text: string}[]} */
         const extra = []
-        const note = livenessNote()
-        if (note) extra.push({ name: 'focus-guard-degraded', text: note })
+        // 2026-10-19 按需自证：存活状态不再进系统提示（原 focus-guard-degraded 段已移除）。
+        // 需要知道 FG 是否在场时，看拦截理由 / fg_apply 返回里的 `[FG 存活 n/m]` 徽标。
         // L4 跨会话卷宗（2026-10-18）：只有 workspace_hash 与当前路径一致才注入；
         // 路径改变 → readWorkspace 返回 null → 一条都不加（DCR 的病根就是没这条）。
         try {
@@ -133,10 +148,11 @@ export function apply(ctx) {
     warn('心跳启动失败（不影响执法缝）：', (error && error.message) || error)
   }
 
-  // 启动自检汇总（2026-10-18）：缺模块就在宿主日志喊一次；模型侧由上面那条注入缝负责。
+  // 启动自检汇总（2026-10-19 按需自证）：缺模块只在宿主日志喊一次。
+  // 模型侧**不再常驻注入** FG-DEGRADED 段——改为在"拦截 / fg_apply / 压缩事件"三处附 `livenessBadge()`。
   const missing = degradedModules()
   if (missing.length > 0) {
-    warn(`启动自检：${missing.length} 个模块未报到 —— ${missing.join('、')}（模型侧会收到 FG-DEGRADED 段）`)
+    warn(`启动自检：${missing.length} 个模块未报到 —— ${missing.join('、')}（不注入 Prompt；将在拦截/申请时附带徽标）`)
   }
 
   // 启动自证（2026-10-18）：无条件往 AUDIT.log 写一条 compaction-watch-ready / -degraded。

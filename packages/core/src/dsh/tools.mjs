@@ -14,6 +14,7 @@
 
 import { applyEligibility, grantFromAppeal, FG_APPLY_TOOL_SPEC, FG_APPEAL_TOOL_SPEC } from '../adapters/dsh/eligibility-gate.mjs'
 import { ABSOLUTE_REDLINES } from '../core/redlines.mjs'
+import { livenessBadge } from './heartbeat.mjs'
 
 /** 简化参数表（{type,required,description,enum}）→ JSON Schema。 */
 function specToJsonSchema(spec = {}) {
@@ -67,7 +68,8 @@ export function buildApplyTool() {
         target: args.target,
       }
       const result = await applyEligibility({ session: sessionOf(exec), ...spec, redlines: ABSOLUTE_REDLINES, model: null })
-      return { decision: result.decision, text: renderApply(result, spec) }
+      // 按需自证（2026-10-19）：fg_apply 是第二个局部点——申请/审核结果里附带一次存活徽标。
+      return { decision: result.decision, text: `${renderApply(result, spec)}\n${livenessBadge()}` }
     },
   }
 }
