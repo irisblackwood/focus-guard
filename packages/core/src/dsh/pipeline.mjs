@@ -83,6 +83,30 @@ export function redlineOf(cmd) {
 }
 
 /** 提取命令类参数；非命令类工具（write/read 等）返回 null，不做检查 */
+/**
+ * 把工具参数里的路径解析成绝对路径（2026-10-19 修：真实会话均传相对路径）。
+ *
+ * 病根：整文件闸 / 取证闸 / 体积闸此前直接拿 `pathOfTool(args)` 去 statSync / existsSync，
+ * 相对路径按**宿主进程 cwd** 解析；而 DSH 会话的 cwd 在 `agent.session.header.cwd`。
+ * 两者不一致时 statSync 抛 ENOENT → 闸无声跳过（fail-open），表现为"整读 1022 行不拦"。
+ * 实测证据：session-002c143b 的 `read {file_path:"packages/core/src/dsh/pipeline.mjs"}` 直通。
+ */
+function resolveToolPath(rawPath, exec) {
+  const p = String(rawPath ?? '').trim()
+  if (!p) return null
+  if (isAbsolute(p)) return p
+  const base = cwdOf(exec)
+  return base ? join(base, p) : p
+}
+
+function isDirPath(absPath) {
+  try {
+    return Boolean(absPath) && statSync(absPath).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 function commandOf(exec) {
   const args = exec && exec.arguments
   if (!args || typeof args !== 'object') return null
@@ -466,8 +490,12 @@ function layer3Check(exec, warn, statePathOverride) {
   }
 
   if (EVIDENCE_GATE.effective) {
-    const toolPath = pathOfTool(exec && exec.arguments)
-    const targets = isMutating ? (toolPath ? [toolPath] : []) : shellTargets
+    // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
+    // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
+    const toolPath = resolveToolPath(pathOfTool(exec && exec.arguments), exec)
+    const targets = isMutating
+      ? (toolPath ? [toolPath] : [])
+      : shellTargets.map((p) => resolveToolPath(p, exec)).filter(Boolean)
     for (const fp of targets) {
       const key = String(fp)
       const sid = sessionIdOf(exec)
@@ -744,7 +772,8 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       let target = null
       let segmented = false
       if (WHOLE_FILE_READ_TOOLS.test(toolName)) {
-        target = pathOfTool(args)
+        // 2026-10-19 修：真实调用传相对路径，必须按会话 cwd 解析，否则 statSync 抛错 → 闸无声跳过。
+        target = resolveToolPath(pathOfTool(args), exec)
         segmented = Boolean(args.limit || args.offset || args.pages)
       } else if (cmd && WHOLE_FILE_SHELL.test(cmd)) {
         segmented = /\||>|-TotalCount|-First|-Tail|--limit/.test(cmd)
@@ -756,7 +785,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         return {
           kind: 'deny',
           reason:
-            `focus-guard-native: 整文件闸——${target} 超过 ${WHOLE_FILE_MAX_LINES} 行，禁止整文件读取。` +
+            `focus-guard-native: 整文件闸——${target} 超过 ${WHOLE_FILE_MAX_LINES} 行，禁止整文件读取（本次为相对路径，已按会话 cwd 解析）。` +
             WHOLE_FILE_HINT,
         }
       }
@@ -819,7 +848,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
     try {
       const toolName = String((exec && exec.name) || '')
       const args = (exec && exec.arguments) || {}
-      const target = pathOfTool(args)
+      const target = resolveToolPath(pathOfTool(args), exec)
       const sessionId = sessionIdOf(exec)
       const stateFile = guardStateFile(sessionId)
       const st = existsSync(stateFile) ? loadState(stateFile) : null
@@ -855,13 +884,24 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         }
       }
 
-      // ② Grep 无 head_limit 闸（content 模式必须限量；先 files_with_matches 定位）
-      if (/^grep$/i.test(toolName) && args.output_mode === 'content' && !args.head_limit) {
-        warn('体积刺客拦截：', 'Grep content 无 head_limit')
-        auditDeny(exec, `Grep content 无 head_limit`, { trigger: 'volume:grep' })
+      // ② Grep 体积闸（2026-10-19 修）：原条件依赖 output_mode/head_limit —— 那是**合成参数**，
+      // 真实 DSH grep 工具只有 {pattern,path,include}，条件永不成立（实测 session-002c143b 直通）。
+      // 现实可达的判据：明确指定了**目录**却没给 include（等价于全目录 content 搜索）。
+      const grepBroadDir =
+        /^grep$/i.test(toolName) && Boolean(args.path) && isDirPath(target) && !args.include && !args.head_limit
+      const grepContentNoLimit = /^grep$/i.test(toolName) && args.output_mode === 'content' && !args.head_limit
+      if (grepContentNoLimit || grepBroadDir) {
+        warn('体积刺客拦截：', grepBroadDir ? 'Grep 目录级搜索未收窄' : 'Grep content 无 head_limit')
+        auditDeny(exec, `Grep 未收窄（path=${String(args.path || '-').slice(0, 60)} include=${args.include || '-'}）`, {
+          trigger: 'volume:grep',
+        })
         return {
           kind: 'deny',
-          reason: 'focus-guard-native: 体积刺客——Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。',
+          reason:
+            'focus-guard-native: 体积刺客——Grep 未收窄。' +
+            (grepBroadDir
+              ? '目录级搜索会一次返回数百条正文；请补 include（如 "**/*.mjs"）或改为先定位文件名。'
+              : 'Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。'),
         }
       }
 
