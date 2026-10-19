@@ -98,5 +98,3 @@ Currently `3.0.8`. Eight version surfaces are asserted equal to each other and t
 ## License
 
 AGPL-3.0-only © 2026 irisblackwood — commercial use requires a separate license
-<!-- ab-test -->
-<!-- ab-test -->
