@@ -53,7 +53,10 @@ describe("3.0.8 · 状态所有权（DSH 侧自持 + 精确按会话定位）", 
 
     assert.ok(existsSync(statePath(sid)), "应生成本会话状态文件（DSH 侧第一处 state 写权）");
     const st = loadState(statePath(sid));
-    assert.ok(st.readSet && Object.hasOwn(st.readSet, TARGET), "readSet 应含已读目标");
+    // 2026-10-19：取证键已归一化为「绝对路径 + 正斜杠」（修复"读过仍被拒一次"的根因，
+    // 见 tests/evidence-relative-path.test.mjs）。断言按归一化形态取键。
+    const key = String(TARGET).replace(/\\/g, "/");
+    assert.ok(st.readSet && Object.hasOwn(st.readSet, key), "readSet 应含已读目标（归一化键）");
     console.log("落盘 readSet:", Object.keys(st.readSet).length, "项 →", statePath(sid).replace(tmpdir(), "<tmp>"));
     rmSync(statePath(sid), { force: true });
   });

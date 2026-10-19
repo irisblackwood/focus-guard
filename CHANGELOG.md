@@ -28,6 +28,10 @@
   - 新增 `tests/random-fuse.test.mjs` 6 条（默认关不计数 / 固定间隔第 3 次命中 / 拒一次后放行且 trigger 正确 / 与抽查A 独立 / 换回合作废 / 随机间隔落在 2–5 两端可达）。
   - 验证：`npm run check` → `343/343`，`audit-isolation` Δ 0 PASS。
 - docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」🟡 → ✅（默认关），缺口 #4 改为「默认关闭 + 未写入 RULES，待人类批示」。
+- fix(gate): **取证闸「读过仍被拒一次」的真根因——取证键没归一化**（2026-10-19 实测复现）——读记录侧 `rememberReads` 存的是宿主给的**原始路径**（相对），查证侧存的是 `resolveToolPath()` 后的**绝对路径**（`join(cwd, rel)`，Windows 带反斜杠）；同一文件两种写法 → 查不到 → 判「未读」→ 靠 `evidenceBlockedOnce` 的「拒一次」逃生阀放行。表现就是"每次首次改都要被拦一次"。
+  - 修法：新增 `evidenceKeyOf()`（绝对化 + 统一正斜杠）、`sameEvidenceKey()`（Windows 大小写不敏感）、`isReadRecorded()`（先查归一化键直命，再兼容历史/异形态键逐个解析比对）；`rememberReads` 改写归一化键，`layer3Check` 的 `known` 判定改用 `isReadRecorded`。**未放宽闸门**：真没读过的文件仍拒一次（用例 e3 锁死）。
+  - 复现/回归：新增 `tests/evidence-relative-path.test.mjs` 3 条（相对路径读后改应放行 / 跨正反斜杠形态应放行 / 未读就改仍拦）；同步修正 `tests/state-ownership.test.mjs` 的 readSet 断言到归一化键。
+  - 验证：`npm run check` → `346/346`，`audit-isolation` Δ 0 PASS。
 
 ## 3.0.8 · 2026-10-19
 

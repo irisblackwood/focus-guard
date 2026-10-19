@@ -99,8 +99,43 @@ function resolveToolPath(rawPath, exec) {
   return base ? join(base, p) : p
 }
 
-function isDirPath(absPath) {
-  try {
+/**
+ * 取证键归一化（2026-10-19 修 BUG）：**绝对化 + 统一正斜杠**。
+ *
+ * 病根（实测复现见 tests/evidence-relative-path.test.mjs）：读记录侧存的是宿主给的原始路径，
+ * 查证侧存的是 `resolveToolPath` 后的绝对路径（`join(cwd, rel)`，Windows 带反斜杠）——
+ * 同一文件两种写法 → 查不到 → 判"未读" → 靠 evidenceBlockedOnce 的「拒一次」逃生阀放行。
+ * 表现就是"明明读过，首次改还是被拦一次"。这不是设计语义，是键没归一化。
+ */
+function evidenceKeyOf(rawPath, exec) {
+  const resolved = resolveToolPath(rawPath, exec)
+  return resolved ? String(resolved).replace(/\\/g, '/') : null
+}
+
+/** 两个取证键是否指同一文件（已归一化：正斜杠；Windows 下大小写不敏感）。 */
+function sameEvidenceKey(a, b) {
+  const x = String(a).replace(/\\/g, '/')
+  const y = String(b).replace(/\\/g, '/')
+  return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y
+}
+
+/**
+ * 本会话是否"读过"该文件。先查直命（归一化键），再兼容历史/异形态键
+ *（postProgress 存的是相对正斜杠、老记录可能存原始相对路径）——逐个解析后比较。
+ */
+function isReadRecorded(state, sid, absKey, exec) {
+  const seen = setOf(nativeReadSet, sid)
+  const rs = state && state.readSet && typeof state.readSet === 'object' ? state.readSet : {}
+  if (seen.has(absKey) || Object.hasOwn(rs, absKey)) return true
+  const candidates = [...seen, ...Object.keys(rs)]
+  for (const c of candidates) {
+    const k = evidenceKeyOf(c, exec)
+    if (k && sameEvidenceKey(k, absKey)) return true
+  }
+  return false
+}
+
+function isDirPath(absPath) {  try {
     return Boolean(absPath) && statSync(absPath).isDirectory()
   } catch {
     return false
@@ -396,7 +431,8 @@ function rememberReads(exec) {
   if (!READ_TOOL.test(String((exec && exec.name) || ''))) return
   const p = pathOfTool(exec && exec.arguments)
   if (!p) return
-  const key = String(p)
+  // 2026-10-19：键必须与查证侧（resolveToolPath 的绝对路径）同形态，否则"读过"永远查不到。
+  const key = evidenceKeyOf(p, exec) || String(p)
   const sid = sessionIdOf(exec)
   const seen = setOf(nativeReadSet, sid)
   if (seen.has(key)) return
@@ -515,11 +551,9 @@ function layer3Check(exec, warn, statePathOverride) {
       ? (toolPath ? [toolPath] : [])
       : shellTargets.map((p) => resolveToolPath(p, exec)).filter(Boolean)
     for (const fp of targets) {
-      const key = String(fp)
+      const key = String(fp).replace(/\\/g, '/')
       const sid = sessionIdOf(exec)
-      const known =
-        setOf(nativeReadSet, sid).has(key) ||
-        (state.readSet && typeof state.readSet === 'object' && Object.hasOwn(state.readSet, key))
+      const known = isReadRecorded(state, sid, key, exec)
       // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
       // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
       // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
