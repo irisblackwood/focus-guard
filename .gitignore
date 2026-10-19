@@ -29,3 +29,7 @@ __pycache__/
 .workbuddy-ai/
 self-improvement/
 
+# IDE 工作区状态（Visual Studio / VS Code，本机私有）
+.vs/
+.vscode/
+
