@@ -80,12 +80,12 @@ L6 处置结果与伪 RLHF 反馈闭环
 
 ---
 
-## 版本路线（2026-10-19 人类定）
+## 版本路线（2026-10-19 人类定；执行清单见 [`VERSION-PLAN.md`](VERSION-PLAN.md)）
 
 | 版本 | 目标 | 前置 |
 |---|---|---|
-| **3.5** | 重置文档（把 HANDOFF/RULES/ARCH-MAP/BENCH 的旧口径收敛成一套当前版本的事实源） | 面板基线（缺口 #5）先有，否则文档里的成本口径仍是条件性 |
-| **4.0** | 废除外挂脚本 Hook（hooks/guard.mjs），内核迁入 **MCP 常驻进程**，Hook 降级为 HTTP 触发线（方案见 docs/MCP-4.0-PLAN.md） | 3.5 文档重置完成；P0 spike 先实测 deny/updatedInput/turn-step 三件事 |
+| **3.5** | 文档重置：D1 README 瘦身（402→≤160 行）、D2 `docs/INDEX.md`、D3 旧交接归档、D4 数字单点化、D5 `docs:lint` 并入 check、D6 `RULES` 技术映射表核对 | 面板基线（缺口 #5）先有，否则文档里的成本口径仍是条件性 |
+| **4.0** | 废除外挂脚本 Hook（`hooks/guard.mjs`），内核迁入 **MCP 常驻进程**，Hook 降级为 HTTP 触发线（方案 [`MCP-4.0-PLAN.md`](MCP-4.0-PLAN.md)） | 3.5 文档重置完成；P0 spike 先实测 deny / `updatedInput` / turn-step 三件事 |
 
 ## 成本事实（2026-10-18 实测，供后续判断）
 
