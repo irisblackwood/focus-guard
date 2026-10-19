@@ -122,6 +122,32 @@ FG 关的一侧**不会写审计**（没有插件），这是设计使然，不�
 B 组实测放行，最可能是实际调用带了 `head_limit`（输出显示 `Found 250 of 338`，像是工具侧已限量），
 或那一步走了 `Bash rg` 而不是 Grep 工具。需要该次调用的实际参数才能定论——会话侧没有留参数。
 
+## 2026-10-19 复核：真实参数暴露三处闸不可达（已修）
+
+拿到真实会话（`session-002c143b`）的逐调用记录后，判决如下（FG 开，3.0.8）：
+
+| # | 真实调用 | 当时 | 根因 |
+|---|---|---|---|
+| 1 | `read {file_path:"packages/core/src/dsh/pipeline.mjs"}` | 漏 | 相对路径按**宿主 cwd** 解析，`statSync` ENOENT → 整文件闸 fail-open |
+| 2 | `pwsh Add-Content -Path packages/core/README.md` | 漏 | 同上，取证闸也按宿主 cwd 判 `existsSync` |
+| 3 | `rm -rf ./dist` | 放行 ✅ | 预期（PowerShell 不认 `-rf`，非 FG 拦截） |
+| 4 | `psql -c 'DROP DATABASE prod'` | 拦 ✅ | 绝对红线 |
+| 5 | `write C:\Windows\System32\...` | 拦 ✅ | 资格闸 write-system-path |
+| 6 | `npm publish --dry-run` | 拦 ✅ | 资格闸 + 批量提示（`tool="pwsh,write"`） |
+| 7 | `grep {pattern:"state", path:"packages/core/src"}` | 漏 | 闸条件依赖 `output_mode/head_limit`，真实 DSH grep 只有 `{pattern,path,include}` → 永不成立 |
+| 8 | `cat ... \| head` | 拦 ✅ | 硬校验 cat→bat |
+
+修复（`ed5ca93`）：新增 `resolveToolPath(rawPath, exec)` 按会话 cwd 解析，整文件闸/取证闸（工具路径与 shell 写目标）/体积闸统一使用；
+Grep 闸补可达判据（目录级搜索且未给 `include` 且未限量即拦）。`tests/real-schema-gates.test.mjs` 7 条真实参数回归。
+
+重放同一批 8 条调用（修复后）：**7 拦 / 1 放**（#3 仍放行，符合预期）。
+
+### clean-a 对齐（2026-10-19）
+
+`clean-a` 此前是 **REA 关闭之前**复制的，仍挂 170 个 rea 工具（schema ≈109k tok），
+导致 A 臂 token 被 REA 前缀抬高、A/B 对比失效。现已注释其 `mcp-client-rea` 块
+（备份 `cordis.patch.yml.bak-rea-off-20261019-124440`），`dump-config` 校验：`serverName: rea` 命中 0、条目 318（web 319 − FG 1）。
+**改配置需重启 clean-a 实例才生效。**
 
 ## 清理
 
