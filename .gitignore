@@ -33,3 +33,5 @@ self-improvement/
 .vs/
 .vscode/
 
+# 面板采集数据（人工抄录的轮次数据，本机私有）
+panel-runs*.json
