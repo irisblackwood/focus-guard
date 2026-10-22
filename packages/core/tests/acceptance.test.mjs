@@ -1447,9 +1447,25 @@ describe("工程自检（防版本与文档漂移）", () => {
       join(home, ".zcode", "workspace", "default", "plugins", "focus-guard", "marketplace.json"),
       JSON.stringify({ version: "1.2.0" })
     );
-    const r = run("start", { session_id: "deploy-drift" }, { ZCODE_PROJECT_DIR: dir, USERPROFILE: home, HOME: home });
+    // 2026-10-22：ZCode 通道退役后该核验改为显式开启（默认关，避免旧注册表每会话误报）
+    const r = run("start", { session_id: "deploy-drift" }, { ZCODE_PROJECT_DIR: dir, USERPROFILE: home, HOME: home, FG_ZCODE_DEPLOY_CHECK: "1" });
     assert.ok(r.out.includes("部署版本核验"), "应注入部署漂移警告");
     assert.ok(readFileSync(join(dir, ".focus-guard", "AUDIT.log"), "utf8").includes("deploy-mismatch"));
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("部署漂移核验：默认不开启（旧 ZCode 注册表不再每会话误报）", () => {
+    const run = makeRunner("deploy-drift-off");
+    const dir = freshDir();
+    const home = freshDir();
+    mkdirSync(join(home, ".zcode", "cli", "plugins"), { recursive: true });
+    writeFileSync(
+      join(home, ".zcode", "cli", "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 1, plugins: [{ id: "focus-guard@x", installPath: join(home, "cache", "focus-guard", "3.0.4") }] })
+    );
+    const r = run("start", { session_id: "deploy-drift-off" }, { ZCODE_PROJECT_DIR: dir, USERPROFILE: home, HOME: home });
+    assert.ok(!r.out.includes("部署版本核验"), "默认不得因旧注册表注入部署漂移告警");
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });

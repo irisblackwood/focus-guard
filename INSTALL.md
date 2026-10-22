@@ -11,7 +11,7 @@ node -v
 | 平台 | 插件结构 | 拦截语义 | 安装方式 |
 |---|---|---|---|
 | **ZCode** | `.zcode-plugin/plugin.json` + `packages/core/hooks/hooks.json` | PreToolUse 退出码 2 / `decision:block` **硬拦截** | 插件市场（市场源刷新 + UI 更新） |
-| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/pipeline.mjs` 三条宿主缝 | 三缝全开：资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线上下文豁免 | `dsh plugin --profile <name> add <本仓库 packages/core 目录>`（见下文） |
+| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的 8 个宿主事件 | **8 事件 / 12 监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add <本仓库 packages/core 目录>`（见下文） |
 | **DSH·官方桥** | 桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步。但**不含**原生插件独有的资格审核与申辩 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
 
 ⚠ **DSH 的两条路互斥**——原生插件与官方桥监听同一条 pre-execute 缝，**同时挂载即双跑**。二选一。
@@ -53,7 +53,7 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
 
 | 路径 | 拿到什么 |
 |---|---|
-| **A. 原生插件**（推荐，3.0.5 起） | `src/dsh/pipeline.mjs` 三条宿主缝全开：资格审核（`fg_apply`）+ 误伤申辩（`fg_appeal`）+ 模型画像 + 环境指纹命令硬校验 + 绝对红线上下文豁免 |
+| **A. 原生插件**（推荐，3.0.5 起） | `src/dsh/` 的 **8 个宿主事件 / 12 条监听**：`tools/pre-execute` 拦截判定（资格审核 `fg_apply` + 误伤申辩 `fg_appeal` + 模型画像 + 环境指纹命令硬校验 + 绝对红线上下文豁免）、`system-prompt/assemble` 规则与成本注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断浪费结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察（只读） |
 | **B. 官方桥**（2.5.0 起） | Claude 方言六条钩子的**同级硬拦截**（exit 2 / `ask` 审批 / stderr 原文透传 / Stop 打回），但**不含** A 独有的资格审核与申辩 |
 
 ### 2A. 原生插件（推荐）

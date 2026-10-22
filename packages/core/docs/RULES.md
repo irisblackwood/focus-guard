@@ -370,7 +370,7 @@ focus-guard/
 
 ### 附：实施状态与部署对照（截至 v3.0.0，2026-10-06 核验）
 
-**实施状态**（自本节起为工程附注，非法条原文）：运行时只加载常驻提示词 + 钩子代码，本文件不参与运行。引擎 `hooks/guard.mjs` v3.0.0（卷宗体系重构见 `docs/MASTER-PLAN-2.0.0.md`，协作治理总纲见 `docs/MASTER-PLAN-3.0.0.md`）；常驻注入 `SESSION_RULES` 运行期实测 425 字（260 全角 + 165 半角，含拼接的 FUSE_PHRASE；`node tests/token-bench.mjs hooks/guard.mjs` 可复测），低于立法硬上限 ≤500 字，约 283~354 Token（按 1 token≈1.2~1.5 中文字符折算）。
+**实施状态**（自本节起为工程附注，非法条原文）：运行时只加载常驻提示词 + 钩子代码，本文件不参与运行。引擎 `hooks/guard.mjs` v3.0.0（卷宗体系重构见 `docs/MASTER-PLAN-2.0.0.md`，协作治理总纲见 `docs/MASTER-PLAN-3.0.0.md`）；常驻注入 `SESSION_RULES` 运行期实测 425 字（**246 全角 + 179 半角**，2026-10-22 复测，含拼接的 FUSE_PHRASE；`node tests/token-bench.mjs hooks/guard.mjs` 可复测），低于立法硬上限 ≤500 字，约 283~354 Token（按 1 token≈1.2~1.5 中文字符折算）。
 
 实际发布结构为适配 ZCode 插件规范，与上述蓝图存在以下映射关系：
 

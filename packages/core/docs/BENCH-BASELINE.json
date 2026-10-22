@@ -1,8 +1,8 @@
 {
-  "ts": "2026-10-18T11:40:09.591Z",
+  "ts": "2026-10-22T07:59:24.802Z",
   "iterations": 10,
-  "cases": 14,
-  "calls": 140,
+  "cases": 15,
+  "calls": 150,
   "accuracy": 1,
   "falsePositiveRate": 0,
   "latencyMs": {
@@ -12,78 +12,84 @@
   },
   "byCase": {
     "redline-rm-rf-root": {
-      "p50": 0.35,
+      "p50": 0.39,
       "p95": 0.61
     },
     "redline-git-push-force": {
-      "p50": 0.37,
-      "p95": 0.44
+      "p50": 0.38,
+      "p95": 0.45
     },
     "hardcheck-cat": {
-      "p50": 0.4,
-      "p95": 0.65
+      "p50": 0.43,
+      "p95": 0.86
     },
     "whole-file-deny": {
-      "p50": 2.12,
-      "p95": 2.26
+      "p50": 7.32,
+      "p95": 8.56
     },
     "whole-file-offset-allow": {
-      "p50": 2.16,
-      "p95": 4.43
+      "p50": 7.36,
+      "p95": 8.95
     },
     "small-file-allow": {
-      "p50": 2.37,
-      "p95": 3.44
+      "p50": 7.31,
+      "p95": 9.43
     },
-    "grep-content-deny": {
-      "p50": 0.36,
-      "p95": 0.4
+    "grep-broad-dir-deny": {
+      "p50": 7.65,
+      "p95": 8.95
+    },
+    "grep-narrowed-allow": {
+      "p50": 6.96,
+      "p95": 8.12
     },
     "grep-default-allow": {
-      "p50": 0.12,
-      "p95": 0.15
+      "p50": 0.19,
+      "p95": 0.24
     },
     "eligibility-publish-deny": {
-      "p50": 0.58,
-      "p95": 0.85
+      "p50": 0.86,
+      "p95": 1.1
     },
     "evidence-edit-deny": {
-      "p50": 0.71,
-      "p95": 0.8
+      "p50": 0.74,
+      "p95": 1.23
     },
     "evidence-new-session-allow": {
-      "p50": 0.17,
-      "p95": 0.22
+      "p50": 0.24,
+      "p95": 0.44
     },
     "plain-ls-allow": {
-      "p50": 0.17,
-      "p95": 0.21
+      "p50": 0.22,
+      "p95": 0.39
     },
     "plain-git-status-allow": {
-      "p50": 0.14,
-      "p95": 0.34
+      "p50": 0.18,
+      "p95": 0.21
     },
     "write-new-file-allow": {
-      "p50": 0.12,
-      "p95": 0.38
+      "p50": 0.14,
+      "p95": 0.27
     }
   },
   "slowest": [
     {
-      "id": "whole-file-offset-allow",
-      "p50": 2.16,
-      "p95": 4.43
-    },
-    {
       "id": "small-file-allow",
-      "p50": 2.37,
-      "p95": 3.44
+      "p50": 7.31,
+      "p95": 9.43
     },
     {
-      "id": "whole-file-deny",
-      "p50": 2.12,
-      "p95": 2.26
+      "id": "whole-file-offset-allow",
+      "p50": 7.36,
+      "p95": 8.95
+    },
+    {
+      "id": "grep-broad-dir-deny",
+      "p50": 7.65,
+      "p95": 8.95
     }
   ],
-  "failures": []
+  "failures": [],
+  "_latencyNote": "p95=2.37ms 是 2026-10-18 的旧标尺，刻意未随 2026-10-22 的实测（8.12ms）放宽——新增的 grep-broad-dir-deny / grep-narrowed-allow 两条要走 statSync，本身约 8ms。保留旧标尺是为了让「p95 是否劣化」继续可见；判定逻辑为 p95 > 基线×3+5 才报警。",
+  "_syncedAt": "2026-10-22"
 }

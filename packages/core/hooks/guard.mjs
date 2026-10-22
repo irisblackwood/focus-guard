@@ -34,6 +34,9 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFILL, STALL_FUSE, MERCY_SHORT, ENGINE_VERSION, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_RECENT, TTL_WEEK, TTL_STABLE, FUSE_PHRASE, FUSE_HINT, LIBRARY_RE, BLOCKS_RE, INTERP_EVAL_RE, HIGH_RISK_FORM, MERCY_RE, CREDIT_RE, STOP_ORDER_RE, TASK_SCALE_RE, KEY50_RE, KEY15_RE, PARDON_DECL_RE, PARDON_PENDING_RE, PARDON_QUOTE_RE, PARDON_BASIS_RE, AUTH_SEMANTICS_RE, DOWNGRADE_MARKERS, EVIDENCE_ANCHORS, RISKY_FILE_RE, SECRET_FILE_RE, BACKUP_KEEP, DELEGATE_DEFAULT, DOWNGRADE_MSG, SESSION_RULES, CASE_TEMPLATE, HIGH_RISK_QUEUE_MAX } from "../src/core/constants.mjs";
+// 2026-10-22：体积闸判定内核下沉到母版（core/outputGate.mjs），与 DSH 路径共用同一套判据。
+// 本文件是封存版，只替换判定来源，不改变任何行为——参数语义仍按本宿主的工具 schema 翻译。
+import { judgeReadGate, judgeGrepGate, judgeCatGate } from "../src/core/outputGate.mjs";
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail } from "../src/core/audit.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize } from "../src/core/risk.mjs";
@@ -131,9 +134,17 @@ if (mode === "start") {
       audit(sid, "handover-inspect", { level: null, evidence: "36条 交叉巡视：发现 HANDOFF.md" });
     } catch {}
     // 42条 部署版本核验：运行引擎 vs 工作区源码
+    //
+    // 2026-10-22 清假警报：本文件已封存（头注释 v3.0.4，版本独立、不随主版本更新），
+    // 但候选表第一条就是它自己（packages/core/hooks/guard.mjs），于是每个会话必然命中
+    // 「v3.0.8 ≠ v3.0.4」并注入 89 字告警（`【部署版本核验·42条】…疑似升级后未同步部署…`），
+    // 属确定性误报。修法：**读到的副本只要带「已封存」标记就跳过**——封存脚本本来就不跟主版本，
+    // 比对它没有意义；未封存的历史部署副本仍然照常核验（该告警对它们是真信号）。
     for (const rel of ["packages/core/hooks/guard.mjs", "hooks/guard.mjs", "focus-guard/hooks/guard.mjs", "plugins/focus-guard/hooks/guard.mjs"]) {
       try {
-        const m = readFileSync(join(projDir, rel), "utf8").slice(0, 400).match(/v(\d+\.\d+\.\d+)/);
+        const head = readFileSync(join(projDir, rel), "utf8").slice(0, 400);
+        if (head.includes("已封存")) continue; // 封存脚本：版本独立，不参与部署核验
+        const m = head.match(/v(\d+\.\d+\.\d+)/);
         if (m && m[1] !== ENGINE_VERSION) {
           ctx += `\n【部署版本核验·42条】运行引擎 v${ENGINE_VERSION} ≠ 工作区源码 v${m[1]}（${rel}），疑似升级后未同步部署，请核验一致性。`;
           audit(sid, "version-check", { level: null, evidence: `42条 引擎 v${ENGINE_VERSION} vs 源码 v${m[1]} (${rel})` });
@@ -148,6 +159,14 @@ if (mode === "start") {
     evidence: `立法法(试行)v1.0 生效2026-09-29; 监督办法v1.0(docs/RULES.md); 引擎v${ENGINE_VERSION}`,
   });
   // 立法法·第七章 / 监督办法第九章 部署核验：注册表 ↔ 市场源 ↔ 运行引擎
+  //
+  // 2026-10-22 清假警报：ZCode 通道已退役（本文件封存、DSH 原生插件为主），
+  // 但 `~/.zcode/cli/plugins/installed_plugins.json` 里仍留着当年按版本号命名的安装路径
+  // （basename 恒为旧版如 `3.0.4`），于是每个会话都注入
+  // `【部署版本核验】引擎v3.0.8 ≠ 注册表v3.0.4，存在部署漂移，请核验。`
+  // —— 确定性误报，且不可行动（没人会为了让告警消失去改旧的 ZCode 注册表）。
+  // 现改为**显式开启**：仅当 `FG_ZCODE_DEPLOY_CHECK=1`（真的还在跑 ZCode 部署）时才核验。
+  if (process.env.FG_ZCODE_DEPLOY_CHECK === "1") {
   try {
     const home = process.env.USERPROFILE || process.env.HOME || "";
     const reg = JSON.parse(
@@ -179,6 +198,7 @@ if (mode === "start") {
       }
     }
   } catch {}
+  }
 
   process.stdout.write(
     JSON.stringify({
@@ -576,18 +596,23 @@ if (mode === "pre") {
     }
   }
 
-  // 触发③：体积刺客三闸
+  // 触发③：体积刺客三闸（判定内核见 core/outputGate.mjs）
   if (tool === "Read" && !ti.limit && !ti.pages && rawPath) {
     try {
       const kb = Math.round(statSync(rawPath).size / 1024);
-      if (kb * 1024 > OUTPUT_GATE_BYTES) {
-        // 2.5.3（案二）：审计/盘点/审查类任务的取证对象整读留痕不罚——法典将审计定为 50 预算
-        // 重大专项，体积闸却拦审计最需要的整读，属制度性误伤。预算与巨量输出追责仍生效。
-        if (/审计|盘点|审查/.test(String(state.turnPromptFull || state.turnPrompt || ""))) {
-          audit(sid, "audit-read-allow", { level: null, evidence: `${filePath} ${kb}KB 整读（审计任务豁免，留痕不罚）` });
-          process.stderr.write(`[体积刺客·审计豁免]${filePath} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`);
-          process.exit(0);
-        }
+      // 2.5.3（案二）：审计/盘点/审查类任务的取证对象整读留痕不罚——法典将审计定为 50 预算
+      // 重大专项，体积闸却拦审计最需要的整读，属制度性误伤。预算与巨量输出追责仍生效。
+      const verdict = judgeReadGate({
+        bytes: kb * 1024,
+        gateBytes: OUTPUT_GATE_BYTES,
+        turnPrompt: String(state.turnPromptFull || state.turnPrompt || ""),
+      });
+      if (verdict === "exempt") {
+        audit(sid, "audit-read-allow", { level: null, evidence: `${filePath} ${kb}KB 整读（审计任务豁免，留痕不罚）` });
+        process.stderr.write(`[体积刺客·审计豁免]${filePath} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`);
+        process.exit(0);
+      }
+      if (verdict === "deny") {
         const level = penalize(state, sid, "violation-read-gate", `${filePath} ${kb}KB 整读`);
         saveState(path, state);
         process.stderr.write(
@@ -598,18 +623,25 @@ if (mode === "pre") {
     } catch {}
   }
 
-  if (tool === "Grep" && ti.output_mode === "content" && !ti.head_limit) {
-    const level = penalize(state, sid, "violation-grep-gate", "Grep content 无 head_limit");
-    saveState(path, state);
-    process.stderr.write(
-      `[触发③·L${level}]体积刺客：Grep content 必带 head_limit≤50，或先用 files_with_matches 定位。${ladderNote(level)}`
-    );
-    process.exit(2);
+  // 本宿主的 Grep 有 output_mode/head_limit（与 DSH 的 {pattern,path,include} 不同），
+  // 所以这里翻译成 contentUnlimited，判定仍交给母版内核。
+  if (tool === "Grep") {
+    const grepVerdict = judgeGrepGate({
+      contentUnlimited: ti.output_mode === "content" && !ti.head_limit,
+    });
+    if (grepVerdict.action === "deny") {
+      const level = penalize(state, sid, "violation-grep-gate", "Grep content 无 head_limit");
+      saveState(path, state);
+      process.stderr.write(
+        `[触发③·L${level}]体积刺客：${grepVerdict.reason}${ladderNote(level)}`
+      );
+      process.exit(2);
+    }
   }
 
   if (tool === "Bash") {
     const cmd = String(ti.command || "");
-    if (/(^|[;&|]\s*)(cat|type|Get-Content)\s/i.test(cmd) && !cmd.includes("|") && !cmd.includes(">") && !/-(TotalCount|First|Tail)\b/.test(cmd)) {
+    if (judgeCatGate(cmd) === "deny") {
       const level = penalize(state, sid, "violation-bash-gate", `裸 cat/type：${cmd.slice(0, 60)}`);
       saveState(path, state);
       process.stderr.write(

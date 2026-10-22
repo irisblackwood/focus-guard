@@ -15,6 +15,8 @@ import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
 import { redlineExempt, MUTATOR_HEAD_RE, isMutatingBashCmd } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
 import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
+// 2026-10-22：体积闸判定内核下沉到母版，两条适配路径共用同一套判据（参数提取各自做）。
+import { judgeReadGate, judgeGrepGate, judgeCatGate } from '../core/outputGate.mjs'
 // ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
 // 直接 import 同名函数会被参数遮蔽 → 函数体内 statePath === undefined → "is not a function"，
 // 而且被 try/catch 的 fail-open 吞成静默放行（2026-10-09 实测踩过）。
@@ -907,8 +909,9 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       const st = existsSync(stateFile) ? loadState(stateFile) : null
       const turnPrompt = String((st && (st.turnPromptFull || st.turnPrompt)) || '')
 
-      // ① Read 整读体积闸。2.5.3（案二）：审计/盘点/审查类任务整读留痕不罚——
-      //    法典把审计定为 50 预算重大专项，体积闸却拦审计最需要的整读，属制度性误伤。
+      // ① Read 整读体积闸（判定见 core/outputGate.mjs:judgeReadGate）
+      //    2.5.3（案二）：审计/盘点/审查类任务整读留痕不罚——法典把审计定为 50 预算
+      //    重大专项，体积闸却拦审计最需要的整读，属制度性误伤。
       if (/^read$/i.test(toolName) && !args.limit && !args.pages && target) {
         let kb = 0
         try {
@@ -916,58 +919,53 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
         } catch {
           kb = 0
         }
-        if (kb * 1024 > OUTPUT_GATE_BYTES) {
-          if (/审计|盘点|审查/.test(turnPrompt)) {
-            auditRedlineExempt(exec, `${target} ${kb}KB 整读`, {
-              redline: 'output-gate',
-              basis: 'audit-task-exempt',
-              detail: `${target} ${kb}KB 整读（审计任务豁免，留痕不罚）`,
-            })
-            warn('体积刺客·审计豁免：', `${target} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`)
-          } else {
-            warn('体积刺客拦截：', `${target} ${kb}KB 整读`)
-            auditDeny(exec, `${target} ${kb}KB 整读`, { trigger: 'volume:kb' })
-            return {
-              kind: 'deny',
-              reason:
-                `focus-guard-native: 体积刺客——${target} ${kb}KB，整读一次灌入、步步重复计费。` +
-                `请用 limit+offset 分段读，或交子代理处理。`,
-            }
+        const verdict = judgeReadGate({ bytes: kb * 1024, gateBytes: OUTPUT_GATE_BYTES, turnPrompt })
+        if (verdict === 'exempt') {
+          auditRedlineExempt(exec, `${target} ${kb}KB 整读`, {
+            redline: 'output-gate',
+            basis: 'audit-task-exempt',
+            detail: `${target} ${kb}KB 整读（审计任务豁免，留痕不罚）`,
+          })
+          warn('体积刺客·审计豁免：', `${target} ${kb}KB 整读已留痕（审计任务）。预算仍计费，巨量输出仍追责。`)
+        } else if (verdict === 'deny') {
+          warn('体积刺客拦截：', `${target} ${kb}KB 整读`)
+          auditDeny(exec, `${target} ${kb}KB 整读`, { trigger: 'volume:kb' })
+          return {
+            kind: 'deny',
+            reason:
+              `focus-guard-native: 体积刺客——${target} ${kb}KB，整读一次灌入、步步重复计费。` +
+              `请用 limit+offset 分段读，或交子代理处理。`,
           }
         }
       }
 
-      // ② Grep 体积闸（2026-10-19 修）：原条件依赖 output_mode/head_limit —— 那是**合成参数**，
-      // 真实 DSH grep 工具只有 {pattern,path,include}，条件永不成立（实测 session-002c143b 直通）。
-      // 现实可达的判据：明确指定了**目录**却没给 include（等价于全目录 content 搜索）。
-      const grepBroadDir =
+      // ② Grep 收窄闸（判定见 core/outputGate.mjs:judgeGrepGate）
+      // 2026-10-19 修：原条件依赖 output_mode/head_limit —— 那是**合成参数**，真实 DSH grep
+      // 工具只有 {pattern,path,include}，条件永不成立（实测 session-002c143b 直通）。
+      // 2026-10-22 清死分支：`grepContentNoLimit` 已删。它线上永远走不到，却让 decision-bench
+      // 里一条用合成参数的用例继续"通过"——死代码在给假测试续命。
+      // DSH 侧的"未收窄"语义 = 明确指定了**目录**却没给 include（等价于全目录正文搜索）。
+      const broadDir =
         /^grep$/i.test(toolName) && Boolean(args.path) && isDirPath(target) && !args.include && !args.head_limit
-      const grepContentNoLimit = /^grep$/i.test(toolName) && args.output_mode === 'content' && !args.head_limit
-      if (grepContentNoLimit || grepBroadDir) {
-        warn('体积刺客拦截：', grepBroadDir ? 'Grep 目录级搜索未收窄' : 'Grep content 无 head_limit')
+      const grepVerdict = judgeGrepGate({ broadDir })
+      if (grepVerdict.action === 'deny') {
+        warn('体积刺客拦截：', 'Grep 目录级搜索未收窄')
         auditDeny(exec, `Grep 未收窄（path=${String(args.path || '-').slice(0, 60)} include=${args.include || '-'}）`, {
           trigger: 'volume:grep',
         })
         return {
           kind: 'deny',
-          reason:
-            'focus-guard-native: 体积刺客——Grep 未收窄。' +
-            (grepBroadDir
-              ? '目录级搜索会一次返回数百条正文；请补 include（如 "**/*.mjs"）或改为先定位文件名。'
-              : 'Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。'),
+          reason: `focus-guard-native: 体积刺客——Grep 未收窄。${grepVerdict.reason}`,
         }
       }
 
-      // ③ 裸 cat/type 刷屏闸（有管道/重定向/限量参数即放行）
-      if (cmd && /(^|[;&|]\s*)(cat|type|Get-Content)\s/i.test(cmd)) {
-        const guarded = /\||>|-TotalCount|-First|-Tail/i.test(cmd)
-        if (!guarded) {
-          warn('体积刺客拦截：', `裸 cat/type：${cmd.slice(0, 60)}`)
-          auditDeny(exec, `裸 cat/type：${cmd.slice(0, 60)}`, { trigger: 'volume:cat' })
-          return {
-            kind: 'deny',
-            reason: 'focus-guard-native: 体积刺客——禁裸 cat/type 刷屏。用 `cat x | head -100`，或先 grep/wc 定位。',
-          }
+      // ③ 裸 cat/type 刷屏闸（判定见 core/outputGate.mjs:judgeCatGate）
+      if (cmd && judgeCatGate(cmd) === 'deny') {
+        warn('体积刺客拦截：', `裸 cat/type：${cmd.slice(0, 60)}`)
+        auditDeny(exec, `裸 cat/type：${cmd.slice(0, 60)}`, { trigger: 'volume:cat' })
+        return {
+          kind: 'deny',
+          reason: 'focus-guard-native: 体积刺客——禁裸 cat/type 刷屏。用 `cat x | head -100`，或先 grep/wc 定位。',
         }
       }
     } catch (error) {

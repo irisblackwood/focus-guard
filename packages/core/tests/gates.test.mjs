@@ -82,15 +82,38 @@ describe("3.0.8 · 体积刺客三闸（移植批 2）", () => {
     rmSync(statePath(sid), { force: true });
   });
 
-  test("Grep content 无 head_limit → deny（要求限量或先 files_with_matches）", async () => {
+  // 2026-10-22 改正：原用例传 `output_mode: "content"` —— 真实 DSH grep 工具没有这个参数
+  // （只有 {pattern,path,include}），它靠 pipeline 里一条死分支才通过。死分支已删，改真参数。
+  test("Grep 目录级搜索未收窄 → deny（要求补 include 或先定位）", async () => {
     const sid = `gates-grep-${process.pid}`;
     withState(sid);
     const gate = await preExecuteListener({ warn: noop })(
-      { sessionId: sid, name: "grep", arguments: { pattern: "x", output_mode: "content" } },
+      {
+        sessionId: sid,
+        name: "grep",
+        arguments: { pattern: "x", path: "." },
+        agent: { session: { header: { cwd: process.cwd() } } },
+      },
       allow,
     );
-    assert.equal(gate.kind, "deny", "Grep content 无 head_limit 应被拦");
+    assert.equal(gate.kind, "deny", "Grep 目录级搜索未收窄应被拦");
     console.log("Grep 拦截:", String(gate.reason).slice(0, 80));
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("Grep 目录级搜索带 include → allow（收窄即放行，不得误伤）", async () => {
+    const sid = `gates-grep-inc-${process.pid}`;
+    withState(sid);
+    const gate = await preExecuteListener({ warn: noop })(
+      {
+        sessionId: sid,
+        name: "grep",
+        arguments: { pattern: "x", path: ".", include: "*.mjs" },
+        agent: { session: { header: { cwd: process.cwd() } } },
+      },
+      allow,
+    );
+    assert.equal(gate.kind, "allow", "带 include 的目录搜索不应被拦");
     rmSync(statePath(sid), { force: true });
   });
 

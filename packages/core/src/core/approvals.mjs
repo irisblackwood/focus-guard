@@ -48,7 +48,9 @@ export function createApprovalRequest({ session, tool, command = '', gateId, rea
   const request = {
     id,
     ts: new Date().toISOString(),
-    session: String(session || 'dsh-native'),
+    // 母版不认宿主：缺省用中性值，真实 session 由适配层传入。
+    // （2026-10-22 层序审查：原缺省值硬编码 'dsh-native'，等于母版层替 DSH 代言。）
+    session: String(session || 'unknown'),
     tool: String(tool ?? ''),
     command: String(command ?? '').slice(0, 400),
     gateId: String(gateId || ''),

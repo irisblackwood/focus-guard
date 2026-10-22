@@ -22,6 +22,9 @@ process.env.FG_AUDIT_FILE = AUDIT_TMP;
 const { sessionStartListener, systemPromptRulesListener } = await import("../src/dsh/seams.mjs");
 const { stopGuardListener } = await import("../src/dsh/stopGuard.mjs");
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
+// 2026-10-22：focus-guard-cost 段此前零测试——它是 README 里 440 = 425 + 15 的右半边，
+// 却没人守。补上，否则注入链少了一段也没人知道。
+const { systemPromptListener } = await import("../src/dsh/pipeline.mjs");
 
 const ROOT = join(tmpdir(), `fg-lifecycle-${process.pid}-${Date.now()}`);
 mkdirSync(ROOT, { recursive: true });
@@ -71,6 +74,25 @@ describe("3.0.8 · start 缝（agent/created · 移植批 4）", () => {
     assert.equal(rules.sections[1].name, "focus-guard-rules");
     assert.ok(rules.sections[1].text.length > 50, "规则文本应非空");
     console.log("注入 section:", rules.sections.map((s) => s.name).join(" + "));
+  });
+
+  test("成本提示注入：追加独立 section focus-guard-cost（440 = 425 + 15 的右半边）", async () => {
+    const out = await systemPromptListener({ warn: noop })(
+      {},
+      {},
+      () => ({ sections: [{ name: "base", text: "BASE" }], tools: [], variables: {} }),
+    );
+    assert.equal(out.sections.length, 2, "应在既有 section 之后追加一条");
+    assert.equal(out.sections[0].name, "base", "原有 section 必须原样保留");
+    assert.equal(out.sections[1].name, "focus-guard-cost", "段名必须是 focus-guard-cost");
+    assert.ok(out.sections[1].text.length > 0, "成本行不得为空");
+    console.log("成本段:", JSON.stringify(out.sections[1].text));
+  });
+
+  test("成本提示注入：下游是纯字符串时追加换行，非 assembly 形状不崩", async () => {
+    const out = await systemPromptListener({ warn: noop })({}, {}, () => "PLAIN");
+    assert.ok(typeof out === "string" && out.startsWith("PLAIN"), "字符串下游应原样保留并追加");
+    assert.ok(out.length > "PLAIN".length, "应追加成本行");
   });
 
   test("下游形状异常时不强行改写（原样透传）", async () => {

@@ -77,10 +77,16 @@ AI 智能体最常见的三种失控：
 **核心版与扩展版的关系**：`focus-guard`（`packages/core/`）是零依赖范本包——引擎钩子、技能、核心工具、法条文档，所有人从这里开始；`focus-guard-extended`（`packages/extended/`）是扩展衍生包，依赖核心包，承载重型外接集成（OpenViking 同步桥 / Needle 2 本地模型外判 / Semantica 图谱导出）。核心版是范本，可衍生无数扩展变体；下载核心版时**不需要也不会拉取**任何扩展依赖。
 
 ```bash
-# ⚠ 「尚未发布」：npm registry 上这两个包目前是 404，装不上。等发布后删掉本注释。
-# npm install focus-guard           # 核心版：零依赖（未发布）
-# npm install focus-guard-extended  # 扩展版：按需启用外接集成（未发布）
+# 核心版：零依赖。npm 上已发布（当前 3.0.7；本仓 3.0.8 尚未发版）
+npm install focus-guard
+
+# 扩展版：⚠ 尚未发布（registry 返回 404）。仅支持从本仓安装：
+#   npm install github:irisblackwood/focus-guard#path:/packages/extended
+# npm install focus-guard-extended
 ```
+
+> `focus-guard-extended` 的 `package.json` 已标 `"private": true`，`npm publish` 会被直接拒绝——
+> 它按设计不单独发版，只在 monorepo 内部以 workspace 链接存在。要发布时先移除该字段。
 
 ### 装到 DSH（首选）
 
@@ -88,7 +94,7 @@ AI 智能体最常见的三种失控：
 
 | 路径 | 装什么 | 拿到什么 |
 |---|---|---|
-| **原生插件**（3.0.5 起，推荐） | `dsh plugin --profile <name> add github:irisblackwood/focus-guard#path:/packages/core` | 三条宿主缝全开：资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线上下文豁免 |
+| **原生插件**（3.0.5 起，推荐） | `dsh plugin --profile <name> add github:irisblackwood/focus-guard#path:/packages/core` | **8 个事件 / 12 条监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 规则与成本注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断浪费结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察（只读） |
 | **官方桥** | `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json` | 与 ZCode 同级的六事件硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回），但**不含**原生插件独有的资格审核与申辩 |
 
 ⚠ 两条路**同时挂载会双跑**；**都不装则 DSH 端没有拦截**。挂桥/装插件的逐行步骤与卸载见 [INSTALL.md](INSTALL.md) 第二、四节。
@@ -286,22 +292,24 @@ DSH 原生插件（`src/dsh/pipeline.mjs`）在**同一条 PreToolUse 缝**上�
 
 ### 常驻注入的体量
 
-常驻注入 `SESSION_RULES` 运行期实测 **425 字**（246 全角 + 179 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3404 字 ≈ 2269 tokens**（2.5.3 实测值，3.0 新增报文：哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
+常驻注入 `SESSION_RULES` 运行期实测 **425 字**（246 全角 + 179 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3425 字 ≈ 2283 tokens**（2026-10-22 复测，`npm run bench`；3.0 新增报文：推送闸 182 字级、哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
 
 | 场景 | 引擎实测字符 | 会话内次数 | 加权 |
 |---|---|---|---|
-| SessionStart 常驻注入 | 531 | ×1 | 531 |
+| SessionStart 常驻注入 | 545 ⚠ | ×1 | 545 |
 | 卷宗免重读放行（最高频） | 145 / 次 | ×10 | 1450 |
 | 触发③体积三闸（三连拦场景合计） | 278 | ×1 | 278 |
 | 熔断出口（拒绝 + 打回） | 268 | ×1 | 268 |
 | 动态预算续杯 | 73 / 次 | ×3 | 219 |
-| 高危审批闸拦截 | 175 | ×1 | 175 |
+| 推送闸拦截 | 182 | ×1 | 182 |
 | 强制场景未委派提醒 | 131 | ×1 | 131 |
 | 触发①未取证就改 | 56 / 次 | ×2 | 112 |
 | 委派摘要超长拒收 | 107 | ×1 | 107 |
 | 上下文污染检出 | 93 | ×1 | 93 |
 | 盲写拦截 | 40 | ×1 | 40 |
-| **加权合计** | | | **3404 字 ≈ 2269 tokens**（1 token ≈ 1.5 中文字符，区间 1702–2837） |
+| **加权合计** | | | **3425 字 ≈ 2283 tokens**（1 token ≈ 1.5 中文字符，区间 1713–2854） |
+
+⚠ **545 里约 89 字是假警报**：`hooks/guard.mjs` 头部自述「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但 `guard.mjs:136` 仍拿它比对 `ENGINE_VERSION`，故每次会话追加一条版本核验告警。`seams.mjs` 已于 10-18 用 `SEALED` 排除修掉，**ZCode 侧未修**。干净状态应为 425 + 45（HANDOFF 巡视）≈ **470 字**，加权合计约 **3336**。上表按实测原值记录，不掩盖。
 
 复测：`npm run bench`。v2.2.0 曾对报文做电报体压缩（当时相对更早版本 -31.6%，对比基线已失效，只作历史记录）；2.4.0 起审批单与委派报文变长，故当前总量高于那次优化后的数值。报文只保留"标签 + 动作指令"，规则细节由技能与法典承载。
 

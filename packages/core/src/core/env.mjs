@@ -14,7 +14,10 @@ export function quickShellId() {
   // 原实现只看**宿主 Node 进程自身**的 SHELL/ComSpec，于是 DSH 下报成 cmd，
   // 而 DSH 的 shell 工具实际执行体是 pwsh（cordis.patch.yml 的 pwshPath）——
   // 卷宗【一】、env-fingerprint、实际执行三方长期不一致，替代规则与实际 shell 脱节。
-  // 修法：① 显式 FG_SHELL 最高优先（可测、可覆盖）；② DSH 宿主直接判 powershell。
+  // 修法：① 显式 FG_SHELL 最高优先（可测、可覆盖）；② 适配层通过 opts.shell 传入真实执行体
+  //       （见下方 detectEnv，母版不猜 harness）。
+  // 2026-10-22 更正：本行注释原写「DSH 宿主直接判 powershell」，但实现里从未有过这个判断——
+  // 那是被废弃的旧方案，代码一直走的是参数传递。注释落后于实现，已按实际改写。
   const forced = String(process.env.FG_SHELL || "").trim().toLowerCase();
   if (forced) return forced;
   if (process.platform === "win32") {

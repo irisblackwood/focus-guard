@@ -19,7 +19,7 @@ dsh plugin --profile <your-profile> add github:irisblackwood/focus-guard#path:/p
 
 Restart the session to activate. The bundle patch is declared by this package's `package.json` (`dsh.bundle.patch` → `src/dsh/cordis.patch.yml`).
 
-> **Not on npm yet.** `npm install focus-guard` returns 404 — the package has never been published. Use the GitHub install above; it is the only supported route today.
+> **Published on npm.** `npm install focus-guard` works — the registry currently serves **3.0.7**; this repo is **3.0.8**, not yet released. The GitHub install above still works and tracks the repo directly.
 
 ⚠ Mutually exclusive with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Mounting both double-runs the same hooks — pick one.
 

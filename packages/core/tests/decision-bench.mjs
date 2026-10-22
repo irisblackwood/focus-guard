@@ -68,8 +68,11 @@ const CASES = [
   { id: 'whole-file-deny', tool: 'Read', args: { file_path: BIG }, expectKind: 'deny', expectReason: /XERJ|offset|limit|整文件/ },
   { id: 'whole-file-offset-allow', tool: 'Read', args: { file_path: BIG, offset: 1, limit: 50 }, expectKind: 'allow' },
   { id: 'small-file-allow', tool: 'Read', args: { file_path: SMALL }, expectKind: 'allow' },
-  // 体积闸：Grep content 无 head_limit
-  { id: 'grep-content-deny', tool: 'Grep', args: { pattern: 'x', output_mode: 'content' }, expectKind: 'deny', expectReason: /head_limit|限量/ },
+  // 体积闸：Grep 目录级搜索未收窄。
+  // 2026-10-22 改正：原用例用 `output_mode: 'content'` —— 真实 DSH grep 工具没有这个参数
+  // （只有 {pattern,path,include}），它靠 pipeline 里一条死分支才"通过"。死分支已删，改真参数。
+  { id: 'grep-broad-dir-deny', tool: 'Grep', args: { pattern: 'x', path: FP_DIR }, expectKind: 'deny', expectReason: /未收窄|include/ },
+  { id: 'grep-narrowed-allow', tool: 'Grep', args: { pattern: 'x', path: FP_DIR, include: '*.mjs' }, expectKind: 'allow' },
   { id: 'grep-default-allow', tool: 'Grep', args: { pattern: 'x' }, expectKind: 'allow' },
   // 资格闸：高危工具无授权
   { id: 'eligibility-publish-deny', tool: 'Bash', args: { command: 'npm ' + 'pub' + 'lish --access public' }, expectKind: 'deny', expectReason: /fg_apply/ },

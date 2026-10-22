@@ -1,8 +1,33 @@
 # 变更记录（CHANGELOG）
 
-## 未发版 · 2026-10-19
+## 未发版（2026-10-19 起累积）
 
 > 本区为 3.0.8 之后的累积改动：**不自行 bump 版本**，满一批后由人类决定统一升版发布（npm 上最新仍是 3.0.7 / MIT / 不可撤销）。
+
+### 2026-10-22 · 清除 guard.mjs 两处确定性假警报
+
+- fix(guard): **42条 部署版本核验不再比对封存脚本自身**——`hooks/guard.mjs` 头注释是封存的 `v3.0.4`（版本独立、不随主版本更新），而候选表第一条正是它自己，于是每个会话必然命中「引擎 v3.0.8 ≠ 源码 v3.0.4」并注入约 89 字告警。现改为：读到的副本**带「已封存」标记即跳过**；未封存的历史部署副本仍照常核验（那才是真信号）。
+- fix(guard): **ZCode 注册表部署漂移核验改为显式开启**（`FG_ZCODE_DEPLOY_CHECK=1`）——ZCode 通道已退役，但 `~/.zcode/cli/plugins/installed_plugins.json` 里留着按版本号命名的旧安装路径（basename 恒为 `3.0.4`），导致每会话注入「引擎 v3.0.8 ≠ 注册表 v3.0.4，存在部署漂移」。该告警不可行动（没人会为消警去改旧注册表），且与"封存"语义矛盾。
+- test: 新增「默认不注入部署漂移告警」用例；既有「注册表不一致应告警」用例补 `FG_ZCODE_DEPLOY_CHECK=1`（保持该分支仍有覆盖）。
+- 验证：`npm run check` → `366/366`、eval PASS、bridges 3/3、审计隔离 Δ0；探针实测 `guard.mjs start` 输出已无「部署版本核验」字样。
+
+### 2026-10-22 · 层序审查 + 基准重测
+
+- refactor(layer): **体积闸判定内核下沉到母版**（新增 `src/core/outputGate.mjs`）——体积闸此前在 `hooks/guard.mjs`（Claude Code / ZCode 路径）与 `src/dsh/pipeline.mjs`（DSH 路径）**各写一份判定**；而红线判定早已收敛在 `core/redlines.mjs` 一处。同一套架构里两个判定走两种做法，就是漂移的温床。
+  - 关键判断：**不能简单合并**。两个宿主的 Grep schema 不同——Claude Code / ZCode 有 `output_mode`/`head_limit`，DSH 只有 `{pattern,path,include}`。故拆为「判定共享 + 参数提取各自」：内核只收语义布尔量（`broadDir` / `contentUnlimited`），翻译留在适配层。
+  - 三闸收敛：`judgeReadGate`（含审计任务豁免）/ `judgeGrepGate` / `judgeCatGate`；两条路径均改调内核，**行为零变化**（`eval` 61/61 + 良性 34/34、`bench:decision` 100% / 误伤 0% 均不变）。
+  - 新增 `tests/outputGate.test.mjs` **16 条**（阈值边界 / 审计豁免仅超阈值时生效 / ENOENT 放行 / 两种 Grep 语义 / 裸 cat 与管道放行 / 命令中段 cat / 参数含 cat 字不误伤）。
+- fix(layer): `src/core/approvals.mjs` 的 session 缺省值 `'dsh-native'` → `'unknown'`——母版层不该替宿主代言，真实 session 由适配层传入。
+- docs: `src/core/env.mjs` 注释更正——原文写「② DSH 宿主直接判 powershell」，但实现里**从未有过该判断**（一直走 `opts.shell` 参数传递）。注释落后于实现，已按实际改写。
+- docs: `src/core/decisionEngine.mjs` 补「接入状态」——实测生产路径**零调用**（`pipeline.mjs` 直调 `gateToolCall`、`guard.mjs` 走自有判定链），当前仅 3 个测试使用。保留而非删除，但**接入属行为变更**（改返回结构与审计 trace 字段），须单独评估。
+- fix(test): **清掉给假测试续命的死分支**——`pipeline.mjs` 的 `grepContentNoLimit`（依赖真实 DSH 工具不存在的 `output_mode`）已删。删后立刻暴露两条同类假用例：`gates.test.mjs:85` 与 `decision-bench.mjs:72`，均已改真实参数，并各补一条「带 `include` 应放行」防误伤。
+- fix(docs): 发布状态更正——`focus-guard` 在 npm 上**已发布（3.0.7）**，此前三处 README 误写「未发布 / 404」（`README.md`、`packages/core/README.md`、`packages/core/README.zh-CN.md`）；`focus-guard-extended` 确未发布（registry 404），已加 `"private": true` 硬阻止误发（`npm publish` 现直接被拒），依赖由 `^3.0.4` 对齐到 `^3.0.8`。
+- chore(bench): `BENCH-BASELINE.json` 同步到 **15 用例 / 150 调用**，但**延迟标尺刻意保留 2.37ms 未放宽**——新增两条走 `statSync` 的用例实测约 8ms，若一并放宽即等于把劣化合法化；加 `_latencyNote` 说明原委。
+- docs: `BENCH.md` 第三节新增「四个注入体量数字辨析」（**425** 静态 `SESSION_RULES` / **440** DSH 侧注入 / **545** `bench` 读数 / **3425** 场景加权），并标注 545 中约 **89 字**是 `guard.mjs` 版本核验假警报（封存版 v3.0.4 vs 引擎 3.0.8，`seams.mjs` 已修、ZCode 侧未修）。
+- docs: `README.md` 常驻注入表按 2026-10-22 实测更新（SessionStart 531→**545**、高危审批闸 175→**推送闸 182**、合计 3404→**3425**）；`RULES.md` 全角/半角分解更正（260+165 → **246+179**）。
+- docs: `BENCH.md` A/B 协议重写为七节（两臂 / 开跑前体检 / 必记字段 / 主指标 / 判定规则 / 禁止清单 / 记账），并把两组历史 A/B 数据**标为作废**（10-18 步数不可比、10-19 带病测量），声明该表为唯一数字源。
+
+### 2026-10-19 · 画像与审计元数据
 
 - feat(profile): **L1 画像包 `evasionRisk` 接线**（ARCH-MAP 主图 L1 第一件）——五份画像新增纯参数字段 `evasionRisk`（`high` / `low`，取值标 `TODO(实测)`，当前一律 `high` = 与 3.0.8 行为一致）；解析收敛到 `src/core/profileLoader.mjs` 的 `approvalScopeOf()`（**唯一真源**）：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high` / 缺省 / 非法 → `mutating`；`checkEligibility.profileScope()` 改为委托它，pre-execute 闸 `gateToolCall` 因此天然同源。
   - 安全边界：不可逆类别（`rm-rf` / `format-volume` / `drop-database` / `git-push-force` / `write-system-path`）在**任何** scope 下都要审批——本字段只能把范围「收窄到不可逆」，永远放不掉它们；审批层仍不可被画像关闭（`FORCED_ON_SWITCHES`）。
