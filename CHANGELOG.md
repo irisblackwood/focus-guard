@@ -1,8 +1,63 @@
 # 变更记录（CHANGELOG）
 
-## 未发版（2026-10-19 起累积）
+## 3.0.8 · 2026-10-19
 
-> 本区为 3.0.8 之后的累积改动：**不自行 bump 版本**，满一批后由人类决定统一升版发布（npm 上最新仍是 3.0.7 / MIT / 不可撤销）。
+> v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3
+
+> 发布状态：in-tree（**尚未发布到 npm**）。npm 上最新仍是 `3.0.7`（MIT 授权、不可撤销）。
+> 本条目已并入 2026-10-19 起累积的全部改动（原「未发版」区已合并，不再单列）；含 AGPLv3 切换与按需自证。
+
+- fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
+- fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
+- feat(tools): **卷宗【三】路径自检**——新增 `packages/core/tools/verify-case-paths.mjs`（只读核查，不删不改，`--json` 可机器读）。实测 81 行 / 有效 75 / 失效 6（均为 monorepo 迁移前布局，待人类批准后归档）。
+- refactor(layers): **消除三处分层越界**并固化断言——`protocol.mjs` 移入 `hooks/`（去掉 `zcode → adapter`）；审计写入器下沉 `src/core/audit-writer.mjs`、绝对红线表下沉 `src/core/redlines.mjs`（去掉 `adapter → seam`，`pipeline.mjs` 保留 re-export）；自检脚本移入 `tools/selftest.mjs`（工具不再放生产目录）。新增 `tests/layering.test.mjs` 锁死方向：`core → adapter → seam` 单向，禁止 `zcode → 适配层/宿主缝`，并显式承认组装根 `seam → adapter` 合法。
+- feat(bench): **判定基准** `tests/decision-bench.mjs`——14 用例 × 10 轮 = 140 次真实 `preExecuteListener` 调用，输出准确率 / 误伤率 / p50-p95 / max，基线落 `docs/BENCH-BASELINE.json`（`--update` 覆盖，掉点即 exit 1）。首跑即暴露真实成本：**Bash 类命令每次约 60ms**（第 2 层语义判定调 python 哨兵），非 Bash 工具 p95 < 3ms。
+- feat(bench): **成本基准** `tools/bench-cost.mjs`——不跑模型，只汇总 `.ai/CASE_FILE.md`【五】成本台账与 `AUDIT.log`：token/USD、按模型分布、拦截数、`trigger` 分布、误伤比（`appeal-granted / deny`）；支持 `--since` / `--json`。附 A/B 对照协议（FG 开/关各 5 次取中位数）。
+- fix(ci): **`test:all` 改为发现式**——原为硬编码 11 文件清单，今天新增的 `casePaths` / `layering` 测试不在其中，会出现"CI 全绿但没测"。现统一走 `tests/audit-isolation.mjs`（自动发现 + 真实审计零增长守卫）。
+- docs: 新增 `packages/core/docs/BENCH.md`（四类基准的跑法与已知热路径成本），README 命令表补 `bench:decision` / `bench:cost`。
+- perf(gate): **哨兵结论缓存**——判定基准量出每条 Bash 命令都要付约 60ms 的 python 冷启动，而同一命令在会话里反复出现（重试/复测/同脚本多轮）。`riskOfSentinel` 现按命令原文缓存**成功结论**（LRU 500，`FG_SENTINEL_CACHE=0` 关闭、`FG_SENTINEL_CACHE_SIZE` 调容量），失败（超时/缺 python/解析失败）一律不缓存，不把错误固化成判定。实测 **p95 61.19ms → 2.37ms**，p50 0.58ms → 0.36ms；每条新命令首次仍付约 60ms（常驻进程方案未做）。
+- test(bench): **任务测试 50 组**（`tests/task-bench.mjs` + `task-suite.json`）——组 = 一串真实调用（读→改→跑→查），任一环被错拦整组失败。覆盖只读/改代码/命令/高危/资格/边界六类，`--group` 单跑、`--json` 机器读，零 API 花费。首轮 46/50，暴露并修掉下列四个真问题后 **50/50**。
+- fix(gate): **引号豁免射程过宽**（漏拦）——`psql -c 'DROP DATABASE prod'`、`node -e '…'` 的引号内容会被**真正执行**，旧实现按"被引用的数据"豁免放过。`redlineExempt` 增加执行型参数判据（`psql/mysql/sqlite3/node/python/ruby/perl/bash/pwsh… -c|-e|--command|--eval` 的实参不豁免），`git log --grep 'drop database'` 这类真数据仍豁免。
+- fix(gate): **`rm -rf` 一刀切要 fg_apply**（误伤）——`rm -rf ./dist`、`rm -rf /tmp/...` 属常规构建清理，与第 2 层已做的分级（`destructiveApiWeight`：TEMP 0.2 / 递归系统 0.9）口径矛盾。现对可重建目录（`dist/build/out/output/target/coverage/.cache/.next/node_modules`）与 TEMP 目标不进门槛清单，交回第 2 层按风险裁决。
+- fix(gate): **`Write`/`Edit` 写系统路径未被拦**（漏拦）——资格闸原来只在 `if (cmd)` 时执行，而写入型工具没有 command 参数，`C:\Windows\...` 之类的目标从未被检查。现闸按"命令或 `file_path` 任一存在"触发，`gatedReasonOf(tool, command, filePath)` 对写入型工具查 `SYSTEM_PATH_RE`。
+- fix(gate): **shell 写文件绕过取证闸**（漏拦）——A/B 会话对照 B 组实测：要求"不读就改 README"，代理用 `pwsh Add-Content` 而非 Edit，旧实现只管 `MUTATING_TOOL`，于是**盲改被放行**。新增 `shellWriteTargets()`：从命令里提取写目标（`>`/`>>`、`Set-Content`/`Add-Content`/`Out-File`/`Tee-Object`、`tee`、`sed -i`、`perl -pi`），对**已存在且本会话未读**的目标同样拒一次；新建文件与 `NUL`/句柄复制不误伤。参数惰性 getter 抛错时降级不做判定（不中断判定链）。新增 `tests/evidence-shell.test.mjs` 7 条。
+- feat(bench): **`bench:ab` 会话成本对照**——从 `$DSH_HOME/.dsh/sessions` 的 `session.v4.jsonl.zstd` 解出结构指标（turns/steps/工具调用分布/各类正文字符/时长），并按会话 id 从 `AUDIT.log` 取拦截数与理由分布；输出 A/B 差值与性价比（每步 tokens、每次拦截 tokens）。多帧 zstd 需按魔数 0x28B52FFD 分帧解压，单帧 API 只解第一帧。
+- fix(bench): **token 口径与台账退化值得以确认**——宿主会话记录**不含逐次 usage**；FG 成本台账写进去的是退化值（`model=unknown`、1 token、cacheRead `undefined`）。`bench:ab` 因此给两列估算（`est4 = chars/4`、`estCJK = chars/1.6`）并显式标注"不可当账单"。真实 token 统计需另找宿主接口，属未完成项。
+- fix(audit): **成本台账停止写假账**——`appendCostRow` 增加退化值守卫（`usageLooksReal`：模型名不得为 `unknown`，且输入+输出 > 2），不可信时整条不写、每进程 warn 一次，指向"真实用量以宿主面板为准"。同时**清空卷宗【五】历史 42 行**（全为 1 token/未知价目的退化值），保留标题与表头并追加清空说明；清理前已双备份到 `%TEMP%\CASE_FILE.bak-*.md` 与 `.ai/archive/`。
+- fix(gate): **`ttl` 真正生效（授权回收）**——`grants.mjs` 此前自述"ttl 只记录、不生效"，等于 `fg_apply` 申请一次就**进程内永久放行**，`ttl: turn` 是空话。现三档按事件回收：`turn` 在 `agent/turn-stopping` 回收（`sweepGrants(sid,'turn')`，放在监听器最前，避免 KPI 无增量的提前 return 跳过回收）、`task` 回收 turn+task、`persist` 只受会话寿命约束；另设硬上限 `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）防僵尸授权。回收留痕 `grants-swept`（trigger `ttl:turn`）。新增 `tests/grants-ttl.test.mjs` 5 条（含端到端：授权期内放行 → turn-stopping 后必须 deny）。
+- feat(gate): **FGA-PTC 补全（默认只读 / 静默秒批 / 不可逆严格档）**——主图 L3 的核心语义此前只有"按需申请"，缺两个端点，且藏着一个口径漏洞。
+  - `FG_PTC_READONLY=1`：默认只读。`ptcReasonOf()` 把**写类工具**（Write/Edit/MultiEdit/NotebookEdit/Delete/Move/Patch）与**变更型 shell**（`isMutatingBashCmd`）纳入门槛，未授权即拦；只读 shell 与 Read/Grep 不受影响。等价于"隐藏高危工具"的可执行替代（schema 在宿主层，FG 无法真正隐藏）。
+  - `FG_PTC_AUTO_GRANT=1`：静默秒批。可逆类别（publish / global-install / chmod-wide）自动批准并留痕 `ptc-auto-grant`；不可逆类别不批。
+  - `FG_PTC_STRICT_IRREVERSIBLE=1`：修口径漏洞——`applyOneEligibility` 审核期给的**临时授权**会让母版 L3 全部放行，导致 `rm -rf ./src` 这类不可逆删除**自证自批**。严格档下不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）申请返回 `needApproval` 且不授予任何授权，留痕 `ptc-irreversible-blocked`。
+- feat(gate): **人工闸门改为默认开（B 方案）+ 文件审批链路**——上面那条"严格档默认关"等于安全幻觉，人类批示改为默认拦截 `rm-rf`：
+  - 拦截即写 `.focus-guard/approvals/pending_request.json`，`id = sha256(工具+命令) 前 12 位`（换一个字符即失效，防偷换）；理由里直接给出可照抄的命令：`node packages/core/tools/focusguard.mjs approve <id>`。
+  - 新增 CLI `tools/focusguard.mjs`：`pending` / `approve <id>` / `list` / `status`（`npm run focusguard -- approve <id>`）。
+  - 消费语义**一次性**：`consumeApproval()` 命中后删除批准文件与 pending，下一次同命令重新拦、重新申请；批错 id 一律失败。
+  - 默认只严抓 `rm-rf`（format-volume / drop-database / git-push-force 已被绝对红线层直接拦，到不了申请通道）；逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1`。
+  - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
+  - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
+- fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
+- chore(license): **全面切换为 AGPLv3 + 商业双授权**——`LICENSE` 换为标准 GNU Affero GPL v3.0 全文（34.5KB，含版权头与商业授权说明），三处 `package.json` 的 `license` 改为 `AGPL-3.0-only`，`NOTICE` 写清双授权与商标，README 顶部加显眼双授权声明、底部 License 节重写。相比 PolyForm NC：AGPL 允许商用但强制开源网络服务，对"资本入场"的约束是**同化**而非**禁止**，同时保留商业授权通道。
+- chore(license): **（已被上一条取代）曾改为 PolyForm Noncommercial 1.0.0**——人类明确了授权意图：个人电脑部署与社区使用免费，但不允许盈利。Apache-2.0 与 MIT 都是商业友好的宽松许可，表达不了"非商业"，故整体替换：
+  - `LICENSE` = PolyForm Noncommercial 1.0.0 原文（4,563 字节）+ `Required Notice` 行 + 中英双语商用授权说明（个人学习/研究/业余项目/非营利社区免费；企业内部生产、收费产品/服务、SaaS 转售一律禁止；商用需单独授权）。
+  - `NOTICE` 同步；三处 `package.json` 的 `license` 改为 `PolyForm-Noncommercial-1.0.0`；三份 README 的许可行与徽章同步。
+  - 说明：**非 OSI 开源**（source-available）。已发布的 `focus-guard@3.0.7` 仍是 MIT，许可不可撤销、不追溯；本许可自下一个发布版本生效。上一版短暂的 Apache-2.0 从未发布，无对外影响。
+  - **补强可执行性**：`NOTICE` 增加**商标保留**段（`FocusGuard` / `聚焦护栏` 及项目标识不得用于 fork 命名或背书）与非商业声明；README 许可节补三条边界与商标说明；新增 `CONTRIBUTING.md`——包含**简版 CLA**（提交即授予作者"永久、免费、不可撤销、可再许可"的版权与专利许可，使作者能发放商业授权），以及提交前自检、会被拒的 5 类情况。没有这两项，非商业许可只是"纸面约束"。
+  - **修不一致**：`packages/core/LICENSE` 此前仍是 MIT 文本（**npm 发布时带的正是这一份**），根目录已是 PolyForm → 两份法律文本互相矛盾。现根 `LICENSE`/`NOTICE` 同步到 `packages/core` 与 `packages/extended`，两个子包的 `files` 显式加入 `NOTICE`；`npm pack --dry-run` 已确认 `LICENSE`、`NOTICE` 均入包。
+- ci(publish): **发布工作流去抖动**——`npm install -g npm@latest` 改为锁定 `npm@11`（latest 每次可能带进新的 2FA/GAT 策略，本仓库已因此红过两次），并显式校验 `npm >= 11.5.1`；新增 `concurrency: publish-${ref}` 防止并发触发撞上 "cannot publish over"；`Verify` 步骤显式 `shell: pwsh`（windows runner 默认 shell 行为差异）。
+- ci(test): **CI 矩阵拆分，推送不再挂红叉**——原矩阵 `windows-latest / ubuntu-latest / macos-latest` × 3 个 Node，`continue-on-error` 只保证总结果绿，UI 上 Linux/macOS 作业仍显示 ✗（用户视角"老是不过"）。而验收套件含数条 Windows 专用断言，非 Windows 必红且短期无法平台化。现拆分：`push`/`pull_request` 只跑 `windows-latest × Node 18.20/20/22`（必过）；跨平台 `observe` 作业仅 `workflow_dispatch` 触发，保留需要时的可见性。另加 `concurrency: ci-${ref}` 取消重复推送的旧运行。
+- refactor(liveness): **按需自证（Lazy Liveness）**——存活状态不再进系统提示，改为三处局部附带。
+  - **先纠正一个事实**：旧实现 `livenessNote()` 在全部模块报到时返回 `null`，`index.js` 里又有 `if (note)` 守卫，所以**正常态本来就没有注入**（真实节省为 0）。真正的浪费在**降级时**：一旦缺模块，`focus-guard-degraded` 段会随每一次装配重复进入 Prompt（约 100+ 字/轮），而且它描述的是"启动那一刻"的快照——模型后续每轮都被提醒一次早已过期的状态。
+  - 现改为 `livenessBadge()`：正常态 `[FG 存活 15/15]`（≈14 字），异常带 `；降级: <模块名>`，并支持 `事件: compaction` 这类一次性附注。`livenessNote()` 仅保留为兼容别名。
+  - **只在这三处出现**：① `tools/pre-execute` 返回 `deny`/`ask` 时给理由追加徽标（`index.js` 的 `withLivenessBadge` 包裹，两条执行缝都套）；② `fg_apply` 结果文本末尾（`src/dsh/tools.mjs`）；③ 压缩落定（`compactionWatch.mjs` 调 `noteLivenessEvent('compaction')`，下一次徽标带上 `事件: compaction` 后即清除）。系统提示装配里**彻底移除** `focus-guard-degraded` 段。
+  - **降噪核对**：`heartbeat.mjs` 的 `beat()` 只做 `status.json` 的 tmp+rename 覆写，不含任何 `appendAudit` —— 心跳 10s 一次也不会往 `AUDIT.log` 写行（新增用例断言"跑一次心跳后 AUDIT.log 仍不存在"）。
+  - 新增 `tests/liveness-lazy.test.mjs` 5 条（正常态短徽标 / 事件一次性 / 降级带模块名 / 心跳不写审计 / 装配层不再含 degraded 段）。
+
+> 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
+> `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
+> `packages/core/package.json`、`packages/extended/package.json`）及引擎 `ENGINE_VERSION` **完全相同**
+> （共 8 处版本点），且**必须等于本文件最新条目版本**——两条一致性均由验收用例锁定。
+> 引擎头注释（`hooks/guard.mjs`）例外：该文件已封存、版本号独立，由断言锁定其"封存标注"而非版本相等。
 
 ### 2026-10-22 · 清除 guard.mjs 两处确定性假警报
 
@@ -59,65 +114,6 @@
   - 修法：新增 `evidenceKeyOf()`（绝对化 + 统一正斜杠）、`sameEvidenceKey()`（Windows 大小写不敏感）、`isReadRecorded()`（先查归一化键直命，再兼容历史/异形态键逐个解析比对）；`rememberReads` 改写归一化键，`layer3Check` 的 `known` 判定改用 `isReadRecorded`。**未放宽闸门**：真没读过的文件仍拒一次（用例 e3 锁死）。
   - 复现/回归：新增 `tests/evidence-relative-path.test.mjs` 3 条（相对路径读后改应放行 / 跨正反斜杠形态应放行 / 未读就改仍拦）；同步修正 `tests/state-ownership.test.mjs` 的 readSet 断言到归一化键。
   - 验证：`npm run check` → `346/346`，`audit-isolation` Δ 0 PASS。
-
-## 3.0.8 · 2026-10-19
-
-> v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3
-
-> 发布状态：in-tree（未发布到 npm）。npm 上最新仍是 `3.0.7`（MIT 授权、不可撤销）。
-> 本节原为「未发版」累积区，人类于 2026-10-19 要求升版本并切换 AGPLv3，故转为正式条目。
-
-- fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
-- fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
-- feat(tools): **卷宗【三】路径自检**——新增 `packages/core/tools/verify-case-paths.mjs`（只读核查，不删不改，`--json` 可机器读）。实测 81 行 / 有效 75 / 失效 6（均为 monorepo 迁移前布局，待人类批准后归档）。
-- refactor(layers): **消除三处分层越界**并固化断言——`protocol.mjs` 移入 `hooks/`（去掉 `zcode → adapter`）；审计写入器下沉 `src/core/audit-writer.mjs`、绝对红线表下沉 `src/core/redlines.mjs`（去掉 `adapter → seam`，`pipeline.mjs` 保留 re-export）；自检脚本移入 `tools/selftest.mjs`（工具不再放生产目录）。新增 `tests/layering.test.mjs` 锁死方向：`core → adapter → seam` 单向，禁止 `zcode → 适配层/宿主缝`，并显式承认组装根 `seam → adapter` 合法。
-- feat(bench): **判定基准** `tests/decision-bench.mjs`——14 用例 × 10 轮 = 140 次真实 `preExecuteListener` 调用，输出准确率 / 误伤率 / p50-p95 / max，基线落 `docs/BENCH-BASELINE.json`（`--update` 覆盖，掉点即 exit 1）。首跑即暴露真实成本：**Bash 类命令每次约 60ms**（第 2 层语义判定调 python 哨兵），非 Bash 工具 p95 < 3ms。
-- feat(bench): **成本基准** `tools/bench-cost.mjs`——不跑模型，只汇总 `.ai/CASE_FILE.md`【五】成本台账与 `AUDIT.log`：token/USD、按模型分布、拦截数、`trigger` 分布、误伤比（`appeal-granted / deny`）；支持 `--since` / `--json`。附 A/B 对照协议（FG 开/关各 5 次取中位数）。
-- fix(ci): **`test:all` 改为发现式**——原为硬编码 11 文件清单，今天新增的 `casePaths` / `layering` 测试不在其中，会出现"CI 全绿但没测"。现统一走 `tests/audit-isolation.mjs`（自动发现 + 真实审计零增长守卫）。
-- docs: 新增 `packages/core/docs/BENCH.md`（四类基准的跑法与已知热路径成本），README 命令表补 `bench:decision` / `bench:cost`。
-- perf(gate): **哨兵结论缓存**——判定基准量出每条 Bash 命令都要付约 60ms 的 python 冷启动，而同一命令在会话里反复出现（重试/复测/同脚本多轮）。`riskOfSentinel` 现按命令原文缓存**成功结论**（LRU 500，`FG_SENTINEL_CACHE=0` 关闭、`FG_SENTINEL_CACHE_SIZE` 调容量），失败（超时/缺 python/解析失败）一律不缓存，不把错误固化成判定。实测 **p95 61.19ms → 2.37ms**，p50 0.58ms → 0.36ms；每条新命令首次仍付约 60ms（常驻进程方案未做）。
-- test(bench): **任务测试 50 组**（`tests/task-bench.mjs` + `task-suite.json`）——组 = 一串真实调用（读→改→跑→查），任一环被错拦整组失败。覆盖只读/改代码/命令/高危/资格/边界六类，`--group` 单跑、`--json` 机器读，零 API 花费。首轮 46/50，暴露并修掉下列四个真问题后 **50/50**。
-- fix(gate): **引号豁免射程过宽**（漏拦）——`psql -c 'DROP DATABASE prod'`、`node -e '…'` 的引号内容会被**真正执行**，旧实现按"被引用的数据"豁免放过。`redlineExempt` 增加执行型参数判据（`psql/mysql/sqlite3/node/python/ruby/perl/bash/pwsh… -c|-e|--command|--eval` 的实参不豁免），`git log --grep 'drop database'` 这类真数据仍豁免。
-- fix(gate): **`rm -rf` 一刀切要 fg_apply**（误伤）——`rm -rf ./dist`、`rm -rf /tmp/...` 属常规构建清理，与第 2 层已做的分级（`destructiveApiWeight`：TEMP 0.2 / 递归系统 0.9）口径矛盾。现对可重建目录（`dist/build/out/output/target/coverage/.cache/.next/node_modules`）与 TEMP 目标不进门槛清单，交回第 2 层按风险裁决。
-- fix(gate): **`Write`/`Edit` 写系统路径未被拦**（漏拦）——资格闸原来只在 `if (cmd)` 时执行，而写入型工具没有 command 参数，`C:\Windows\...` 之类的目标从未被检查。现闸按"命令或 `file_path` 任一存在"触发，`gatedReasonOf(tool, command, filePath)` 对写入型工具查 `SYSTEM_PATH_RE`。
-- fix(gate): **shell 写文件绕过取证闸**（漏拦）——A/B 会话对照 B 组实测：要求"不读就改 README"，代理用 `pwsh Add-Content` 而非 Edit，旧实现只管 `MUTATING_TOOL`，于是**盲改被放行**。新增 `shellWriteTargets()`：从命令里提取写目标（`>`/`>>`、`Set-Content`/`Add-Content`/`Out-File`/`Tee-Object`、`tee`、`sed -i`、`perl -pi`），对**已存在且本会话未读**的目标同样拒一次；新建文件与 `NUL`/句柄复制不误伤。参数惰性 getter 抛错时降级不做判定（不中断判定链）。新增 `tests/evidence-shell.test.mjs` 7 条。
-- feat(bench): **`bench:ab` 会话成本对照**——从 `$DSH_HOME/.dsh/sessions` 的 `session.v4.jsonl.zstd` 解出结构指标（turns/steps/工具调用分布/各类正文字符/时长），并按会话 id 从 `AUDIT.log` 取拦截数与理由分布；输出 A/B 差值与性价比（每步 tokens、每次拦截 tokens）。多帧 zstd 需按魔数 0x28B52FFD 分帧解压，单帧 API 只解第一帧。
-- fix(bench): **token 口径与台账退化值得以确认**——宿主会话记录**不含逐次 usage**；FG 成本台账写进去的是退化值（`model=unknown`、1 token、cacheRead `undefined`）。`bench:ab` 因此给两列估算（`est4 = chars/4`、`estCJK = chars/1.6`）并显式标注"不可当账单"。真实 token 统计需另找宿主接口，属未完成项。
-- fix(audit): **成本台账停止写假账**——`appendCostRow` 增加退化值守卫（`usageLooksReal`：模型名不得为 `unknown`，且输入+输出 > 2），不可信时整条不写、每进程 warn 一次，指向"真实用量以宿主面板为准"。同时**清空卷宗【五】历史 42 行**（全为 1 token/未知价目的退化值），保留标题与表头并追加清空说明；清理前已双备份到 `%TEMP%\CASE_FILE.bak-*.md` 与 `.ai/archive/`。
-- fix(gate): **`ttl` 真正生效（授权回收）**——`grants.mjs` 此前自述"ttl 只记录、不生效"，等于 `fg_apply` 申请一次就**进程内永久放行**，`ttl: turn` 是空话。现三档按事件回收：`turn` 在 `agent/turn-stopping` 回收（`sweepGrants(sid,'turn')`，放在监听器最前，避免 KPI 无增量的提前 return 跳过回收）、`task` 回收 turn+task、`persist` 只受会话寿命约束；另设硬上限 `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）防僵尸授权。回收留痕 `grants-swept`（trigger `ttl:turn`）。新增 `tests/grants-ttl.test.mjs` 5 条（含端到端：授权期内放行 → turn-stopping 后必须 deny）。
-- feat(gate): **FGA-PTC 补全（默认只读 / 静默秒批 / 不可逆严格档）**——主图 L3 的核心语义此前只有"按需申请"，缺两个端点，且藏着一个口径漏洞。
-  - `FG_PTC_READONLY=1`：默认只读。`ptcReasonOf()` 把**写类工具**（Write/Edit/MultiEdit/NotebookEdit/Delete/Move/Patch）与**变更型 shell**（`isMutatingBashCmd`）纳入门槛，未授权即拦；只读 shell 与 Read/Grep 不受影响。等价于"隐藏高危工具"的可执行替代（schema 在宿主层，FG 无法真正隐藏）。
-  - `FG_PTC_AUTO_GRANT=1`：静默秒批。可逆类别（publish / global-install / chmod-wide）自动批准并留痕 `ptc-auto-grant`；不可逆类别不批。
-  - `FG_PTC_STRICT_IRREVERSIBLE=1`：修口径漏洞——`applyOneEligibility` 审核期给的**临时授权**会让母版 L3 全部放行，导致 `rm -rf ./src` 这类不可逆删除**自证自批**。严格档下不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）申请返回 `needApproval` 且不授予任何授权，留痕 `ptc-irreversible-blocked`。
-- feat(gate): **人工闸门改为默认开（B 方案）+ 文件审批链路**——上面那条"严格档默认关"等于安全幻觉，人类批示改为默认拦截 `rm-rf`：
-  - 拦截即写 `.focus-guard/approvals/pending_request.json`，`id = sha256(工具+命令) 前 12 位`（换一个字符即失效，防偷换）；理由里直接给出可照抄的命令：`node packages/core/tools/focusguard.mjs approve <id>`。
-  - 新增 CLI `tools/focusguard.mjs`：`pending` / `approve <id>` / `list` / `status`（`npm run focusguard -- approve <id>`）。
-  - 消费语义**一次性**：`consumeApproval()` 命中后删除批准文件与 pending，下一次同命令重新拦、重新申请；批错 id 一律失败。
-  - 默认只严抓 `rm-rf`（format-volume / drop-database / git-push-force 已被绝对红线层直接拦，到不了申请通道）；逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1`。
-  - 新增 `core/approvals.mjs`、`tests/approval-seam.test.mjs` 5 条（请求生成与 id 绑定 / 批错无效 / CLI 真写状态 / 消费一次性 / 换命令原批准失效）；同步改 `eligibility.test.mjs` 验收②（样本换成可逆类别 publish）与 `ptc.test.mjs` 人工闸门用例。
-  - 三个开关默认全关（改变默认放行/拦截的主干语义，不能偷偷开）。新增 `tests/ptc.test.mjs` 7 条。
-- fix(gate): **熔断/降权口径统一到 shell 变更型命令**——`layer3Check` 的早退条件此前是"写类工具 **或** shell 有写目标"，而 `git commit`、`npm install` 这类命令没有重定向 → `shellTargets` 为空 → **整条第 3 层被跳过**。实测铁证：本会话被判熔断后 `write` 被拒，`Bash git commit` 却提交成功。现引入 `isMutatingBashCmd` 把"变更型 shell"并入同一判据：熔断期 `git commit` / `npm install` 一律拒（只读命令仍放行），未熔断时不误伤。新增 `tests/fuse-shell.test.mjs` 5 条。
-- chore(license): **全面切换为 AGPLv3 + 商业双授权**——`LICENSE` 换为标准 GNU Affero GPL v3.0 全文（34.5KB，含版权头与商业授权说明），三处 `package.json` 的 `license` 改为 `AGPL-3.0-only`，`NOTICE` 写清双授权与商标，README 顶部加显眼双授权声明、底部 License 节重写。相比 PolyForm NC：AGPL 允许商用但强制开源网络服务，对"资本入场"的约束是**同化**而非**禁止**，同时保留商业授权通道。
-- chore(license): **（已被上一条取代）曾改为 PolyForm Noncommercial 1.0.0**——人类明确了授权意图：个人电脑部署与社区使用免费，但不允许盈利。Apache-2.0 与 MIT 都是商业友好的宽松许可，表达不了"非商业"，故整体替换：
-  - `LICENSE` = PolyForm Noncommercial 1.0.0 原文（4,563 字节）+ `Required Notice` 行 + 中英双语商用授权说明（个人学习/研究/业余项目/非营利社区免费；企业内部生产、收费产品/服务、SaaS 转售一律禁止；商用需单独授权）。
-  - `NOTICE` 同步；三处 `package.json` 的 `license` 改为 `PolyForm-Noncommercial-1.0.0`；三份 README 的许可行与徽章同步。
-  - 说明：**非 OSI 开源**（source-available）。已发布的 `focus-guard@3.0.7` 仍是 MIT，许可不可撤销、不追溯；本许可自下一个发布版本生效。上一版短暂的 Apache-2.0 从未发布，无对外影响。
-  - **补强可执行性**：`NOTICE` 增加**商标保留**段（`FocusGuard` / `聚焦护栏` 及项目标识不得用于 fork 命名或背书）与非商业声明；README 许可节补三条边界与商标说明；新增 `CONTRIBUTING.md`——包含**简版 CLA**（提交即授予作者"永久、免费、不可撤销、可再许可"的版权与专利许可，使作者能发放商业授权），以及提交前自检、会被拒的 5 类情况。没有这两项，非商业许可只是"纸面约束"。
-  - **修不一致**：`packages/core/LICENSE` 此前仍是 MIT 文本（**npm 发布时带的正是这一份**），根目录已是 PolyForm → 两份法律文本互相矛盾。现根 `LICENSE`/`NOTICE` 同步到 `packages/core` 与 `packages/extended`，两个子包的 `files` 显式加入 `NOTICE`；`npm pack --dry-run` 已确认 `LICENSE`、`NOTICE` 均入包。
-- ci(publish): **发布工作流去抖动**——`npm install -g npm@latest` 改为锁定 `npm@11`（latest 每次可能带进新的 2FA/GAT 策略，本仓库已因此红过两次），并显式校验 `npm >= 11.5.1`；新增 `concurrency: publish-${ref}` 防止并发触发撞上 "cannot publish over"；`Verify` 步骤显式 `shell: pwsh`（windows runner 默认 shell 行为差异）。
-- ci(test): **CI 矩阵拆分，推送不再挂红叉**——原矩阵 `windows-latest / ubuntu-latest / macos-latest` × 3 个 Node，`continue-on-error` 只保证总结果绿，UI 上 Linux/macOS 作业仍显示 ✗（用户视角"老是不过"）。而验收套件含数条 Windows 专用断言，非 Windows 必红且短期无法平台化。现拆分：`push`/`pull_request` 只跑 `windows-latest × Node 18.20/20/22`（必过）；跨平台 `observe` 作业仅 `workflow_dispatch` 触发，保留需要时的可见性。另加 `concurrency: ci-${ref}` 取消重复推送的旧运行。
-- refactor(liveness): **按需自证（Lazy Liveness）**——存活状态不再进系统提示，改为三处局部附带。
-  - **先纠正一个事实**：旧实现 `livenessNote()` 在全部模块报到时返回 `null`，`index.js` 里又有 `if (note)` 守卫，所以**正常态本来就没有注入**（真实节省为 0）。真正的浪费在**降级时**：一旦缺模块，`focus-guard-degraded` 段会随每一次装配重复进入 Prompt（约 100+ 字/轮），而且它描述的是"启动那一刻"的快照——模型后续每轮都被提醒一次早已过期的状态。
-  - 现改为 `livenessBadge()`：正常态 `[FG 存活 15/15]`（≈14 字），异常带 `；降级: <模块名>`，并支持 `事件: compaction` 这类一次性附注。`livenessNote()` 仅保留为兼容别名。
-  - **只在这三处出现**：① `tools/pre-execute` 返回 `deny`/`ask` 时给理由追加徽标（`index.js` 的 `withLivenessBadge` 包裹，两条执行缝都套）；② `fg_apply` 结果文本末尾（`src/dsh/tools.mjs`）；③ 压缩落定（`compactionWatch.mjs` 调 `noteLivenessEvent('compaction')`，下一次徽标带上 `事件: compaction` 后即清除）。系统提示装配里**彻底移除** `focus-guard-degraded` 段。
-  - **降噪核对**：`heartbeat.mjs` 的 `beat()` 只做 `status.json` 的 tmp+rename 覆写，不含任何 `appendAudit` —— 心跳 10s 一次也不会往 `AUDIT.log` 写行（新增用例断言"跑一次心跳后 AUDIT.log 仍不存在"）。
-  - 新增 `tests/liveness-lazy.test.mjs` 5 条（正常态短徽标 / 事件一次性 / 降级带模块名 / 心跳不写审计 / 装配层不再含 degraded 段）。
-
-> 本文件按版本倒序记录面向使用者的变更。版本号与**七处清单**（根 `package.json`、根 `marketplace.json`、
-> `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、
-> `packages/core/package.json`、`packages/extended/package.json`）及引擎 `ENGINE_VERSION` **完全相同**
-> （共 8 处版本点），且**必须等于本文件最新条目版本**——两条一致性均由验收用例锁定。
-> 引擎头注释（`hooks/guard.mjs`）例外：该文件已封存、版本号独立，由断言锁定其"封存标注"而非版本相等。
 
 ## 3.0.7 · 2026-10-18（Trusted Publishing 首发）
 
