@@ -61,15 +61,42 @@ export function readWorkspace(cwd) {
   }
 }
 
+/**
+ * 清洗条目：去重 + 截断 + **只保留最新**。
+ *
+ * 2026-10-22 修：旧实现 `for…break` 在满 10 条时停止，等于保留**最早**的 10 条——
+ * 于是卷宗里塞满会话开头的废话（报错复制、骂人话），最近的决策反而进不来。
+ * 现改为取尾部（最新）再反转回时间正序。
+ */
 function clean(list) {
   if (!Array.isArray(list)) return []
-  const out = []
+  const seen = new Set()
+  const kept = []
   for (const item of list) {
     const text = String(item ?? '').trim().slice(0, MAX_CHARS)
-    if (text && !out.includes(text)) out.push(text)
-    if (out.length >= MAX_ITEMS) break
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    kept.push(text)
   }
-  return out
+  return kept.slice(-MAX_ITEMS)
+}
+
+/**
+ * 指令质量筛选（2026-10-22）：只留"像一条人类指令"的文本。
+ * 剔掉：多行/表格/代码块粘贴、终端报错、超长转述、子代理回执。
+ * 判据保守——宁可少记，也不要让卷宗变成垃圾桶。
+ */
+export function pickDecisionText(raw) {
+  const text = String(raw ?? '').replace(/\r/g, '').trim()
+  if (!text) return ''
+  const firstLine = text.split('\n')[0].trim()
+  if (/^[|#>`]/.test(firstLine)) return '' // 表格 / 标题 / 引用 / 代码块
+  if (/```/.test(text)) return ''
+  if (/^(npm (error|warn)|Error:|ERR!|Traceback)/i.test(firstLine)) return ''
+  if (/^Background subagent|^Its closing message/i.test(firstLine)) return ''
+  const one = firstLine.replace(/\s+/g, ' ')
+  if (one.length < 4 || one.length > 120) return ''
+  return one
 }
 
 /** 合并写入（去重、截断、原子替换）。返回写入后的记录。 */
@@ -158,6 +185,7 @@ export function recordWorkspaceTurn(agent) {
     state = {}
   }
   const prompt = String(state.turnPromptFull || state.turnPrompt || '').trim()
+  const decided = pickDecisionText(prompt)
   const rejected = Object.keys(state.rejectedCmds || {})
   // 快速交接快照（主图 L4）：只存 FG 亲自数得出来的量，不推断"做到哪了"。
   const snapshot = {
@@ -169,7 +197,7 @@ export function recordWorkspaceTurn(agent) {
     delegateBudget: Number.isFinite(state.delegateBudget) ? state.delegateBudget : null,
   }
   return mergeWorkspace(cwd, {
-    decisions: prompt ? [prompt.slice(0, MAX_CHARS)] : [],
+    decisions: decided ? [decided] : [],
     constraints: rejected.slice(0, MAX_ITEMS),
     next_action: [],
     snapshot,
