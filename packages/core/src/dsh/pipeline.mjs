@@ -329,6 +329,24 @@ const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|Not
 const READ_TOOL = /^(?:Read|Grep|Glob|read_image|NotebookRead)$/i
 const SHELL_TOOL = /^(?:Bash|Shell|sh|pwsh|powershell|cmd|Terminal|RunCommand)$/i
 
+// 改动类工具分类（2026-10-22 补口）：
+// 病根：取证闸 / 授权闸 / 批量待批全靠 MUTATING_TOOL 一个正则，而它只认 8 个名字。
+// 真实目录里还有一批**会写盘 / 装包 / 跑构建**的工具完全不匹配：
+//   `mcp__cities2-mcp__write_project_file`（写项目文件）、`build_project` / `package_project`（跑构建、打包）、
+//   `plugin_manager`（装删插件，会执行 npm 构建脚本）、`move_run`（写 AGENTS.md、拷技能）、
+//   `import_claude` / `claude_export`（写会话文件）。
+// 判据取"动词前缀 + 显式清单"，宁可窄也不扩成 `.test(/write/)` 那种宽匹配（`write_project_file` 是写、
+// `read_project_file` 不是，靠前缀区分已经够用）。
+const MUTATING_TOOL_NAMED = /^(?:plugin_manager|move_run|import_claude|claude_export)$/i
+const MUTATING_MCP_TOOL =
+  /^mcp__[\s\S]+?__(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)_/i
+
+/** 是否为改动类工具（写盘 / 装包 / 构建等有副作用的调用）。 */
+export function isMutatingTool(toolName) {
+  const t = String(toolName || '')
+  return MUTATING_TOOL.test(t) || MUTATING_TOOL_NAMED.test(t) || MUTATING_MCP_TOOL.test(t)
+}
+
 /**
  * 从 shell 命令里提取"会被写的已存在文件"的目标路径（2026-10-18 补口）。
  *
@@ -372,6 +390,12 @@ function shellWriteTargets(cmd) {
 
 const pathOfTool = (args) => {
   const a = args || {}
+  // MCP 写盘工具（如 cities2 的 write_project_file）用 {project_dir, relative_path}，
+  // 2026-10-22 补：能拼出绝对路径就拼，拼不出返回 null（由"改动类无路径"分支兜底）。
+  if (!a.file_path && !a.path && !a.target && !a.targetPath && !a.dest && a.relative_path) {
+    const base = a.project_dir || a.root || ''
+    return join(String(base), String(a.relative_path))
+  }
   return a.file_path || a.path || a.target || a.targetPath || a.dest || null
 }
 
@@ -491,7 +515,7 @@ function readGuardStateExact(exec, override) {
 
 function layer3Check(exec, warn, statePathOverride) {
   const tool = String((exec && exec.name) || '')
-  const isMutating = MUTATING_TOOL.test(tool)
+  const isMutating = isMutatingTool(tool)
   // 2026-10-18 补口：shell 重定向/写 cmdlet 与 Edit 是等效写操作，取证闸不能只认工具名。
   // 实测绕过路径：`pwsh Add-Content -Path README.md`（A/B 会话对照 B 组第 2 条）。
   // 参数读取必须防炸：DSH 允许 arguments 为惰性 getter，解析失败应降级而非中断整条判定链。
@@ -549,6 +573,23 @@ function layer3Check(exec, warn, statePathOverride) {
     // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
     // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
     const toolPath = resolveToolPath(pathOfTool(exec && exec.arguments), exec)
+    // 2026-10-22 补口：改动类工具**解析不出路径**时（`plugin_manager`、`move_run`、`import_claude`、
+    // `mcp__x__build_project` 等），取证闸无法核验"是否先读过"——旧行为是直接放行，
+    // 等于这些工具天生免检。现改为默认要求授权（`fg_apply` 一次放行），可用
+    // `FG_MUTATION_UNMAPPED=allow` 退回旧行为。
+    if (isMutating && !toolPath) {
+      if (String(process.env.FG_MUTATION_UNMAPPED || '').toLowerCase() === 'allow') {
+        warn('改动类工具无路径（FG_MUTATION_UNMAPPED=allow）→ 放行：', `tool=${tool}`)
+      } else {
+        auditDeny(exec, `改动类工具无可解析路径：${tool}`, { trigger: 'mutation:unmapped' })
+        return {
+          kind: 'deny',
+          reason:
+            `focus-guard-native: 改动类工具「${tool}」未提供可解析的文件路径，取证闸无法核验"是否先读过"。` +
+            `请先用 fg_apply 申请一次授权（tool="${tool}"），或改用带 file_path 的工具。`,
+        }
+      }
+    }
     const targets = isMutating
       ? (toolPath ? [toolPath] : [])
       : shellTargets.map((p) => resolveToolPath(p, exec)).filter(Boolean)
@@ -829,7 +870,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       if (WHOLE_FILE_READ_TOOLS.test(toolName)) {
         // 2026-10-19 修：真实调用传相对路径，必须按会话 cwd 解析，否则 statSync 抛错 → 闸无声跳过。
         target = resolveToolPath(pathOfTool(args), exec)
-        segmented = Boolean(args.limit || args.offset || args.pages)
+        segmented = Boolean(args.limit || args.offset)
       } else if (cmd && WHOLE_FILE_SHELL.test(cmd)) {
         segmented = /\||>|-TotalCount|-First|-Tail|--limit/.test(cmd)
         if (!segmented) target = shellFileTarget(cmd, cwdOf(exec))
@@ -912,7 +953,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       // ① Read 整读体积闸（判定见 core/outputGate.mjs:judgeReadGate）
       //    2.5.3（案二）：审计/盘点/审查类任务整读留痕不罚——法典把审计定为 50 预算
       //    重大专项，体积闸却拦审计最需要的整读，属制度性误伤。
-      if (/^read$/i.test(toolName) && !args.limit && !args.pages && target) {
+      if (/^read$/i.test(toolName) && !args.limit && target) {
         let kb = 0
         try {
           kb = Math.round(statSync(String(target)).size / 1024)

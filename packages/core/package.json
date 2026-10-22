@@ -31,7 +31,8 @@
     "bench:tasks": "node tests/task-bench.mjs",
     "bench:control": "node tests/task-control.mjs",
     "bench:ab": "node tools/bench-ab.mjs",
-    "focusguard": "node tools/focusguard.mjs"
+    "focusguard": "node tools/focusguard.mjs",
+    "gate:audit": "node tools/gate-audit.mjs"
   },
   "dsh": {
     "bundle": {

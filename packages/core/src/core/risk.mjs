@@ -13,9 +13,20 @@ import { isMutatingBashCmd, FILE_REDIRECT_RE } from "./redlines.mjs";
 import { audit } from "./audit.mjs";
 
 export function isMutating(tool, ti, handoff) {
-  if (tool === "Write" || tool === "Edit") return !handoff;
-  if (tool === "Bash") {
-    const cmd = String(ti.command || "");
+  const t = String(tool || "");
+  // 2026-10-22 补口：原实现只认大写 `Write`/`Edit`/`Bash`（ZCode 命名）。DSH 原生传小写，
+  // 且真实目录里还有 MCP 写盘/构建类与插件管理类工具——它们此前一律返回 false（=天生免检）。
+  if (/^(?:write|edit|multiedit|patch|applypatch|notebookedit)$/i.test(t)) return !handoff;
+  if (/^(?:plugin_manager|move_run|import_claude|claude_export)$/i.test(t)) return true;
+  if (
+    /^mcp__[\s\S]+?__(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)_/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (t === "Bash" || /^(?:bash|shell|sh|pwsh|powershell|cmd|terminal|runcommand)$/i.test(t)) {
+    const cmd = String((ti && ti.command) || "");
     return isMutatingBashCmd(cmd) || FILE_REDIRECT_RE.test(cmd);
   }
   return false;
