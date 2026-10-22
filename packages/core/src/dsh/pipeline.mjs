@@ -933,6 +933,13 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
           auditDeny(exec, cmd || gateFilePath, { trigger: 'gate:fg_apply', level: 6 })
           return { kind: 'deny', reason: `focus-guard-native: ${gate.reason}` }
         }
+        // 2026-10-22：人类批准走宿主 ask 缝（GUI 审批卡片），不再只发 CLI 请求。
+        // ask 由宿主 approval.request 处理：allowed-once → 本次执行；rejected/cancelled/unavailable → deny。
+        if (gate.kind === 'ask') {
+          warn('资格审核闸转人工审批：', gate.reason)
+          auditDeny(exec, cmd || gateFilePath, { trigger: 'gate:human-approval', level: 6 })
+          return { kind: 'ask', reason: gate.reason, displayReason: gate.displayReason || gate.reason }
+        }
       } catch (error) {
         warn('资格审核闸异常，fail-open 放行：', (error && error.message) || error)
       }

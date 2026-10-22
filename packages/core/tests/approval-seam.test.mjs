@@ -4,6 +4,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+
+// 2026-10-22：本文件专门测 **CLI 审批通道**（文件 + focusguard approve），
+// 而默认已改为宿主 ask 缝（GUI 卡片）；显式退回 cli 让这组继续覆盖那条路径。
+process.env.FG_APPROVAL_SEAM = "cli";
 import { fileURLToPath } from "node:url";
 
 // 文件审批闸（B 方案，2026-10-18）：拦截 → 生成 pending_request.json →

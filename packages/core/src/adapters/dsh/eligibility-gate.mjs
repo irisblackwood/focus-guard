@@ -420,8 +420,12 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
     others.length > 0
       ? `；另有 ${others.length} 条待批已合并（可一次申请：tool="${[tool, ...others.map((x) => x.tool)].join(',')}"）`
       : ''
-  // rm-rf（默认人工闸）：生成审批请求并把 CLI 命令直接写进理由，模型无需再猜怎么解。
+  // rm-rf（默认人工闸）：生成审批请求；**默认走宿主 ask 缝**（GUI 里直接弹审批卡片），
+  // CLI id 仅作兜底与留痕（headless / 无 UI 通道时人类仍可用 `focusguard approve`）。
+  // 2026-10-22 人类反馈：只会 TUI 之外的 GUI 对话，"审批不可达"等于永远拿不到批准。
+  // `FG_APPROVAL_SEAM=cli` 可退回旧行为（只发 CLI 请求 + deny）。
   let approvalPart = ''
+  let askDecision = null
   if (strictGateHit(reason)) {
     const req = createApprovalRequest({
       session,
@@ -440,6 +444,27 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
       evidence: req.id,
     })
     approvalPart = `；**不可逆操作需人类批准**：${approvalHint(req.id)}`
+    if (String(process.env.FG_APPROVAL_SEAM || '').toLowerCase() !== 'cli') {
+      askDecision = {
+        kind: 'ask',
+        reason:
+          `focus-guard-native: 不可逆操作「${String(tool)}」需要人类批准。` +
+          `命令：${String(command ?? '').slice(0, 120)}（请求号 ${req.id}；若本会话无审批通道，可由人类在终端执行 focusguard approve ${req.id}）`,
+        displayReason: `FocusGuard 请求批准：${String(tool)} → 不可逆操作需人类确认一次`,
+      }
+    }
+  }
+  if (askDecision) {
+    auditEligibility({
+      session,
+      action: 'approval-asked',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'needApproval',
+      evidence: 'ask-seam',
+    })
+    return askDecision
   }
   const detail = `该工具需先调 fg_apply 申请授权（命中 ${reason}）${batchHint}${approvalPart}`
   auditEligibility({

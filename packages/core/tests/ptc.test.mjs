@@ -103,7 +103,10 @@ test("人工闸门（默认开）：rm-rf 不再自证自批，且生成审批�
   assert.match(String(r.reason), /focusguard\.mjs approve/);
   const pending = (await import("../src/core/approvals.mjs")).readApprovalRequest();
   assert.ok(pending && pending.id, "应生成 pending_request.json");
-  assert.equal(gate.gateToolCall({ session: sid, tool: "Bash", command: "rm -rf ./app-src" }).kind, "deny", "未批准前仍应拦");
+  const blocked = gate.gateToolCall({ session: sid, tool: "Bash", command: "rm -rf ./app-src" });
+  // 2026-10-22：未批准前既不 pass（不许自证自批），也不静默 deny——改为宿主 ask 缝（GUI 卡片）。
+  assert.notEqual(blocked.kind, "pass", "未批准前不得放行（自证自批）");
+  assert.equal(blocked.kind, "ask", "应转人工审批（GUI 审批卡片）");
   gate.resetGrants(sid);
 });
 

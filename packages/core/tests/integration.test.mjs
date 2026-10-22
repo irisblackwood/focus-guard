@@ -1,3 +1,6 @@
+// 2026-10-22：默认审批走宿主 ask 缝；本文件的链路断言针对 CLI 闭环，显式退回 cli。
+process.env.FG_APPROVAL_SEAM = "cli";
+
 // FocusGuard · 端到端集成测试（3.0.5）
 //
 // 链路：模型画像（loadProfile / decide）→ 资格审核（checkEligibility 六层）
