@@ -45,6 +45,10 @@ function isPeak(at) {
   return (minutes >= 540 && minutes < 720) || (minutes >= 840 && minutes < 1080)
 }
 
+// 面板成本单位（2026-10-22 人类确认）：宿主用量面板显示的是**人民币 ¥**。
+// 官方价目是 USD/1M，故按汇率换算后与面板核对；汇率可被 FG_USD_CNY 覆盖（默认 7.1）。
+const USD_CNY = Number(process.env.FG_USD_CNY || 7.1)
+
 function walk(dir, out = []) {
   let entries = []
   try {
@@ -147,8 +151,10 @@ function summarize(runs) {
       sumMatches: total ? sum === total : null,
       hitRate: hit,
       cost,
+      costCNY: Number((cost * USD_CNY).toFixed(6)),
       panelCost: r.panelCost == null ? null : Number(r.panelCost),
-      costDelta: r.panelCost == null ? null : Number((cost - Number(r.panelCost)).toFixed(9)),
+      // 面板成本是 ¥，故与 costCNY 比；差额 >0.002 视为口径不一致
+      costDelta: r.panelCost == null ? null : Number((cost * USD_CNY - Number(r.panelCost)).toFixed(6)),
       steps: st && st.found ? st.steps : null,
       denies: st && st.found ? st.denies : null,
       elapsedSec: r.elapsedSec ?? (st && st.found ? st.elapsedSec : null),
@@ -221,11 +227,12 @@ if (args.includes('--json')) {
   process.exit(0)
 }
 
-console.log('轮次 | sid       | 峰/谷 | 总 token  | 未缓存   | 缓存读取  | 输出   | 命中率  | 成本 USD   | 面板成本  | steps | denies | 耗时 s')
+console.log('轮次 | sid       | 峰/谷 | 总 token  | 未缓存   | 缓存读取  | 输出   | 命中率  | 成本$   | 成本¥   | 面板¥   | 差额   | steps | denies | 耗时 s')
 for (const r of result.runs) {
   const flag = r.sumMatches === false ? ' ⚠求和不等' : ''
+  const drift = r.costDelta != null && Math.abs(r.costDelta) > 0.002 ? ' ⚠成本不符' : ''
   console.log(
-    `${fmt(r.run)}    | ${String(r.sid || '-').slice(0, 8)}   | ${r.peak ? '峰' : '谷'}    | ${fmt(r.total).padStart(9)} | ${fmt(r.uncached).padStart(8)} | ${fmt(r.cacheRead).padStart(9)} | ${fmt(r.output).padStart(6)} | ${fmt(r.hitRate, 2).padStart(6)}% | ${fmt(r.cost, 6).padStart(10)} | ${fmt(r.panelCost, 6).padStart(9)} | ${fmt(r.steps).padStart(5)} | ${fmt(r.denies).padStart(6)} | ${fmt(r.elapsedSec).padStart(6)}${flag}`,
+    `${fmt(r.run)}    | ${String(r.sid || '-').slice(0, 8)}   | ${r.peak ? '峰' : '谷'}    | ${fmt(r.total).padStart(9)} | ${fmt(r.uncached).padStart(8)} | ${fmt(r.cacheRead).padStart(9)} | ${fmt(r.output).padStart(6)} | ${fmt(r.hitRate, 2).padStart(6)}% | ${fmt(r.cost, 6).padStart(7)} | ${fmt(r.costCNY, 4).padStart(7)} | ${fmt(r.panelCost, 4).padStart(7)} | ${fmt(r.costDelta, 4).padStart(6)} | ${fmt(r.steps).padStart(5)} | ${fmt(r.denies).padStart(6)} | ${fmt(r.elapsedSec).padStart(6)}${flag}${drift}`,
   )
 }
 const m = result.median

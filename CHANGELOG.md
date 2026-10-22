@@ -11,6 +11,7 @@
 - feat(tools): **死闸审计** `tools/gate-audit.mjs`（`npm run gate:audit`）——把源码引用的参数键与真实会话 `request/header` 的工具 schema 对账，输出「引用了但 schema 没有的键」（死闸嫌疑）与「既不算只读/改动/shell 的工具」（分类盲区）。首跑 11 会话 / 254 工具，只剩 `cmd`（兼容回退）、`head_limit`（ZCode 遗留）、`pages`（已删）三个无害键。
 - chore: 删除两处 `args.pages` 死参数（DSH `read` 只有 `offset/limit`）。
 - feat(tools): **面板采集处理器** `tools/collect-panel.mjs`（2026-10-22）——3.0.8 面板基线要人工跑 ≥5 轮，"抄数 → 校验 → 复算 → 中位数"不该靠手算。工具做四件事：① 校验「未缓存+缓存读取+输出 == 总 token」；② 从会话记录解析 `steps`/`denies`/耗时（多帧 zstd，按魔数分帧）；③ 按官方价目复算成本并与面板成本核对（峰谷自动判定：工作日 09-12 / 14-18 为峰 ×2）；④ 输出每轮表 + 中位数 + `n<5` 告警。`--init` 生成 `panel-runs.json` 模板（已 gitignore）；`AB-PROMPTS.md` 的 P0 采集协议已改为「一条命令出表」。
+- fix(tools): **面板成本单位是人民币**——宿主用量面板显示 ¥，而官方价目是 USD/1M，此前脚本拿 USD 与面板比会误报不符。现按 `FG_USD_CNY`（默认 7.1）换算成 ¥ 再核对，差额 >¥0.002 才告警。实测 R2：复算 `¥0.0493` vs 面板 `¥0.0500`（差 −¥0.0007，汇率与四舍五入）。
 
 - fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
 - fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
