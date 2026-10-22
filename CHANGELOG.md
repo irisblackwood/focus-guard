@@ -7,6 +7,10 @@
 > 发布状态：in-tree（**尚未发布到 npm**）。npm 上最新仍是 `3.0.7`（MIT 授权、不可撤销）。
 > 本条目已并入 2026-10-19 起累积的全部改动（原「未发版」区已合并，不再单列）；含 AGPLv3 切换与按需自证。
 
+- fix(gate): **改动类工具分类只认 8 个名字**（2026-10-22）——取证闸/授权闸/批量待批全靠 `MUTATING_TOOL`，而真实目录里 `mcp__cities2-mcp__write_project_file`（写项目文件）、`build_project`/`package_project`（跑构建、打包）、`plugin_manager`（装删插件，会执行 npm 构建脚本）、`move_run`（写 AGENTS.md）、`import_claude`/`claude_export`（写会话文件）全被判"非改动"→ **天生免检**。现新增 `isMutatingTool()`（显式清单 + MCP 动词前缀；只读类不误判）、`pathOfTool()` 支持 MCP `{project_dir, relative_path}`；**改动类解析不出路径时不再放行**，改为要求 `fg_apply` 一次授权（`FG_MUTATION_UNMAPPED=allow` 退回旧行为）。母版 `core/risk.mjs::isMutating` 同步支持小写与 MCP。新增 `tests/mutation-classify.test.mjs` 6 条。
+- feat(tools): **死闸审计** `tools/gate-audit.mjs`（`npm run gate:audit`）——把源码引用的参数键与真实会话 `request/header` 的工具 schema 对账，输出「引用了但 schema 没有的键」（死闸嫌疑）与「既不算只读/改动/shell 的工具」（分类盲区）。首跑 11 会话 / 254 工具，只剩 `cmd`（兼容回退）、`head_limit`（ZCode 遗留）、`pages`（已删）三个无害键。
+- chore: 删除两处 `args.pages` 死参数（DSH `read` 只有 `offset/limit`）。
+
 - fix(guard): **KPI 重复结算**（ΣΣ）——`state.kpi` 是会话累计值而 `agent/turn-stopping` 每回合都跑，旧实现把它当"本任务 KPI"，既每回合重复累加进 `kpiCarry`（实测 `-8900` 对 `-290`，膨胀 30 倍）又每回合重复扣委托池。改为按增量结算（`kpiNow = 累计 - kpiSettled`），无增量零动作、不记 `kpi-settle`。
 - fix(guard): **成本台账静默停摆**——`postExecuteListener` 拿不到 `usage` 时旧实现无 `else`，整条成本核算静默失效（台账 10-08 起零新增无人发现）。连续 5 次缺失 `warn` 一次，成功调用清零重计。
 - feat(tools): **卷宗【三】路径自检**——新增 `packages/core/tools/verify-case-paths.mjs`（只读核查，不删不改，`--json` 可机器读）。实测 81 行 / 有效 75 / 失效 6（均为 monorepo 迁移前布局，待人类批准后归档）。
