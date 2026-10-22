@@ -52,7 +52,8 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L3** | FGA · 人工闸门（文件审批） | ✅ **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
 | **L3** | FGA · TTL 临时权限令牌 | ✅ | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
 | **L4** | DSH 原生压缩栈 | ✅ | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
-| **L4** | 卷宗哈希路由 + 新会话过滤注入 | ✅ | `workspace.mjs:125` 回合落账；hash 不符零注入 |
+| **L4** | 卷宗哈希路由 + 新会话过滤注入 | ✅ | `workspace.mjs` 回合落账；hash 不符零注入 |
+| **L4** | **跨会话快速交接**（2026-10-22） | ✅ | `workspace.mjs` 的 `snapshot`（工具调用/被拦/KPI/委托，覆盖式、只存 FG 数得出的量）+ `shouldInjectHandoff()`（仅换会话时注入快照行，同会话不重复）+ `renderWorkspaceSection(record,{sid})`；CLI `npm run handoff` 打印简报。**不推断"做到哪了"** |
 | **L5** | 无 `[文件:行号]` 打回 | ✅ | `src/dsh/stopGuard.mjs` |
 | **L5** | 体积刺客阻断（禁裸 cat 等） | ✅ | `pipeline.mjs` 体积三闸 + 硬校验 |
 | **L5** | 高危操作拦截 | ✅ | 红线 + 资格闸 + 语义层观察模式 |

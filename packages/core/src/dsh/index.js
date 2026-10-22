@@ -87,14 +87,15 @@ export function apply(ctx) {
         const extra = []
         // 2026-10-19 按需自证：存活状态不再进系统提示（原 focus-guard-degraded 段已移除）。
         // 需要知道 FG 是否在场时，看拦截理由 / fg_apply 返回里的 `[FG 存活 n/m]` 徽标。
-        // L4 跨会话卷宗（2026-10-18）：只有 workspace_hash 与当前路径一致才注入；
+        // L4 跨会话卷宗（2026-10-18）+ 快速交接（2026-10-22）：只有 workspace_hash 与当前路径一致才注入；
         // 路径改变 → readWorkspace 返回 null → 一条都不加（DCR 的病根就是没这条）。
+        // 交接快照行只在"换会话"时出现（同一会话里重复自己的快照是噪音）。
         try {
-          const cwd =
-            context && context.agent && context.agent.session && context.agent.session.header
-              ? context.agent.session.header.cwd
-              : null
-          const section = renderWorkspaceSection(readWorkspace(cwd))
+          const header =
+            context && context.agent && context.agent.session ? context.agent.session.header : null
+          const cwd = header ? header.cwd : null
+          const sid = header ? header.id : null
+          const section = renderWorkspaceSection(readWorkspace(cwd), { sid })
           if (section) extra.push({ name: 'focus-guard-workspace', text: section })
         } catch {
           /* fail-open：卷宗读取失败不影响系统提示 */

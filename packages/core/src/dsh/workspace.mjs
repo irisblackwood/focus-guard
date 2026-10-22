@@ -94,6 +94,9 @@ export function mergeWorkspace(cwd, patch = {}) {
     decisions: clean([...(prev.decisions || []), ...(patch.decisions || [])]),
     constraints: clean([...(prev.constraints || []), ...(patch.constraints || [])]),
     next_action: clean([...(prev.next_action || []), ...(patch.next_action || [])]),
+    // 2026-10-22（主图 L4「跨会话快速交接」）：状态快照**覆盖式**保存，不追加。
+    // 只存 FG 亲眼看得到的计数与最近被拦命令，不推断"做到哪了"。
+    snapshot: patch.snapshot === undefined ? prev.snapshot || null : patch.snapshot,
   }
   mkdirSync(dirname(file), { recursive: true })
   const tmp = `${file}.tmp`
@@ -103,10 +106,17 @@ export function mergeWorkspace(cwd, patch = {}) {
 }
 
 /** 渲染成系统提示 section；无内容返回 null（正常路径零注入）。 */
-export function renderWorkspaceSection(record) {
+export function renderWorkspaceSection(record, opts = {}) {
   if (!record) return null
   const block = (label, items) => (items && items.length ? `${label}：${items.map((x) => `「${x}」`).join('、')}` : '')
+  const s = record.snapshot
+  // 快照行只在"换会话"时出现：同一会话里重复自己的快照纯属噪音。
+  const showSnapshot = s && (opts.sid === undefined || shouldInjectHandoff(record, opts.sid))
+  const snap = showSnapshot
+    ? `上次会话：${s.sid ? String(s.sid).slice(0, 12) : '-'} · ${s.at || '-'} · 工具调用 ${s.toolCalls ?? '-'} · 被拦 ${s.denies ?? '-'} · KPI ${s.kpi ?? '-'} · 委托 ${s.delegateBudget ?? '-'}`
+    : ''
   const lines = [
+    snap,
     block('决策', record.decisions),
     block('约束', record.constraints),
     block('下一步', record.next_action),
@@ -114,6 +124,18 @@ export function renderWorkspaceSection(record) {
   if (!lines.length) return null
   const text = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：\n${lines.join('\n')}`
   return text.slice(0, MAX_RENDER)
+}
+
+/**
+ * 快速交接：新会话是否需要注入"上次会话快照"。
+ * 判据只有两条：① 存在快照；② 快照来自**别的**会话（本会话已开始就不重复注入）。
+ * @param {object|null} record 卷宗记录
+ * @param {string} sid 当前会话 id
+ */
+export function shouldInjectHandoff(record, sid) {
+  const s = record && record.snapshot
+  if (!s || !s.sid) return false
+  return String(s.sid) !== String(sid || '')
 }
 
 /**
@@ -137,9 +159,19 @@ export function recordWorkspaceTurn(agent) {
   }
   const prompt = String(state.turnPromptFull || state.turnPrompt || '').trim()
   const rejected = Object.keys(state.rejectedCmds || {})
+  // 快速交接快照（主图 L4）：只存 FG 亲自数得出来的量，不推断"做到哪了"。
+  const snapshot = {
+    at: new Date().toISOString(),
+    sid,
+    toolCalls: Number(state.turnCalls || state.effectiveCalls || 0) || 0,
+    denies: Number(state.denyCount || state.turnDenies || 0) || 0,
+    kpi: Number.isFinite(state.kpi) ? state.kpi : 0,
+    delegateBudget: Number.isFinite(state.delegateBudget) ? state.delegateBudget : null,
+  }
   return mergeWorkspace(cwd, {
     decisions: prompt ? [prompt.slice(0, MAX_CHARS)] : [],
     constraints: rejected.slice(0, MAX_ITEMS),
     next_action: [],
+    snapshot,
   })
 }
