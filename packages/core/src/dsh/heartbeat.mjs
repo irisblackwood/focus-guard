@@ -87,6 +87,35 @@ export function noteLivenessEvent(kind) {
   return pendingEvent
 }
 
+// 2006-10-22：KPI 快照（人类反馈"KPI 感觉不到"）。
+// KPI 本身不参与任何判定（全仓只有写入与结算），所以唯一能"看见"的时机是 FG 说话的三个局部点：
+// 拦截理由 / fg_apply 结果 / 压缩事件——也就是 livenessBadge 出现的地方。这里只做展示，不改行为。
+let kpiSnapshot = null
+
+/** 由收尾结算处调用（seams.mjs / guard.mjs），记录本会话 KPI 与委托池余量。 */
+export function setKpiSnapshot(snap) {
+  if (!snap) {
+    kpiSnapshot = null
+    return
+  }
+  const kpi = Number(snap.kpi)
+  const del = Number(snap.delegateBudget)
+  kpiSnapshot = {
+    kpi: Number.isFinite(kpi) ? kpi : null,
+    delegateBudget: Number.isFinite(del) ? del : null,
+    at: new Date().toISOString(),
+  }
+}
+
+/** 供 status.json 与徽标共用的一份快照（无则 null）。 */
+export function kpiTag() {
+  if (!kpiSnapshot) return ''
+  const parts = []
+  if (kpiSnapshot.kpi !== null) parts.push(`KPI ${kpiSnapshot.kpi > 0 ? '+' : ''}${kpiSnapshot.kpi}`)
+  if (kpiSnapshot.delegateBudget !== null) parts.push(`委托 ${kpiSnapshot.delegateBudget}`)
+  return parts.length ? `；${parts.join(' · ')}` : ''
+}
+
 /**
  * 生成一次性存活徽标。正常时极短（`[FG 存活 15/15]`），异常时带降级模块名。
  * @param {{ full?: boolean, drain?: boolean }} [opts] full=true 返回冗长版；drain=false 不消费待报告事件
@@ -98,8 +127,9 @@ export function livenessBadge(opts = {}) {
   const degradedPart = bad.length ? `；降级: ${bad.join(',')}` : ''
   const persistPart = opts.full && bad.length ? '。这些缝的执法能力当前不可用，不要假设它们仍在拦；收尾时提示人类重启 DSH' : ''
   const eventPart = pendingEvent ? `；事件: ${pendingEvent}` : ''
+  const kpiPart = kpiTag()
   if (drain) pendingEvent = null
-  return `[FG 存活 ${ok}/${MODULES.size}${degradedPart}${eventPart}${persistPart}]`
+  return `[FG 存活 ${ok}/${MODULES.size}${degradedPart}${eventPart}${kpiPart}${persistPart}]`
 }
 
 /**
@@ -124,6 +154,10 @@ export function startHeartbeat({ warn } = {}) {
       modules_ok: `${MODULES.size - degradedModules().length}/${MODULES.size}`,
       degraded: degradedModules(),
       modules: moduleSnapshot(),
+      // 2026-10-22：KPI 快照对外可见（status.mjs / 人类排查都能读），不参与判定。
+      kpi: kpiSnapshot ? kpiSnapshot.kpi : null,
+      delegate_budget: kpiSnapshot ? kpiSnapshot.delegateBudget : null,
+      kpi_at: kpiSnapshot ? kpiSnapshot.at : null,
     }
     try {
       mkdirSync(dirname(file), { recursive: true })

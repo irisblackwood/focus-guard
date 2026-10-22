@@ -467,6 +467,14 @@ export function turnStoppingListener({ warn } = {}) {
       }
       saveState(file, state)
       saveLedger(projDirOf(agent), state)
+      // 2026-10-22（人类反馈"KPI 感觉不到"）：把结算结果交给心跳快照，让它在
+      // ① status.json ② 下一次 FG 徽标（拦截/申请/压缩）里可见。不参与任何判定。
+      try {
+        const { setKpiSnapshot } = await import('./heartbeat.mjs')
+        setKpiSnapshot({ kpi: state.kpi || 0, delegateBudget: state.delegateBudget })
+      } catch {
+        /* 展示失败不影响结算 */
+      }
       auditRow(
         sid,
         'kpi-settle',
