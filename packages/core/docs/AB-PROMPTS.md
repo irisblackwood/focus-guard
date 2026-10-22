@@ -80,12 +80,18 @@ npm run bench:cost -- --since 2026-10-18
 | R4 | | | | | | | | | |
 | R5 | | | | | | | | | |
 
-取 **中位数** 作为 3.0.8 基线；面板六项从 GUI 用量面板抄，`steps`/`denies` 用会话解析：
+取 **中位数** 作为 3.0.8 基线；面板六项从 GUI 用量面板抄，`steps`/`denies` 用会话解析。
+
+**一条命令出表**（2026-10-22 新增，推荐）：
 
 ```powershell
-# 会话 id 前缀从上一步面板或 sessions 目录取（如 session-553a2558 → 553a2558）
-npm run bench:ab -- --a <第一轮sid> --b <第二轮sid> --json
+node packages/core/tools/collect-panel.mjs --init      # 生成 panel-runs.json 模板（仓库根）
+# 每轮填入：sid（会话 id 前 8 位）+ at（该轮开始时间）+ 面板六项
+node packages/core/tools/collect-panel.mjs panel-runs.json
 ```
+
+它会自动做四件事：① 校验「未缓存+缓存读取+输出 == 总 token」；② 从会话解析 `steps`/`denies`/耗时；
+③ 按官方价目复算成本并核对面板成本（峰谷自动判定：工作日 09-12 / 14-18 为峰，价 ×2）；④ 输出中位数与 `n<5` 告警。
 
 或直接列出会话结构：
 
