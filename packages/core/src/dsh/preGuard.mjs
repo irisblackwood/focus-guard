@@ -24,6 +24,7 @@ import { backupBeforeEdit } from '../core/backup.mjs'
 import { platformBashViolation } from '../core/env.mjs'
 import { isDangerousCmd } from '../core/redlines.mjs'
 import { isInvestigation, isMutating, penalize } from '../core/risk.mjs'
+import '../adapters/dsh/tool-kinds.mjs' // 分层纪律：宿主工具名在适配层注册成语义类别
 import { zcodeToolName } from './toolName.mjs'
 import { appendAudit } from './audit.mjs'
 import { BLOCKS_RE, DELEGATE_DEFAULT, DOWNGRADE_MSG, LIBRARY_RE } from '../core/constants.mjs'

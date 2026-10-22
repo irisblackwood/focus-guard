@@ -30,10 +30,12 @@ const HOST_MARKS = {
   dsh: /\b(?:dsh-native|ctx\.tools|agent\.session|tools\/pre-execute|session\/event|FG_PTC_\w+|FG_MUTATION_UNMAPPED|focus-guard-native)\b/,
   zcode: /\b(?:ZCODE_\w+|CLAUDE_\w+|installed_plugins\.json|hookSpecificOutput)\b/,
 }
-// 宿主工具名（母版不该知道）。允许在"语义映射/注释"里出现的白名单文件。
-const TOOL_NAMES = /\b(?:Bash|Write|Edit|MultiEdit|Read|Grep|Glob|pwsh|powershell|run_code)\b/
+// 宿主**工具**名（母版不该知道宿主方言）。shell 名（pwsh/powershell/bash）不算：
+// 红线匹配的是"命令文本里的 shell"，与宿主无关。
+const TOOL_NAMES = /\b(?:Bash|Write|Edit|MultiEdit|Read|Grep|Glob|run_code)(?![\w-])/
+// 白名单：规则文本（SESSION_RULES）里提到 Grep/head_limit 属面向模型的表述。
 const ALLOW = {
-  toolNames: ['core/risk.mjs', 'core/relation.mjs'], // risk 分类器目前按宿主名分派（已知债，见报告）
+  toolNames: ['src/core/constants.mjs'],
 }
 
 function walk(dir, out = []) {

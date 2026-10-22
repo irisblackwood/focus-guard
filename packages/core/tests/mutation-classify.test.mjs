@@ -14,6 +14,8 @@ process.env.FG_AUDIT_FILE = join(tmpdir(), `fg-mut-audit-${process.pid}-${Date.n
 process.env.FG_SHELL = "";
 
 const { isMutatingTool, preExecuteListener } = await import("../src/dsh/pipeline.mjs");
+// 2026-10-22 分层：母版只认语义，宿主工具名由适配层注册 —— 本组直接调 isMutating 前必须注册 DSH 方言。
+await import("../src/adapters/dsh/tool-kinds.mjs");
 const { isMutating } = await import("../src/core/risk.mjs");
 const { statePath, saveState } = await import("../src/core/state.mjs");
 

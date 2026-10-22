@@ -21,6 +21,11 @@ import { degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
 import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
+import { setProjectDirProvider } from '../core/audit.mjs'
+
+// 分层纪律（2026-10-22）：项目目录由宿主层注入；DSH 侧用中立变量 FG_PROJECT_DIR，
+// 母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_（那是替别的宿主代言）。
+setProjectDirProvider(() => process.env.FG_PROJECT_DIR || '')
 import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
 
 export const name = 'focus-guard'

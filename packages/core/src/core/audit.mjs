@@ -10,6 +10,17 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 export let auditFile = null;
+
+/**
+ * 项目目录来源由**宿主适配层注入**（2026-10-22 分层泄漏修复）。
+ * 母版不再直接读 `ZCODE_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` —— 那是替宿主代言，
+ * 换宿主要改母版。ZCode 钩子在 `hooks/guard.mjs` 里注入，DSH 在 `src/dsh/index.js` 注入。
+ */
+let projectDirProvider = null;
+export function setProjectDirProvider(fn) {
+  projectDirProvider = typeof fn === "function" ? fn : null;
+}
+
 export function auditTarget(sid) {
   if (auditFile !== null) return auditFile;
   // 2026-10-18 修（REPORT-2026-10-12 P1「审计单一入口未收敛」）：
@@ -21,7 +32,12 @@ export function auditTarget(sid) {
     auditFile = explicit;
     return auditFile;
   }
-  const dir = process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || "";
+  let dir = "";
+  try {
+    dir = (projectDirProvider && projectDirProvider()) || "";
+  } catch {
+    dir = "";
+  }
   if (dir) {
     try {
       if (statSync(dir).isDirectory()) auditFile = join(dir, ".focus-guard", "AUDIT.log");

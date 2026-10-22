@@ -12,20 +12,39 @@ import { INTERP_EVAL_RE } from "./constants.mjs";
 import { isMutatingBashCmd, FILE_REDIRECT_RE } from "./redlines.mjs";
 import { audit } from "./audit.mjs";
 
-export function isMutating(tool, ti, handoff) {
-  const t = String(tool || "");
-  // 2026-10-22 补口：原实现只认大写 `Write`/`Edit`/`Bash`（ZCode 命名）。DSH 原生传小写，
-  // 且真实目录里还有 MCP 写盘/构建类与插件管理类工具——它们此前一律返回 false（=天生免检）。
-  if (/^(?:write|edit|multiedit|patch|applypatch|notebookedit)$/i.test(t)) return !handoff;
-  if (/^(?:plugin_manager|move_run|import_claude|claude_export)$/i.test(t)) return true;
-  if (
-    /^mcp__[\s\S]+?__(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)_/i.test(
-      t
-    )
-  ) {
-    return true;
+/**
+ * 工具语义注册表（2026-10-22 分层泄漏修复）
+ *
+ * 母版不该知道任何宿主的工具名（`Write` / `pwsh` / `mcp__…` 都是宿主方言）。
+ * 适配层把自己宿主的名字注册成**语义类别**，母版只认语义：
+ *   mutation（写盘/改配置/装包/构建）· shell（执行命令）· read（只读侦查）· other
+ */
+const KIND_BY_NAME = new Map()
+
+/** @param {'mutation'|'shell'|'read'|'other'} kind @param {string[]} names */
+export function registerToolKind(kind, names) {
+  for (const n of names || []) {
+    const key = String(n || "").toLowerCase();
+    if (key) KIND_BY_NAME.set(key, kind);
   }
-  if (t === "Bash" || /^(?:bash|shell|sh|pwsh|powershell|cmd|terminal|runcommand)$/i.test(t)) {
+}
+
+/** 名字 → 语义类别；未注册返回 'other'（安全默认：既不算只读也不算改动）。 */
+export function semanticOf(tool) {
+  const key = String(tool || "").toLowerCase();
+  if (!key) return "other";
+  const direct = KIND_BY_NAME.get(key);
+  if (direct) return direct;
+  // MCP 写盘/构建类工具统一按动词前缀归为 mutation（适配层也会显式注册，这里是兜底）。
+  if (/^mcp__[\s\S]+?__(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)_/.test(key)) return "mutation";
+  if (/^mcp__.*(?:web|search)/.test(key)) return "read";
+  return "other";
+}
+
+export function isMutating(tool, ti, handoff) {
+  const kind = semanticOf(tool);
+  if (kind === "mutation") return !handoff;
+  if (kind === "shell") {
     const cmd = String((ti && ti.command) || "");
     return isMutatingBashCmd(cmd) || FILE_REDIRECT_RE.test(cmd);
   }
@@ -33,10 +52,10 @@ export function isMutating(tool, ti, handoff) {
 }
 
 export function isInvestigation(tool, ti) {
-  if (["Read", "Grep", "Glob", "WebSearch", "WebFetch"].includes(tool)) return true;
-  if (/mcp__.*(web|search)/i.test(tool)) return true;
-  if (tool === "Bash") {
-    const cmd = String(ti.command || "");
+  const kind = semanticOf(tool);
+  if (kind === "read") return true;
+  if (kind === "shell") {
+    const cmd = String((ti && ti.command) || "");
     // 3.0.0 解释器黑名单（R5-3）：`python -c`/`node -e` 等等价任意代码执行，不得因"非变异"混入只读侦查
     // （否则熔断期白名单放行解释器=熔断失效，侦查池也被 eval 类命令挤占）
     return !isMutatingBashCmd(cmd) && !FILE_REDIRECT_RE.test(cmd) && !INTERP_EVAL_RE.test(cmd);

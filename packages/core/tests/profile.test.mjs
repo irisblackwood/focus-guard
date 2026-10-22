@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { checkEligibility, profileScope } from "../src/core/checkEligibility.mjs";
+// 2026-10-22 分层：母版只认语义类别，宿主工具名由适配层注册（本文件直接调 checkEligibility）。
+await import("../src/adapters/dsh/tool-kinds.mjs");
 import {
   loadProfile,
   PROFILES,

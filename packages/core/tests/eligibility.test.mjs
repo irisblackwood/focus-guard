@@ -1,5 +1,7 @@
 // 2026-10-22：默认审批通道已改为宿主 ask 缝（GUI 卡片）；本文件的验收①③针对 CLI 闭环，显式退回 cli。
 process.env.FG_APPROVAL_SEAM = "cli";
+// 2026-10-22 分层：母版只认语义类别，宿主工具名由适配层注册（本文件直接调 checkEligibility）。
+await import("../src/adapters/dsh/tool-kinds.mjs");
 
 // FocusGuard 资格审核引擎 · 第一步（逻辑层）验收用例
 //

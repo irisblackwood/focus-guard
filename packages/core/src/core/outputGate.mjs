@@ -56,7 +56,9 @@ export function judgeGrepGate({ broadDir = false, contentUnlimited = false } = {
   if (contentUnlimited) {
     return {
       action: 'deny',
-      reason: 'Grep content 必带 head_limit（≤50），或先用 files_with_matches 定位。',
+      // 文案保持宿主中立：不同宿主的"仅文件名模式"参数名不同（Claude 的 files_with_matches、DSH 的 paths），
+      // 由适配层在 reason 前缀里补本宿主的具体写法（2026-10-22 分层泄漏修复）。
+      reason: '内容模式必须限量（limit ≤50），或先用"仅文件名"模式定位后精确读取。',
     }
   }
   return { action: 'allow', reason: '' }

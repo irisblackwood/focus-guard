@@ -52,10 +52,11 @@ describe("体积闸内核 · Grep 收窄", () => {
     assert.match(r.reason, /include/);
   });
 
-  test("正文模式未限量 → 拦，理由指向 head_limit（Claude Code / ZCode 语义）", () => {
+  test("正文模式未限量 → 拦，理由宿主中立（不写死 head_limit/files_with_matches）", () => {
     const r = judgeGrepGate({ contentUnlimited: true });
     assert.equal(r.action, "deny");
-    assert.match(r.reason, /head_limit/);
+    assert.match(r.reason, /限量/);
+    assert.doesNotMatch(r.reason, /head_limit|files_with_matches/, "母版文案不得含宿主专属参数名");
   });
 
   test("两种语义都不成立 → 放行", () => {

@@ -32,6 +32,7 @@ import {
   loadCaseRecords,
 } from '../core/state.mjs'
 import { noteFail } from '../core/audit.mjs'
+import { gradeOfKpi } from '../core/kpi.mjs'
 import { detectEnv } from '../core/env.mjs'
 import {
   BUDGET_CAP,
@@ -437,21 +438,8 @@ export function turnStoppingListener({ warn } = {}) {
         return
       }
       state.kpiSettled = state.kpi || 0
-      let grade = '称职'
-      let poolDelta = 0
-      if (kpiNow >= 15) {
-        grade = '优秀'
-        poolDelta = 5
-      } else if (kpiNow >= 0) {
-        grade = '称职'
-        poolDelta = 0
-      } else if (kpiNow >= -9) {
-        grade = '基本称职'
-        poolDelta = -2
-      } else {
-        grade = '不称职'
-        poolDelta = -5
-      }
+      // 等次判定收敛到母版 `core/kpi.mjs`（此前与 hooks/guard.mjs 各写一份，属同源双写）。
+      const { grade, poolDelta } = gradeOfKpi(kpiNow)
       state.delegateBudget = Math.max(
         0,
         Math.min(BUDGET_CAP, (state.delegateBudget ?? DELEGATE_DEFAULT) + poolDelta),

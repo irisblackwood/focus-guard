@@ -38,12 +38,20 @@ import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFI
 // 本文件是封存版，只替换判定来源，不改变任何行为——参数语义仍按本宿主的工具 schema 翻译。
 import { judgeReadGate, judgeGrepGate, judgeCatGate } from "../src/core/outputGate.mjs";
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
-import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail } from "../src/core/audit.mjs";
-import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize } from "../src/core/risk.mjs";
+import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail, setProjectDirProvider } from "../src/core/audit.mjs";
+import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize, registerToolKind } from "../src/core/risk.mjs";
+import { gradeOfKpi } from "../src/core/kpi.mjs";
 import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
 import { readStdinJson, sessionId, projectDir } from "./protocol.mjs";
 import { quickShellId, detectEnv, platformBashViolation } from "../src/core/env.mjs";
 import { backupSeq, backupBeforeEdit } from "../src/core/backup.mjs";
+
+// 分层纪律（2026-10-22）：项目目录由**宿主层**注入，母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_ 变量。
+setProjectDirProvider(() => projectDir());
+// 分层纪律（2026-10-22）：ZCode/Claude 的工具名在**宿主层**登记成语义类别，母版不再写死宿主方言。
+registerToolKind("mutation", ["Write", "Edit", "MultiEdit", "Delete", "Move", "Patch", "ApplyPatch", "NotebookEdit"]);
+registerToolKind("shell", ["Bash", "Shell", "sh", "pwsh", "powershell", "cmd", "Terminal", "RunCommand"]);
+registerToolKind("read", ["Read", "Grep", "Glob", "NotebookRead", "WebSearch", "WebFetch", "read_image"]);
 import { pushHighRiskPending, queueNote, consumeHighRisk, ladderNote } from "../src/core/approval.mjs";
 import { bindSession } from "../src/core/session.mjs";
 
@@ -1141,12 +1149,8 @@ if (mode === "stop") {
   // 收尾即结算：本任务 KPI → 等次 → 委托池奖惩（执行池增减仍由人类批示，引擎只动委托池），跨任务累计 kpiCarry。
   // 必须在 saveState 之前判定，否则 kpiLowReported 标记不落盘，会每次收尾重复告警。
   const kpiNow = state.kpi || 0;
-  let grade = "称职";
-  let poolDelta = 0;
-  if (kpiNow >= 15) { grade = "优秀"; poolDelta = 5; }
-  else if (kpiNow >= 0) { grade = "称职"; poolDelta = 0; }
-  else if (kpiNow >= -9) { grade = "基本称职"; poolDelta = -2; }
-  else { grade = "不称职"; poolDelta = -5; }
+  // 等次判定收敛到母版 `core/kpi.mjs`（此前与 src/dsh/seams.mjs 各写一份，属同源双写）。
+  const { grade, poolDelta } = gradeOfKpi(kpiNow);
   state.delegateBudget = Math.max(0, Math.min(BUDGET_CAP, (state.delegateBudget ?? DELEGATE_DEFAULT) + poolDelta));
   state.kpiCarry = (state.kpiCarry || 0) + kpiNow;
   if (kpiNow <= -10) {

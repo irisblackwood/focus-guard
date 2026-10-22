@@ -1,5 +1,7 @@
 // 2026-10-22：默认审批走宿主 ask 缝；本文件的链路断言针对 CLI 闭环，显式退回 cli。
 process.env.FG_APPROVAL_SEAM = "cli";
+// 2026-10-22 分层：母版只认语义类别，宿主工具名由适配层注册（本文件直接走 checkEligibility/gateToolCall）。
+await import("../src/adapters/dsh/tool-kinds.mjs");
 
 // FocusGuard · 端到端集成测试（3.0.5）
 //
