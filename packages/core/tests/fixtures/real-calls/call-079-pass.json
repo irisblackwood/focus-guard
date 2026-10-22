@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "2298eb4c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "team_task_get",
+  "args": {
+    "task_id": "task-3"
+  },
+  "verdict": "pass",
+  "reason": null
+}

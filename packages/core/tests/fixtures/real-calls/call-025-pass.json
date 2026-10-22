@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 11
+  },
+  "tool": "glob",
+  "args": {
+    "pattern": "packages/core/tests/*.mjs"
+  },
+  "verdict": "pass",
+  "reason": null
+}

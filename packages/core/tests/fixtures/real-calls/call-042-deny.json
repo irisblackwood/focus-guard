@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 65
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "git commit --amend -m \"feat(profile): L1 画像包 evasionRisk 接入审批 scope 派生\" -m \"五份画像新增纯参数字段 evasionRisk（TODO(实测)，当前一律 high = 行为与 3.0.8 一致）；解析收敛到 profileLoader.approvalScopeOf 作为唯一真源（显式 approvalGate.scope 优先，否则 low -> irreversible、high/缺省/非法 -> mutating），checkEligibility.profileScope 改为委托，pre-execute 闸 gateToolCall 天然同源。不可逆类别在任何 scope 下都要审批，本字段只能收窄。\" -m \"范围：deepseek-flash/deepseek-pro/glm/default 去掉冗余 scope:'mutating'（派生默认值，行为不变），gpt-astra 保留显式 scope 并用例锁死显式优先。新增测试 profile.test.mjs g1-g4。\" -m \"验证：npm run test:all 331/331 且审计零增长（audit-isolation PASS）；bench:decision 准确率 100% / p95 2.79ms PASS。ARCH-MAP 同步 L1 状态与缺口 #5（缺 3.0.8 面板基线）。\" 2>&1 | Select-Object -Last 4; git log --oneline -2",
+    "description": "修正提交信息笔误"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: the user rejected tool \\\"pwsh\\\"\"}]"
+}

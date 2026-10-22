@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "d52c937b",
+    "turn": 1,
+    "step": 2
+  },
+  "tool": "write",
+  "args": {
+    "file_path": "C:\\Windows\\System32\\drivers\\etc\\ab-test.txt",
+    "content": "x"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: EPERM: operation not permitted, mkdir 'C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\.ab-test.txt.5100.19e0ea62-ced6-4231-9e8b-1b9f29f1a64"
+}

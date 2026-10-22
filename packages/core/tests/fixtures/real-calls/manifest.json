@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-10-22T14:01:36.469Z",
+  "sessions": 30,
+  "total": 88,
+  "deny": 60,
+  "pass": 28,
+  "byTool": {
+    "read": 6,
+    "pwsh": 22,
+    "write": 6,
+    "grep": 5,
+    "ask_user_question": 3,
+    "glob": 2,
+    "edit": 28,
+    "job_output": 2,
+    "skill": 1,
+    "present": 1,
+    "remember": 2,
+    "web_search": 1,
+    "web_fetch": 2,
+    "team_task_list": 2,
+    "team_task_update": 2,
+    "team_task_get": 2,
+    "list_agents": 1
+  }
+}

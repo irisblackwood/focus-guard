@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 38
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/tests/profile.test.mjs",
+    "new_string": "import { checkEligibility, profileScope } from \"../src/core/checkEligibility.mjs\";\nimport {\n  loadProfile,\n  PROFILES,\n  LAYER_SWITCHES,\n  layerEnabled,\n  unimplementedSwitches,\n  approvalScopeOf,\n  evasionRiskOf,\n  EVASION_RISKS,\n} from \"../src/core/profileLoader.mjs\";\nimport { gateToolCall } from \"../src/adapters/dsh/eligibility-gate.mjs\";",
+    "old_string": "import { checkEligibility } from \"../src/core/checkEligibility.mjs\";\nimport { loadProfile, PROFILES, LAYER_SWITCHES, layerEnabled, unimplementedSwitches } from \"../src/core/profileLoader.mjs\";"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\tests\\\\profile.test.mjs），改动类调用被拒一次；先读取该文件再重试（"
+}

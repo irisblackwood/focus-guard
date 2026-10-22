@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 16,
+    "step": 2
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "node -e \"const fs=require('fs'),path=require('path');const roots=['packages/core/docs','docs','.','packages/core'];const files=[];function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(['node_modules','.git','.archify','archive'].includes(e.name))continue;const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(e.name.endsWith('.md'))files.push(p);}}for(const r of roots)if(fs.existsSync(r))walk(r);const uniq=[...new Set(files)];const broken=[];for(const f of uniq){const t=fs.readFileSync(f,'utf8');for(const m of t.matchAll(/\\]\\(([^)\\s]+\\.md)(?:#[^)]*)?\\)/g)){const target=m[1];if(/^https?:/.test(target))continue;const abs=path.resolve(path.dirname(f),target);if(!fs.existsSync(abs)&&!fs.existsSync(abs+'.md'))broken.push(f+' -> '+target);}}console.log('文档数:',uniq.length);console.log('断链数:',broken.length);console.log(broken.slice(0,20).join('\\n'));\"",
+    "description": "检查文档相对链接可达性"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: [平台规则·win32/powershell]Windows PowerShell 会话禁 &&：用 ; 分隔或分开执行 [FG 存活 15/15]\"}]"
+}

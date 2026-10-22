@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "002c143b",
+    "turn": 1,
+    "step": 2
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "psql -c 'DROP DATABASE prod'",
+    "description": "Drop prod database",
+    "workdir": "E:\\DSH\\focus-guard-main"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 命中绝对红线「drop-database」，直接拒绝（不弹审批）。如认为误判（例如危险片段只是被引用的数据），调用 fg_appeal 提交反例锚点（文件:行号或原文引用），由人类一次性裁决。\"}]"
+}

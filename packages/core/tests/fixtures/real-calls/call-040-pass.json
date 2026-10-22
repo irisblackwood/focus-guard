@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 54
+  },
+  "tool": "job_output",
+  "args": {
+    "job_id": "pwsh-f9d53be7d7b24034"
+  },
+  "verdict": "pass",
+  "reason": null
+}

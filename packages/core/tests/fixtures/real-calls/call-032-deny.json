@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 25
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/default.mjs",
+    "new_string": "  approvalGate: { enabled: true }, // L3 高危资格（scope 派生自 evasionRisk，显式 scope 优先）",
+    "old_string": "  approvalGate: { enabled: true, scope: 'mutating' }, // L3 高危资格"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\profiles\\\\default.mjs），改动类调用被拒一次；先读取该文件再"
+}

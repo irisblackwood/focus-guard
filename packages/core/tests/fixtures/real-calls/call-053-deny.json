@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 7,
+    "step": 13
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/dsh/pipeline.mjs",
+    "new_string": "  if (EVIDENCE_GATE.effective) {",
+    "old_string": "  if (EVIDENCE_GATE.effective) {\n    // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\dsh\\\\pipeline.mjs），改动类调用被拒一次；先读取该文件再重试（避"
+}

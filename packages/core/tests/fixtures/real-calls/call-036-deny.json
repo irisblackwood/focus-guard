@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 35
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/core/checkEligibility.mjs",
+    "new_string": "import { layerEnabled, unimplementedSwitches, approvalScopeOf } from \"./profileLoader.mjs\";",
+    "old_string": "import { layerEnabled, unimplementedSwitches } from \"./profileLoader.mjs\";"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\core\\\\checkEligibility.mjs），改动类调用被拒一次；先读"
+}

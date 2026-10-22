@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "a38d308d",
+    "turn": 1,
+    "step": 3
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "rm -rf ./dist",
+    "description": "Remove dist directory"
+  },
+  "verdict": "pass",
+  "reason": null
+}

@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "553a2558",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "read",
+  "args": {
+    "file_path": "E:\\DSH\\focus-guard-main\\packages\\core\\src\\dsh\\pipeline.mjs"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 整文件闸——E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\dsh\\\\pipeline.mjs 超过 300 行，禁止整文件读取。请调用 XERJ 的 search 或 "
+}

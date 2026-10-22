@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 4,
+    "step": 32
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/tools/bench-cost.mjs",
+    "new_string": "const denies = byAction.get('deny') || 0\nconst appealsGranted = byAction.get('appeal-granted') || 0\n\n// ── 熔断浪费（2026-10-19 人类批示\"熔断步数改成每个会话独立计数\"）──\n// 数据源：`stall-fuse` 行（现在带 turn/step）+ `fuse-waste` 行（回合结束结算，wasted 字段）。\n// 口径：每个会话的 step 从 1 重新开始，**跨会话不可相加**——所以先按会话分组，再由人判断。\n// 历史行没有 turn/step（2026-10-19 之前），无法回溯，明确单独计数，不假装能算。\nconst fuseRows = auditRows.filter((r) => r.action === 'stall-fuse')\nconst fuseWithMeta = fuseRows.filter((r) => Number.isInteger(r.turn) && Number.isInteger(r.step))\nconst wasteBySession = new Map()\nfor (const r of auditRows) {\n  if (r.action !== 'fuse-waste') continue\n  const key = String(r.session || 'dsh-native')\n  const cur = wasteBySession.get(key) || { session: key, turns: 0, wastedSteps: 0, maxWastedSingleTurn: 0 }\n  const wasted = Number(r.wasted) || 0\n  cur.turns += 1\n  cur.wastedSteps += wasted\n  cur.maxWastedSingleTurn = Math.max(cur.maxWastedSingleTurn, wasted)\n  wasteBySession.set(key, cur)\n}",
+    "old_string": "const denies = byAction.get('deny') || 0\nconst appealsGranted = byAction.get('appeal-granted') || 0"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\tools\\\\bench-cost.mjs），改动类调用被拒一次；先读取该文件再重试（避免"
+}

@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 28
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/gpt-astra.mjs",
+    "new_string": "//   emotionFilter off  → 仅登记项，本就不绑定执行\n//   approvalGate scope: 'irreversible' → 高危资格收窄到不可逆操作\n//   evasionRisk: 'low' → 与上面同向；但**显式 scope 优先**，本文件保留显式值作数据",
+    "old_string": "//   emotionFilter off  → 仅登记项，本就不绑定执行\n//   approvalGate scope: 'irreversible' → 高危资格收窄到不可逆操作"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\profiles\\\\gpt-astra.mjs），改动类调用被拒一次；先读取该文"
+}

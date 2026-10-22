@@ -1,0 +1,33 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "ask_user_question",
+  "args": {
+    "questions": [
+      {
+        "id": "panel-308",
+        "header": "3.0.8 面板数据",
+        "question": "是否已有 3.0.8 的面板实测数据（≥5 轮：总 token / 未缓存 / 缓存读取 / 输出 / 命中率 / 成本 / 耗时）？",
+        "options": [
+          {
+            "label": "没有，直接进 P1（推荐）",
+            "description": "不编数据，按交接文档进 L1 画像包 evasionRisk；缺口记为「缺 3.0.8 面板基线」"
+          },
+          {
+            "label": "有，我贴给你",
+            "description": "贴完后我用 bench:ab 补 steps/denies，按 3 面板数 + 1 session id + 1 公式复核后出环比表"
+          },
+          {
+            "label": "有文件，在工作区里",
+            "description": "告诉我路径，我读文件取数（同样只用实测值，不做估算）"
+          }
+        ]
+      }
+    ]
+  },
+  "verdict": "pass",
+  "reason": null
+}

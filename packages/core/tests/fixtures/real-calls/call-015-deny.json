@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "352b868c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "grep",
+  "args": {
+    "pattern": "state",
+    "path": "packages/core/src"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 体积刺客——Grep 未收窄。目录级搜索会一次返回数百条正文；请补 include（如 \\\"**/*.mjs\\\"）或改为先定位文件名。 [FG 存活 15/15]\"}]"
+}

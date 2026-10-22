@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 8,
+    "step": 24
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/tests/state-ownership.test.mjs",
+    "new_string": "    const st = loadState(statePath(sid));\n    // 2026-10-19：取证键已归一化为「绝对路径 + 正斜杠」（修复\"读过仍被拒一次\"的根因，\n    // 见 tests/evidence-relative-path.test.mjs）。断言按归一化形态取键。\n    const key = String(TARGET).replace(/\\\\/g, \"/\");\n    assert.ok(st.readSet && Object.hasOwn(st.readSet, key), \"readSet 应含已读目标（归一化键）\");",
+    "old_string": "    const st = loadState(statePath(sid));\n    assert.ok(st.readSet && Object.hasOwn(st.readSet, TARGET), \"readSet 应含已读目标\");"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\tests\\\\state-ownership.test.mjs），改动类调用被拒一次；先读"
+}

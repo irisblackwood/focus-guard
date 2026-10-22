@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 7,
+    "step": 7
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/dsh/postProgress.mjs",
+    "new_string": "import {\n  BLOCKS_RE,\n  BUDGET_CAP,\n  BUDGET_DEFAULT,\n  CASE_MAX_ROWS,\n  FUSE_PHRASE,\n  INV_POOL_DEFAULT,\n  OUTPUT_GATE_BYTES,\n  RANDOM_AUDIT_EVERY,\n  RANDOM_FUSE_MAX,\n  RANDOM_FUSE_MIN,\n  REFILL,\n  STALL_FUSE,\n} from '../core/constants.mjs'\n\n/**\n * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。\n *\n * - 默认 **关闭**（改变默认行为的东西不偷偷开，与 FG_PTC_* 同一纪律）\n * - `FG_RANDOM_AUDIT_EVERY` 的影子参数不要混用：抽查A 是\"确定性每 5 次\"，抽查B 是\"不可预测的检查点\"\n * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间\n */\nexport function randomFuseInterval() {\n  const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)\n  if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }\n  if (process.env.FG_RANDOM_FUSE === '1') {\n    const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1\n    return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }\n  }\n  return null\n}",
+    "old_string": "import {\n  BLOCKS_RE,\n  BUDGET_CAP,\n  BUDGET_DEFAULT,\n  CASE_MAX_ROWS,\n  FUSE_PHRASE,\n  INV_POOL_DEFAULT,\n  OUTPUT_GATE_BYTES,\n  RANDOM_AUDIT_EVERY,\n  REFILL,\n  STALL_FUSE,\n} from '../core/constants.mjs'"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\dsh\\\\postProgress.mjs），改动类调用被拒一次；先读取该文件再"
+}

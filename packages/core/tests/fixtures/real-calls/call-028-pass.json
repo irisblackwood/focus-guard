@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 16
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/deepseek-flash.mjs",
+    "old_string": "  approvalGate: { enabled: true, scope: 'mutating' }, // L3 高危资格",
+    "new_string": "  approvalGate: { enabled: true }, // L3 高危资格（scope 派生自 evasionRisk，显式 scope 优先）"
+  },
+  "verdict": "pass",
+  "reason": null
+}

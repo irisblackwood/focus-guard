@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 19
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/deepseek-pro.mjs",
+    "new_string": "  // —— 规避风险（L1 画像包）——\n  // 决定审批 scope 的派生默认（见 core/profileLoader.mjs 的 approvalScopeOf）：\n  //   low → 只收不可逆类别；high / 缺省 → 全部高危类别需审批。不可逆类别永远要审批。\n  evasionRisk: 'high', // TODO(实测)：未校准，'high' = 与 3.0.8 行为一致\n\n  // —— 治理层开关（每个维度独立）——\n  // 相对 flash：推理更强、可容忍更长停滞与更高预算，其余治理层不放松。\n  stalledFuse: { enabled: true, threshold: 4 }, // TODO(实测)：停滞熔断阈值",
+    "old_string": "  // —— 治理层开关（每个维度独立）——\n  // 相对 flash：推理更强、可容忍更长停滞与更高预算，其余治理层不放松。\n  stalledFuse: { enabled: true, threshold: 4 }, // TODO(实测)：停滞熔断阈值"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\profiles\\\\deepseek-pro.mjs），改动类调用被拒一次；先读"
+}

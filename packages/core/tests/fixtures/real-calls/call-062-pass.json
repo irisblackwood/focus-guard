@@ -1,0 +1,18 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 14,
+    "step": 1
+  },
+  "tool": "web_search",
+  "args": {
+    "queries": [
+      "Claude Code hooks PreToolUse permissionDecision updatedInput deny JSON official docs",
+      "Claude Code settings permissions deny Bash rules precedence bypassPermissions",
+      "Claude Code subagents Task tool agents frontmatter tools mcpServers docs",
+      "Claude Code MCP server tools permissions mcp__ allow deny prompts slash commands docs"
+    ]
+  },
+  "verdict": "pass",
+  "reason": null
+}

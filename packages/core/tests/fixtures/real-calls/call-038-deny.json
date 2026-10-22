@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 49
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/docs/ARCH-MAP.md",
+    "new_string": "| **L1** | 画像包 · `evasionRisk: high` | ✅ | 字段在五份画像（`src/profiles/*.mjs`，取值标 TODO(实测)）；解析**唯一真源** `src/core/profileLoader.mjs` 的 `approvalScopeOf()`：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high`/缺省/非法 → `mutating`；`checkEligibility.profileScope()` 委托它，pre-execute 闸 `gateToolCall` 走同一入口；用例 `tests/profile.test.mjs` g1-g4（含「low 放行 publish、rm-rf 仍转人工」与「显式优先」） |",
+    "old_string": "| **L1** | 画像包 · `evasionRisk: high` | ⬜ | 全仓 0 命中（`evasionRisk`） |"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\docs\\\\ARCH-MAP.md），改动类调用被拒一次；先读取该文件再重试（避免盲写） "
+}

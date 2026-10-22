@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "553a2558",
+    "turn": 1,
+    "step": 8
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "cat packages/core/package.json | head -20",
+    "description": "查看 package.json 前 20 行"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20\"}]"
+}

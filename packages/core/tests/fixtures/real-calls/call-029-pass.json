@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 18
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/deepseek-flash.mjs",
+    "new_string": "  // —— 规避风险（L1 画像包）——\n  // 决定审批 scope 的派生默认（见 core/profileLoader.mjs 的 approvalScopeOf）：\n  //   low → 审批只收不可逆类别（IRREVERSIBLE_IDS）；high / 缺省 → 全部高危类别都需审批。\n  // 不可逆类别在任何取值下都要审批，本字段只会「收窄到不可逆」，不会放掉它们。\n  evasionRisk: 'high', // TODO(实测)：未校准，'high' = 与 3.0.8 行为一致（全部高危类别需审批）\n\n  // —— 治理层开关（每个维度独立）——\n  stalledFuse: { enabled: true, threshold: 3 }, // TODO(实测)：停滞熔断阈值",
+    "old_string": "  // —— 治理层开关（每个维度独立）——\n  stalledFuse: { enabled: true, threshold: 3 }, // TODO(实测)：停滞熔断阈值"
+  },
+  "verdict": "pass",
+  "reason": null
+}

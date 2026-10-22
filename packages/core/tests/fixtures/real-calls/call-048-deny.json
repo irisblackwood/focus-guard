@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 4,
+    "step": 32
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/dsh/traceMeta.mjs",
+    "new_string": "      action: 'fuse-waste',\n      turn: report.turn,\n      step: report.fuseStep,\n      wasted: report.wastedSteps,",
+    "old_string": "      action: 'fuse-waste',\n      turn: report.turn,\n      step: report.fuseStep,"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\dsh\\\\traceMeta.mjs），改动类调用被拒一次；先读取该文件再重试（"
+}

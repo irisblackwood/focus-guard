@@ -1,0 +1,11 @@
+{
+  "source": {
+    "session": "b7a1a8d5",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "team_task_list",
+  "args": {},
+  "verdict": "pass",
+  "reason": null
+}

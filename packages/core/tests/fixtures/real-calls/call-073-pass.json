@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "f85419d7",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "team_task_list",
+  "args": {
+    "status": "pending"
+  },
+  "verdict": "pass",
+  "reason": null
+}

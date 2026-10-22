@@ -23,7 +23,7 @@
     "test": "node tests/audit-isolation.mjs",
     "eval": "node tests/threat-eval.mjs hooks/guard.mjs",
     "bench": "node tests/token-bench.mjs hooks/guard.mjs",
-    "check": "npm run test:all && npm run eval && npm run selftest",
+    "check": "npm run test:all && npm run eval && npm run selftest && npm run schema:verify",
     "test:all": "cd ../.. && node packages/core/tests/audit-isolation.mjs",
     "selftest": "node tools/selftest.mjs",
     "bench:decision": "node tests/decision-bench.mjs",
@@ -32,7 +32,10 @@
     "bench:control": "node tests/task-control.mjs",
     "bench:ab": "node tools/bench-ab.mjs",
     "focusguard": "node tools/focusguard.mjs",
-    "gate:audit": "node tools/gate-audit.mjs"
+    "gate:audit": "node tools/gate-audit.mjs",
+    "schema:verify": "node packages/core/tools/schema-fingerprint.mjs",
+    "schema:update": "node packages/core/tools/schema-fingerprint.mjs --update",
+    "fixtures:capture": "node packages/core/tools/capture-fixtures.mjs"
   },
   "dsh": {
     "bundle": {

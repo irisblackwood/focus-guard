@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "f85419d7",
+    "turn": 1,
+    "step": 22
+  },
+  "tool": "team_task_update",
+  "args": {
+    "action": "complete",
+    "expected_revision": 2,
+    "task_id": "task-2"
+  },
+  "verdict": "pass",
+  "reason": null
+}

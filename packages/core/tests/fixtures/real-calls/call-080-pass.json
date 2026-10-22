@@ -1,0 +1,11 @@
+{
+  "source": {
+    "session": "2298eb4c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "list_agents",
+  "args": {},
+  "verdict": "pass",
+  "reason": null
+}

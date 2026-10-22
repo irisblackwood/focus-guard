@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 14,
+    "step": 2
+  },
+  "tool": "web_fetch",
+  "args": {
+    "url": "https://code.claude.com/docs/en/hooks"
+  },
+  "verdict": "pass",
+  "reason": null
+}

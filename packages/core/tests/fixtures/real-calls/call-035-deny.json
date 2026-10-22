@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 33
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/core/profileLoader.mjs",
+    "new_string": "export const FORCED_ON_SWITCHES = ['approvalGate']\n\n/** 审批范围合法值（与 checkEligibility 的 L3 判定对齐）。 */\nexport const APPROVAL_SCOPES = ['mutating', 'irreversible']\n\n/** 规避风险合法值。 */\nexport const EVASION_RISKS = ['high', 'low']\n\n/**\n * 画像的规避风险（`evasionRisk`，L1 画像包的纯参数字段）。\n * 缺失、非字符串、非法值一律按最严 `high`（保守优先，不误放行）。\n * 取值尚未实测（各画像标 TODO(实测)），当前一律 `high` = 与 3.0.8 行为一致。\n */\nexport function evasionRiskOf(profile) {\n  const raw = profile && profile.evasionRisk\n  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''\n  return EVASION_RISKS.includes(value) ? value : 'high'\n}\n\n/**\n * 画像的**审批范围**——全仓唯一真源（`checkEligibility.profileScope` 委托到这里）。\n *\n * 解析顺序：① 显式 `approvalGate.scope`（合法即用，数据优先）→ ② 由 `evasionRisk` 派生：\n *   low → `irreversible`（只收不可逆类别）；high / 缺省 / 非法 → `mutating`（全部高危类别）。\n *\n * 安全边界：`IRREVERSIBLE_IDS`（rm-rf / format-volume / drop-database / git-push-force /\n * write-system-path）在**任何** scope 下都需要审批——本函数只能把范围收窄到不可逆，永远放不掉它们。\n * 本函数也不决定审批层是否启用：审批层不可被画像关闭（FORCED_ON_SWITCHES）。\n */\nexport function approvalScopeOf(profile) {\n  const entry = profile && profile.approvalGate\n  const explicit = entry && typeof entry === 'object' ? entry.scope : undefined\n  if (APPROVAL_SCOPES.includes(explicit)) return explicit\n  return evasionRiskOf(profile) === 'low' ? 'irreversible' : 'mutating'\n}",
+    "old_string": "export const FORCED_ON_SWITCHES = ['approvalGate']"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\core\\\\profileLoader.mjs），改动类调用被拒一次；先读取该文"
+}

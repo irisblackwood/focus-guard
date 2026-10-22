@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 58
+  },
+  "tool": "job_output",
+  "args": {
+    "job_id": "pwsh-a5e274a00f084315",
+    "timeout_ms": 240000,
+    "wait": true
+  },
+  "verdict": "pass",
+  "reason": null
+}

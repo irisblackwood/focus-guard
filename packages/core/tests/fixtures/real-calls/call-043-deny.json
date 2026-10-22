@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 2,
+    "step": 1
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "Get-Content .focus-guard/AUDIT.log -Encoding UTF8 | jq -r '.action' | Group-Object | Sort-Object Count -Descending | ForEach-Object { \"{0,-28} {1}\" -f $_.Name, $_.Count }",
+    "description": "统计审计动作分布"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: [平台规则·win32/powershell]禁裸 cat/type/Get-Content 刷屏：用 Get-Content -TotalCount N -Encoding UTF8 [FG 存活 15/15]\"}]"
+}

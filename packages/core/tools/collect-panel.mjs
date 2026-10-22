@@ -109,7 +109,10 @@ function structureOf(sidPrefix) {
   const stepStarts = lines.filter((l) => l.type === 'step/start').length
   const turns = lines.filter((l) => l.type === 'turn/start').length
   const calls = lines.filter((l) => l.type === 'tool/call')
-  const denies = lines.filter((l) => l.type === 'tool/result' && /deny|拦截|红线|fg_apply|绝对/.test(JSON.stringify(l.data)))
+  // 拦截计数：按 FG 的真实拒绝文案判定（2026-10-22 修：只用 deny/拦截 会漏掉
+  // 「本机环境：用 bat 替代 cat」「该工具需先调 fg_apply」「命中绝对红线」等不同措辞）。
+  const DENY_RE = /focus-guard-native|拦截|红线|fg_apply|绝对|本机环境|禁|取证记录/
+  const denies = lines.filter((l) => l.type === 'tool/result' && DENY_RE.test(JSON.stringify(l.data)))
   const first = lines.find((l) => l.type === 'turn/start')
   const last = lines.filter((l) => l.type === 'turn/end').pop() || lines[lines.length - 1]
   const t0 = first && first.data && first.data.at ? Date.parse(first.data.at) : null

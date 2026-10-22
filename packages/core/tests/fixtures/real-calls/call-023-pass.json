@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 7
+  },
+  "tool": "grep",
+  "args": {
+    "include": "**/*.mjs",
+    "path": "packages/core/src",
+    "pattern": "approvalGate|IRREVERSIBLE_IDS|\\.scope\\b|scope ===|scope:"
+  },
+  "verdict": "pass",
+  "reason": null
+}

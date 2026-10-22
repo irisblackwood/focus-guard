@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 10
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "Get-ChildItem packages/core/tests/*.mjs | ForEach-Object { \"{0}`t{1}\" -f $_.Name, (Get-Content $_.FullName).Count }; \"---\"; Get-Content packages/core/package.json -Raw",
+    "description": "列出测试文件与 core package.json"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: [平台规则·win32/powershell]禁裸 cat/type/Get-Content 刷屏：用 Get-Content -TotalCount N -Encoding UTF8 [FG 存活 15/15]\"}]"
+}

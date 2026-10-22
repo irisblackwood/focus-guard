@@ -1,0 +1,56 @@
+{
+  "source": {
+    "session": "73a4980a",
+    "turn": 1,
+    "step": 2
+  },
+  "tool": "ask_user_question",
+  "args": {
+    "questions": [
+      {
+        "id": "target",
+        "header": "目标位置",
+        "question": "「登录逻辑」在哪？本工作区没有登录代码。",
+        "options": [
+          {
+            "label": "我给路径/贴代码（推荐）",
+            "description": "直接告我文件路径或把登录相关代码贴上来，我按现有代码改。"
+          },
+          {
+            "label": "指 DSH Web GUI 的登录",
+            "description": "那是 DSH 本体（E:\\DSH\\DSH Desktop\\resources\\app），不是本工作区，需要另行确认改动方式。"
+          },
+          {
+            "label": "在另一个项目里",
+            "description": "给我项目根目录，我去定位登录模块。"
+          }
+        ]
+      },
+      {
+        "id": "direction",
+        "header": "优化方向",
+        "question": "要优化什么？（可多选，不选就是我不猜）",
+        "options": [
+          {
+            "label": "修 bug（登录失败/无响应）",
+            "description": "先复现、定根因，再改。"
+          },
+          {
+            "label": "安全（密码/token/会话）",
+            "description": "如明文存储、token 过期、会话固定等。"
+          },
+          {
+            "label": "代码结构（重复/可读性）",
+            "description": "只做外科手术式精简，不加抽象。"
+          },
+          {
+            "label": "性能（登录耗时）",
+            "description": "需要可测量的基线，否则无法验收。"
+          }
+        ]
+      }
+    ]
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: the user cancelled ask_user_question\"}]"
+}

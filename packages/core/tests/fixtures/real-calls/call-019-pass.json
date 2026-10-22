@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 2
+  },
+  "tool": "read",
+  "args": {
+    "file_path": "packages/core/docs/ARCH-MAP.md"
+  },
+  "verdict": "pass",
+  "reason": null
+}

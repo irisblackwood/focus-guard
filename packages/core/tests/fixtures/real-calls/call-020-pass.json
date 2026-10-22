@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 3
+  },
+  "tool": "glob",
+  "args": {
+    "pattern": "packages/core/src/profiles/*"
+  },
+  "verdict": "pass",
+  "reason": null
+}

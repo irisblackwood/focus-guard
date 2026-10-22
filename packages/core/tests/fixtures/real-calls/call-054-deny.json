@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 8,
+    "step": 10
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/tests/evidence-relative-path.test.mjs",
+    "new_string": "import { test, describe } from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { existsSync, rmSync } from \"node:fs\";\nimport { join } from \"node:path\";\nimport { tmpdir } from \"node:os\";\nimport { fileURLToPath } from \"node:url\";\n\nconst AUDIT_TMP = join(tmpdir(), `fg-evidence-rel-${process.pid}-${Date.now()}.log`);\nprocess.env.FG_AUDIT_FILE = AUDIT_TMP;\n\n// 仓库根：本文件在 <repo>/packages/core/tests/ → 上溯 3 级。\n// 不能依赖 process.cwd()（从 packages/core 里跑测试时是子目录，夹具会全部找不到 → 闸静默放行）。\nconst REPO = fileURLToPath(new URL(\"../../../\", import.meta.url)).replace(/[\\\\/]+$/, \"\");",
+    "old_string": "import { test, describe } from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { existsSync, rmSync } from \"node:fs\";\nimport { join } from \"node:path\";\nimport { tmpdir } from \"node:os\";\n\nconst AUDIT_TMP = join(tmpdir(), `fg-evidence-rel-${process.pid}-${Date.now()}.log`);\nprocess.env.FG_AUDIT_FILE = AUDIT_TMP;"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\tests\\\\evidence-relative-path.test.mjs），改动类调用"
+}

@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "002c143b",
+    "turn": 1,
+    "step": 4
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "cat packages/core/package.json | head -20",
+    "description": "Show package.json head",
+    "workdir": "E:\\DSH\\focus-guard-main"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20\"}]"
+}

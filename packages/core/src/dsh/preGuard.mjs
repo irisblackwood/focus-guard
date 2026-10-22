@@ -32,7 +32,11 @@ const RE_WRITE = /^(?:write|edit|multiedit)$/i
 const RE_READ = /^(?:read|notebookread)$/i
 const RE_GREP = /^grep$/i
 const RE_BASH = /^(?:pwsh|bash|shell|bash-persistent|pwsh-persistent)$/i
-const RE_AGENT = /^(?:agent|subagent)$/i
+// 委派类工具（2026-10-22 补口）：此前只认 `agent|subagent`，而 DSH 原生还有
+// `subagent_fork`、`spawn_teammate`（Agent Teams）、`summon_expert(s)` / `summon_expert_team`（Agency 专家团）。
+// 它们全部绕过子代理闸 → 委托池（默认 20 次）从未被扣、熔断期也不拦，KPI 的奖惩因此空转。
+const RE_AGENT =
+  /^(?:agent|task|subagent|subagent_fork|spawn_teammate|summon_expert|summon_experts|summon_expert_team)$/i
 const RE_SEARCH = /^(?:grep|glob|fs-search|search)$/i
 
 /** 会话标识 / 工作目录：与其余 DSH 模块同口径。 */

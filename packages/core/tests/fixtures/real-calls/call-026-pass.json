@@ -1,0 +1,33 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 14
+  },
+  "tool": "ask_user_question",
+  "args": {
+    "questions": [
+      {
+        "header": "P1 方案确认",
+        "id": "p1-shape",
+        "options": [
+          {
+            "description": "五画像全写 evasionRisk:'high'（TODO 实测）；flash/pro/glm/default 去掉 scope:'mutating'（= 派生默认，行为不变）；gpt-astra 保留显式 scope:'irreversible' 并测“显式优先”；profileScope 改为委托 approvalScopeOf 单一真源",
+            "label": "方案 A：低风险版（推荐）"
+          },
+          {
+            "description": "不删任何现有 scope，evasionRisk 仅在 scope 缺失时当回退；改动更小，但 P2 调参时仍需先删 scope 才生效",
+            "label": "方案 B：最保守版"
+          },
+          {
+            "description": "只加字段与注释，不接判定；改动最小，但 evasionRisk 依然是死数据，主图不动状态",
+            "label": "方案 C：只加字段"
+          }
+        ],
+        "question": "P1 evasionRisk 的接线方式选哪个？"
+      }
+    ]
+  },
+  "verdict": "pass",
+  "reason": null
+}

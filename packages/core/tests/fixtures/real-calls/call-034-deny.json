@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 30
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/profiles/gpt-astra.mjs",
+    "new_string": "  // —— 规避风险（L1 画像包）——\n  // 决定审批 scope 的派生默认（见 core/profileLoader.mjs 的 approvalScopeOf）。\n  evasionRisk: 'low', // TODO(实测)：未校准；下方 approvalGate.scope 为显式值，优先于本派生\n",
+    "old_string": "  // —— 治理层开关（每个维度独立）——\n  // 差异化：以下开关按需关闭"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: old_string was not found in \\\"E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\profiles\\\\gpt-astra.mjs\\\"\"}]"
+}

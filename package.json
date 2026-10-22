@@ -10,7 +10,7 @@
     "test": "node --test packages/core/tests/acceptance.test.mjs",
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
-    "check": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges",
+    "check": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges && npm run schema:verify",
     "test:all": "node packages/core/tests/audit-isolation.mjs",
     "selftest": "node packages/core/tools/selftest.mjs",
     "test:bridges": "node --test packages/extended/tests/bridges.test.mjs",
@@ -23,7 +23,10 @@
     "bench:tasks": "node packages/core/tests/task-bench.mjs",
     "bench:control": "node packages/core/tests/task-control.mjs",
     "bench:ab": "node packages/core/tools/bench-ab.mjs",
-    "focusguard": "node packages/core/tools/focusguard.mjs"
+    "focusguard": "node packages/core/tools/focusguard.mjs",
+    "schema:verify": "node packages/core/tools/schema-fingerprint.mjs",
+    "schema:update": "node packages/core/tools/schema-fingerprint.mjs --update",
+    "fixtures:capture": "node packages/core/tools/capture-fixtures.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

@@ -1,0 +1,16 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 11,
+    "step": 4
+  },
+  "tool": "remember",
+  "args": {
+    "note": "画架构/流程图用 archify skill：命令为 node <skills>/archify/bin/archify.mjs finalize <type> <candidate.json> <out.html> --repo-root <repo> --quality showcase --json；本机无 Chrome，需 ARCHIFY_CHROME=C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe；重跑同一输出前要删旧 browser-check/finalize 回执，否则报 evidence-path-conflict。",
+    "importance": 7,
+    "source": "tool",
+    "kind": "method"
+  },
+  "verdict": "pass",
+  "reason": null
+}

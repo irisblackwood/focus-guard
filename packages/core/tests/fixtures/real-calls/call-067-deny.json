@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 19,
+    "step": 1
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/docs/VERSION-PLAN.md",
+    "new_string": "## 1. 下一步（近程，3.0.9 候选）\n\n> 3.5（文档重置）与 4.0（Hook 改革）都是远期计划，二者都依赖同一件事：**先有可验证的基线、先证明已提交的机制真的在跑**。\n> 本节是眼前 1–2 周的动作，按此顺序做；每项都要能复跑验证。\n\n| ID | 动作 | 谁做 | 验收（可复跑） |\n|---|---|---|---|\n| **N1** | **3.0.8 面板基线**：同 web profile、同 8 任务、每轮新会话、被拦禁止重试，连跑 ≥5 轮；只抄面板六项（总/未缓存/缓存读/输出/命中率/USD/耗时）+ session id | 人类采数 → 我用 `bench:ab` 补 steps/denies 并出中位数 | 每个百分比能由「3 个面板数 + 1 个 session id + 1 个公式」复算；`BENCH.md` 数据快照单点更新 |\n| **N2** | **重启后验证已提交能力真的生效**：① 新审计行带 `turn`/`step` ② 制造一次真熔断 → 出现 `fuse-waste` 行 ③ `bench:cost` 的 `fuseWaste.bySession` 非空 | 我（需重启宿主） | `rg '\"action\":\"fuse-waste\"' .focus-guard/AUDIT.log` ≥1 行；`bench:cost --json` 的 `bySession` 含该会话 |\n| **N3** | **抽查B 观测**（已默认开）：跑 1–2 天后统计 `random-fuse` 行数/会话、`appealsGranted`、误伤比（扣除 `evidence-gate`） | 我 | 误伤率 >0 或噪音明显 → 交你批后调 `RANDOM_FUSE_MIN/MAX` 或改回默认关；不擅自改 |\n| **N4** | **契约探针（需你批）**：最小版 ≈30 行，只在首次 `agent/pre-step` 断言载荷含 `turn`/`step`、首次 `turn-stopping` 断言含 `agent`；失败写 `contract-probe` 审计 + `status.json` 标 degraded，**不拦截** | 我 | 用坏载荷模拟 → `status.json` 显示 degraded 且审计有行；正常会话 0 误报 |\n| **N5** | **推送批次**：当前 `ahead 11` 按纪律等下一个 20:00 一次推，不逐条推 | 我 | 推送后 `ahead 0`；20:00 之前不再 push |\n| **N6** | **3.0.9 是否发 npm**：等 N1（有基线）+ N4（契约）之后再决定；AGPL 发布不可回退 | 人类 | 决策与理由写入 `CHANGELOG.md`「未发版」区 |\n\n近程明确不做：缺口 #1（等宿主接口）、#2（相位对抗/Nudge，无测量手段）、自动调参回流。\n\n---\n\n## 2. 3.5 · 文档重置",
+    "old_string": "## 1. 3.5 · 文档重置"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\docs\\\\VERSION-PLAN.md），改动类调用被拒一次；先读取该文件再重试（避免"
+}

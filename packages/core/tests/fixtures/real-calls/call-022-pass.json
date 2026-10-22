@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 1,
+    "step": 5
+  },
+  "tool": "grep",
+  "args": {
+    "path": "packages/core/src",
+    "pattern": "profileLoader|loadProfile|from '\\.\\./profiles",
+    "include": "**/*.mjs"
+  },
+  "verdict": "pass",
+  "reason": null
+}

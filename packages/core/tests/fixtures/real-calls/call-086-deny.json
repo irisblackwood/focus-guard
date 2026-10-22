@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "553a2558",
+    "turn": 1,
+    "step": 6
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "npm publish --dry-run --access public",
+    "description": "npm 发布试运行"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 该工具需先调 fg_apply 申请授权（命中 publish）\"}]"
+}

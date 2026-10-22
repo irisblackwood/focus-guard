@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 16,
+    "step": 3
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "$js = @'\nconst fs=require('fs'),path=require('path');\nconst roots=['packages/core/docs','docs','.','packages/core'];\nconst files=[];const skip=['node_modules','.git','.archify','archive'];\nfunction walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(skip.includes(e.name))continue;const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(e.name.endsWith('.md'))files.push(p);}}\nfor(const r of roots){if(fs.existsSync(r))walk(r);}\nconst uniq=[...new Set(files)];const broken=[];\nfor(const f of uniq){const t=fs.readFileSync(f,'utf8');for(const m of t.matchAll(/\\]\\(([^)\\s]+\\.md)(?:#[^)]*)?\\)/g)){const target=m[1];if(/^https?:/.test(target))continue;const abs=path.resolve(path.dirname(f),target);if(fs.existsSync(abs))continue;if(fs.existsSync(abs+'.md'))continue;broken.push(f+' -> '+target);}}\nconsole.log('文档数:',uniq.length);console.log('断链数:',broken.length);console.log(broken.slice(0,25).join('\\n'));\n'@\nSet-Content -Path \"$env:TEMP\\fg-linkcheck.js\" -Value $js -Encoding UTF8\nnode \"$env:TEMP\\fg-linkcheck.js\"",
+    "description": "检查文档相对链接可达性"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: the user rejected tool \\\"pwsh\\\"\"}]"
+}

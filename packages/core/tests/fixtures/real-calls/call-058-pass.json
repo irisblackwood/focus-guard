@@ -1,0 +1,22 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 9,
+    "step": 35
+  },
+  "tool": "present",
+  "args": {
+    "files": [
+      {
+        "path": ".archify/architecture-fg-overview-20261019-2100/fg-architecture.html",
+        "description": "FocusGuard 3.0.8 架构图（含心跳/压缩监察/审计/卷宗等非人类可见面）"
+      },
+      {
+        "path": ".archify/workflow-fg-turn-20261019-2100/fg-turn-flow.html",
+        "description": "FocusGuard 单回合执法流程图（含后台观测车道与审批回路）"
+      }
+    ]
+  },
+  "verdict": "pass",
+  "reason": null
+}

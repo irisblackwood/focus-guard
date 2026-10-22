@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "feda270d",
+    "turn": 12,
+    "step": 4
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "packages/core/src/dsh/postProgress.mjs",
+    "new_string": "/**\n * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。\n *\n * - **默认开启**（2026-10-19 晚人类批示）：间隔在 [2,5] 次写操作之间随机；`FG_RANDOM_FUSE=0` 关闭\n * - 抽查A（`RANDOM_AUDIT_EVERY`）是\"确定性每 5 次全量审计\"；抽查B 是\"不可预测的检查点\"，两回事\n * - `FG_RANDOM_FUSE_EVERY=N` 固定间隔，优先级高于随机（运维/测试用）\n * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间\n */\nexport function randomFuseInterval() {\n  if (process.env.FG_RANDOM_FUSE === '0') return null\n  const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)\n  if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }\n  const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1\n  return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }\n}",
+    "old_string": "/**\n * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。\n *\n * - 默认 **关闭**（改变默认行为的东西不偷偷开，与 FG_PTC_* 同一纪律）\n * - 抽查A（`RANDOM_AUDIT_EVERY`）是\"确定性每 5 次全量审计\"；抽查B 是\"不可预测的检查点\"，两回事\n * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间\n */\nexport function randomFuseInterval() {\n  const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)\n  if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }\n  if (process.env.FG_RANDOM_FUSE === '1') {\n    const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1\n    return { kind: 'random', pick: () => RANDOM_FUSE_MIN + Math.floor(Math.random() * span) }\n  }\n  return null\n}"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: cannot modify \\\"E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\src\\\\dsh\\\\postProgress.mjs\\\": file has not been read — read the file, "
+}
