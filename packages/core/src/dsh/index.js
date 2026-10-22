@@ -19,6 +19,7 @@ import { announceWatchReady, compactionEventListener, contextOverflowListener } 
 import { startHeartbeat } from './heartbeat.mjs'
 import { degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
+import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
 import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
 
@@ -49,10 +50,19 @@ export function apply(ctx) {
   // 按需自证（Lazy Liveness，2026-10-19）：存活状态只在这一刻对模型可见——
   // 判定返回 deny/ask 时，给理由补一个 `[FG 存活 n/m]` 徽标（异常时带降级模块名）。
   // 其余时候（放行、正常回合）零注入：心跳只写 status.json。
+  // 2026-10-22（人类反馈"工作流没做好"）：再叠一层「重复被拦」改写——同一条调用第 2 次被拒时，
+  // 理由改成"重试无效 + 该换哪条路"，抑制实测中"拦了还重试"多出来的 step。
   const withLivenessBadge = (factory) => (opts) => {
     const base = factory(opts)
     return async (exec, next) => {
-      const decision = await base(exec, next)
+      let decision = await base(exec, next)
+      if (decision && decision.kind === 'deny') {
+        try {
+          decision = augmentDeny(exec, decision, warn)
+        } catch (error) {
+          warn('重复被拦改写失败（不影响判定）：', (error && error.message) || error)
+        }
+      }
       if (decision && (decision.kind === 'deny' || decision.kind === 'ask')) {
         const reason = String(decision.reason || '')
         if (!reason.includes('[FG 存活')) return { ...decision, reason: `${reason} ${livenessBadge()}` }
