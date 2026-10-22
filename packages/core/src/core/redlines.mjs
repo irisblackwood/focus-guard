@@ -206,6 +206,10 @@ function redlineSpan(c, m) {
 const EXEC_ARG_RE =
   /(?:^|[\s;|&(])(?:psql|mysql|mariadb|sqlite3?|node|deno|bun|python3?|py|ruby|perl|pwsh|powershell|bash|sh|zsh|dash|cmd)(?:\s+[^\s;|&]+)*\s+(?:-c|-e|--command|--eval|--execute)\s*['"`]?\s*$/
 
+// 2026-10-22：`sqlite3 db 'DROP TABLE users'` 没有 `-c` 旗标——SQL 是**位置参数**。
+// 只补 sqlite3 这一种已知形态（其它 CLI 位置参数语义差异太大，N/Y 不确定就不扩，避免误伤）。
+const EXEC_ARG_POSITIONAL_RE = /(?:^|[\s;|&(])sqlite3?\s+[^\s;|&]+\s*['"`]?\s*$/
+
 /**
  * 红线上下文豁免判定。
  * @param {string} cmd 待检命令原文
@@ -226,7 +230,7 @@ export function redlineExempt(cmd, hit) {
   const inside = quotedSpans(c).find(([s, e]) => s <= span[0] && span[1] <= e);
   if (inside) {
     // 例外：该引号是 -c / -e 这类"执行型参数"的实参 → 会被真正执行，不属数据。
-    if (EXEC_ARG_RE.test(c.slice(0, inside[0]))) return null;
+    if (EXEC_ARG_RE.test(c.slice(0, inside[0])) || EXEC_ARG_POSITIONAL_RE.test(c.slice(0, inside[0]))) return null;
     return {
       basis: "quoted-literal",
       detail: `命中片段位于引号字面量内 [${inside[0]},${inside[1]})`,
@@ -262,8 +266,10 @@ export function redlineExempt(cmd, hit) {
 //      不含 `/tmp`：临时目录递归删除是常规构建行为，已由体积闸/资格闸覆盖，收进来就是误伤。
 export const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*(?:-\w*(?:r\w*f|f\w*r)\w*|--recursive\s+(?:-{1,2}[\w-]+\s+)*--force|--force\s+(?:-{1,2}[\w-]+\s+)*--recursive)\s+["']?(?:[\/~][\/\s"']*(?=\s|["']|$)|\/(?:usr|etc|bin|sbin|lib(?:32|64)?|boot|dev|proc|sys|var|opt|root|home|media|mnt|srv|run)(?=[\/\s"']|$))/
 
-/** 破坏库结构：DROP DATABASE / DROP SCHEMA / TRUNCATE TABLE */
-export const DROP_DB = /\b(?:drop\s+(?:database|schema)|truncate\s+table)\b/i
+/** 破坏库结构：DROP DATABASE / DROP SCHEMA / DROP TABLE / TRUNCATE TABLE */
+// 2026-10-22 人类批示补 `DROP TABLE`：等变矩阵实测 `sqlite3 db 'DROP TABLE users'` 当时放行，
+// 而它与 DROP DATABASE 同级不可逆（数据行全灭、无法回滚）；同批补 `TRUNCATE` 的两种写法。
+export const DROP_DB = /\b(?:drop\s+(?:database|schema|table)|truncate\s+(?:table\s+)?[\w."`[\]]+)\b/i
 
 /** 强制推送：git push -f / --force / --force-with-lease */
 export const GIT_PUSH_FORCE = /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i

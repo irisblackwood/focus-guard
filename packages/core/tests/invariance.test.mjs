@@ -72,11 +72,18 @@ test("数据库破坏：psql/mysql 写法 → 一律 deny", async () => {
   }
 });
 
-test("已知缺口（等变矩阵发现）：sqlite3 DROP TABLE 当前不拦——红线只到 DROP DATABASE", async () => {
-  // 2026-10-22：等变矩阵一跑就抓到这条。DROP TABLE 破坏性与 DROP DATABASE 同级，
-  // 但不在 ABSOLUTE_REDLINES 里（红线是政策层，改动需人类批示）。
-  // 本用例把**现实**钉住：有人补红线后它会失败，届时改成断言 deny 即可。
-  assert.equal(await verdict("pwsh", { command: "sqlite3 db 'DROP TABLE users'" }), "allow");
+test("表级破坏：DROP TABLE / TRUNCATE 各种写法 → 一律 deny（2026-10-22 补红线）", async () => {
+  // 等变矩阵最初把这条钉成「已知缺口」；人类批示后补进 ABSOLUTE_REDLINES，
+  // 现在它必须与 DROP DATABASE 同档拦截。
+  const variants = [
+    ["pwsh", { command: "sqlite3 db 'DROP TABLE users'" }],
+    ["pwsh", { command: "sqlite3 db 'drop table users'" }],
+    ["pwsh", { command: "psql -c 'TRUNCATE TABLE events'" }],
+    ["pwsh", { command: "mysql -e 'DROP TABLE orders'" }],
+  ];
+  for (const [tool, args] of variants) {
+    assert.equal(await verdict(tool, args), "deny", `${args.command} 应被拦`);
+  }
 });
 
 test("发布动作：npm/yarn/pnpm 写法 → 一律需要授权", async () => {

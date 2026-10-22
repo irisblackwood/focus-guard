@@ -1,8 +1,11 @@
 # 变更记录（CHANGELOG）
 
-## 3.0.8 · 2026-10-19
+## 3.0.9 · 2026-10-22
 
 > v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3
+
+> 版本策略（人类批示 2026-10-22）：**每 10 次修复合为一次变更（x.x.0）**，其余按补丁号递增；细则见 `docs/RELEASE-POLICY.md`。
+> 3.0.8（2026-10-19，未发布 npm）内容：v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3；本版在其上继续累积。
 
 > 发布状态：in-tree（**尚未发布到 npm**）。npm 上最新仍是 `3.0.7`（MIT 授权、不可撤销）。
 > 本条目已并入 2026-10-19 起累积的全部改动（原「未发版」区已合并，不再单列）；含 AGPLv3 切换与按需自证。
