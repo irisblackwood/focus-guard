@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 
 /** 每次改动本文件递增；用于磁盘/内存版本一致性提示 */
-const PIPELINE_VERSION = '3.0.10-m1'
+const PIPELINE_VERSION = '3.1.0-m1'
 
 /**
  * 运行实例的"内存版本时间戳"：模块加载（DSH 启动）时采一次。
@@ -968,6 +968,30 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
           kb = 0
         }
         const verdict = judgeReadGate({ bytes: kb * 1024, gateBytes: OUTPUT_GATE_BYTES, turnPrompt })
+        // ③ 结果准入预算（2026-10-24，新功能③）：体积闸只按硬阈值拦；但"每次只差一点"的多次
+        // 中等体积整读同样把上下文撑大。这里给会话一个额度：超过 FG_RESULT_ADMIT_BYTES 的整读每次 -1，
+        // 额度用尽即拒（分段读/检索不受限）。默认 3 次，`FG_RESULT_ADMIT_BUDGET` 可调，0=关闭该闸。
+        const admitBytes = Number(process.env.FG_RESULT_ADMIT_BYTES) || 32768
+        const admitBudgetDefault = Number(process.env.FG_RESULT_ADMIT_BUDGET ?? 3)
+        const sizeBytes = kb * 1024
+        if (verdict !== 'deny' && admitBudgetDefault > 0 && sizeBytes > admitBytes && st) {
+          const left = Number.isFinite(st.resultAdmitLeft) ? st.resultAdmitLeft : admitBudgetDefault
+          if (left <= 0) {
+            warn('结果准入拦截：', `${target} ${kb}KB（本会话大结果额度已用尽）`)
+            auditDeny(exec, `${target} ${kb}KB 准入超限`, { trigger: 'result-admit' })
+            return {
+              kind: 'deny',
+              reason:
+                `focus-guard-native: 结果准入——本会话已放行 ${admitBudgetDefault} 次 ≈${Math.round(admitBytes / 1024)}KB+ 的大结果，额度用尽。` +
+                `改用 limit+offset 分段读、Grep 收窄、或交子代理处理；压缩后额度自动恢复。`,
+            }
+          }
+          try {
+            saveState(stateFile, { ...st, resultAdmitLeft: left - 1 })
+          } catch {
+            /* 记账失败不阻断（宁可少拦，不做死锁） */
+          }
+        }
         if (verdict === 'exempt') {
           auditRedlineExempt(exec, `${target} ${kb}KB 整读`, {
             redline: 'output-gate',

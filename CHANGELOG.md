@@ -1,5 +1,15 @@
 # 变更记录（CHANGELOG）
 
+## 3.1.0 · 2026-10-24
+
+> 版本策略：3.0.9 起累计 **10 条**（3.0.10 的 7 条 + 本版 3 条）→ 达阈值，升次版本。
+> 本版主题：**按需注入 + 策略可达性自检 + 结果准入**（成本侧三件）。
+
+- feat(prompt): **按需注入（Lazy Rules）**——常驻注入由 **425 字压到 222 字**（≈56 tok，省约 51 tok/步）：只保留"行为会因此改变"的硬线（取证、证据锚点、整读禁令、熔断、批示），完整条文原样存 `SESSION_RULES_FULL`（**不注入**），细则改由 deny 理由按需引用。`RULES.md` 第四部分逐字镜像与 `INSTALL.md` 验证判据同步更新。
+- feat(audit): **策略可达性自检（Policy Self-Audit）**——新增 `src/dsh/policy-audit.mjs`：启动时（`agent/created`）从判定源码抽出引用的参数键，与当前会话真实 `ctx.tools.schemas()` 求差，**不可达键即 warn**（只报不改）。把 2026-10-22 手工发现的"三条死闸"固化成自检能力；命令行侧 `npm run gate:audit` 覆盖同一判据。
+- feat(gate): **结果准入预算（Result Admission）**——体积闸只按硬阈值（默认 200KB）拦，但"每次都差一点"的多次中等体积整读同样撑爆上下文。新增会话级额度：超过 `FG_RESULT_ADMIT_BYTES`（默认 32KB）的整读每次 -1，默认 3 次（`FG_RESULT_ADMIT_BUDGET`，0=关闭），用尽即拒并指向分段读/检索；**压缩完成后额度自动恢复**。
+- test: 新增 `tests/policy-audit.test.mjs` 5 条、`tests/result-admit.test.mjs` 4 条；回归 419/419。
+
 ## 3.0.10 · 2026-10-22
 
 > 版本策略（2026-10-22）：每 10 次修复 = 一次变更（x.x.0），其余补丁号递增；细则见 `docs/RELEASE-POLICY.md`。

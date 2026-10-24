@@ -12,7 +12,7 @@ export const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 export const REFILL = 10; // 自动续杯步长
 export const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
 export const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-export const ENGINE_VERSION = "3.0.10"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
+export const ENGINE_VERSION = "3.1.0"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
 export const INV_POOL_DEFAULT = 15; // 20条：侦查池独立额度（批示可追加）
 export const SHA_LIMIT = 200 * 1024; // 总纲四：SHA-256 校验上限（≤200KB）
 export const CASE_MAX_ROWS = 200; // 卷宗【三】最大行数（超出淘汰最旧）
@@ -58,7 +58,20 @@ export const DOWNGRADE_MSG =
   "[触发⑤·熔断]改动类已拒（只读放行）。三选一各一行：" + FUSE_HINT +
   "。禁静默禁硬凑。解除后经验按 [环境:x][任务:y] 记入 .ai/PATTERNS.md。";
 
+// 常驻注入（按需自证 Lazy Rules，2026-10-24 人类批示"按需注入"）
+// 病根：完整条文 427 字常驻 system prompt，每步都付；而其中多数条目只在**被触发时**才有意义。
+// 现拆两段：常驻只留"行为会因此改变"的硬线（约 150 字），完整条文留在 SESSION_RULES_FULL，
+// 由 deny 理由按需引用条款（见 repeatGuard.altHint）。实测前缀占比：427 字 ≈ 107 tok → 约 37 tok。
 export const SESSION_RULES =
+  "<focus-guard v3.0：日常零打扰，只看行为>" +
+  "【硬线】①未取证不改进——先 read 再改；②收尾须带[文件:行号]锚点或标【假设】；" +
+  "③禁整文件整读(>300行)、裸cat、无限量Grep；④超预算/停滞→熔断(只读放行)；⑤人类指令=批示，受权先引原文。" +
+  "【额度】批示关键词定(50/15/10)，三池分立(侦查/执行/委托)。" +
+  "【熔断出口】『" + FUSE_PHRASE + "』+三行降级方案。" +
+  "细则见 docs/RULES.md。";
+
+/** 完整条文（**不常驻**）：保留原文供审计、文档与测试引用，需要时由人工/条款号查阅。 */
+export const SESSION_RULES_FULL =
   "<focus-guard AI履职执法模型v3.0：日常零打扰，只看行为>" +
   "【触发】①未取证就改 ②≥5次收尾无[文件:行号]锚点且无【假设】 ③整读>50KB/Grep无head_limit/裸cat ④超预算 ⑤查无实据硬凑。" +
   "【额度】批示关键词定(50/15/10)，【任务规模】可上调；侦查/执行/委托三池分立，执行满+10上限200。" +

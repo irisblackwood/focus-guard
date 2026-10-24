@@ -36,7 +36,7 @@ dir /b marketplace.json
 5) 新开一个会话
 ```
 
-验证生效：新会话开头出现 `<focus-guard AI履职执法模型v3.0：日常零打扰，只看行为>【触发】…` 的注入即为生效（该字符串是引擎 `SESSION_RULES` 的开头，逐字镜像见 `packages/core/docs/RULES.md` 第四部分；早期文档此处曾写过引擎里并不存在的措辞，以本判据为准）；工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log` 即为卷宗与留痕就绪。
+验证生效：新会话开头出现 `<focus-guard v3.0：日常零打扰，只看行为>【硬线】①未取证不改进` 的注入即为生效（该字符串逐字取自引擎 `SESSION_RULES` 开头，完整镜像见 `packages/core/docs/RULES.md` 第四部分；2026-10-24 起常驻文本已按"按需注入"压缩，完整条文见同文件 `SESSION_RULES_FULL`）；工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log` 即为卷宗与留痕就绪。
 
 源码目录内跑质量闸（101 用例应全绿；仓库已带 CI，推送即自动跑）：
 

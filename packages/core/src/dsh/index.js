@@ -127,6 +127,33 @@ export function apply(ctx) {
   // 3.0.8：补上 guard.mjs 六缝中 DSH 侧缺失的三条。映射照官方桥
   //（@deepseek-ai/dsh-hooks-claude-code）的实测代码，不是猜测。
   register('agent/created', sessionStartListener, 'agent/created')
+  // 策略可达性自检（2026-10-24）：用当前会话真实工具 schema 校验判定里引用的参数键，
+  // 报警式（warn + 审计），不改变任何判定。只跑一次，失败 sink 到 warn。
+  register(
+    'agent/created',
+    () => async (payload, next) => {
+      try {
+        const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
+        const { runPolicyAudit } = await import('./policy-audit.mjs')
+        const { ghost, reachable, scanned } = runPolicyAudit({
+          schemas: tools,
+          files: [new URL('./pipeline.mjs', import.meta.url).pathname, new URL('./preGuard.mjs', import.meta.url).pathname],
+          ignore: ['cmd', 'script', 'pages', 'head_limit', 'output_mode'],
+        })
+        if (ghost.length) {
+          warn(`策略可达性自检：${ghost.length}/${scanned} 个参数键在真实 schema 里不存在（规则可能永不触发）——` +
+            ghost.map((g) => g.key).join('、'))
+        } else if (scanned > 0) {
+          warn(`策略可达性自检：${scanned} 个参数键全部可达（工具 ${tools.length} 个）`)
+        }
+        void reachable
+      } catch (error) {
+        warn('策略可达性自检失败（不影响执法）：', (error && error.message) || error)
+      }
+      return typeof next === 'function' ? next(payload) : undefined
+    },
+    'agent/created(policy-audit)',
+  )
   register('agent/pre-step', preStepListener, 'agent/pre-step')
   // 回合结束自动落账（L4，2026-10-18）：只记 FG 亲眼看到的事实（人类指令 / 被人否决的命令），
   // 不推断、不编造；写失败只 warn。与 DCR 不同：这里不 cancel、不 reject、不碰 surface。
