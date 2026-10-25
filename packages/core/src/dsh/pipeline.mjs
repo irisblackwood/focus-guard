@@ -17,6 +17,9 @@ import { loadProfile } from '../core/profileLoader.mjs'
 import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // 2026-10-22：体积闸判定内核下沉到母版，两条适配路径共用同一套判据（参数提取各自做）。
 import { judgeReadGate, judgeGrepGate, judgeCatGate } from '../core/outputGate.mjs'
+import { detectSearchBackends, retrievalHint, installReminder } from './search-hints.mjs'
+// 每会话只提醒一次"没装检索工具"（避免每步刷屏）。
+const remindedNoBackend = new Set()
 // ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
 // 直接 import 同名函数会被参数遮蔽 → 函数体内 statePath === undefined → "is not a function"，
 // 而且被 try/catch 的 fail-open 吞成静默放行（2026-10-09 实测踩过）。
@@ -642,11 +645,10 @@ function promptStamp(prompt) {
 // 本层的正解是「别整读，去检索」——谁先开口决定模型学会哪条。
 // 边界：命中不了目标文件（相对路径、动态拼接、变量）一律 fail-open，不猜。
 const WHOLE_FILE_MAX_LINES = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300
+// 提示按**本机可用后端**给（2026-10-25）：xerj 装了就用它，没装就退到 rg/fd，
+// 一个都没有时给出安装建议。写死 xerj 的后果是"照做必然失败"的假提示。
 const WHOLE_FILE_READ_TOOLS = /^(?:read|read_file|readfile|view)$/i
 const WHOLE_FILE_SHELL = /(^|[;&|]\s*)(?:cat|type|Get-Content|bat)\s/i
-const WHOLE_FILE_HINT =
-  '请调用 XERJ 的 search 或 def 工具（`xerj search "<关键词>"` / `xerj def "<符号>"`），' +
-  '或对同一文件带 offset/limit 分段读。'
 
 /** 该文件是否超过 n 行；分块数换行、够数即停，绝不把整文件读进内存。 */
 function exceedsLines(file, n) {
@@ -861,10 +863,17 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       warn('Superpowers 动笔闸异常，fail-open 放行：', (error && error.message) || error)
     }
 
-    // 第 1.4 层：整文件读取闸（大文件不许整读，改走 XERJ 检索）
+    // 第 1.4 层：整文件读取闸（大文件不许整读，改走检索）
     try {
       const toolName = String((exec && exec.name) || '')
       const args = (exec && exec.arguments) || {}
+      // 检索后端每会话探测一次并缓存结果（PATH 扫描很便宜，但没必要每步都扫）。
+      const backends = detectSearchBackends()
+      if (!backends.preferred && !remindedNoBackend.has(sessionIdOf(exec))) {
+        remindedNoBackend.add(sessionIdOf(exec))
+        const tip = installReminder(backends)
+        if (tip) warn(tip)
+      }
       let target = null
       let segmented = false
       if (WHOLE_FILE_READ_TOOLS.test(toolName)) {
@@ -882,7 +891,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
           kind: 'deny',
           reason:
             `focus-guard-native: 整文件闸——${target} 超过 ${WHOLE_FILE_MAX_LINES} 行，禁止整文件读取（本次为相对路径，已按会话 cwd 解析）。` +
-            WHOLE_FILE_HINT,
+            retrievalHint(backends),
         }
       }
     } catch (error) {

@@ -9,6 +9,8 @@
 - feat(audit): **策略可达性自检（Policy Self-Audit）**——新增 `src/dsh/policy-audit.mjs`：启动时（`agent/created`）从判定源码抽出引用的参数键，与当前会话真实 `ctx.tools.schemas()` 求差，**不可达键即 warn**（只报不改）。把 2026-10-22 手工发现的"三条死闸"固化成自检能力；命令行侧 `npm run gate:audit` 覆盖同一判据。
 - feat(gate): **结果准入预算（Result Admission）**——体积闸只按硬阈值（默认 200KB）拦，但"每次都差一点"的多次中等体积整读同样撑爆上下文。新增会话级额度：超过 `FG_RESULT_ADMIT_BYTES`（默认 32KB）的整读每次 -1，默认 3 次（`FG_RESULT_ADMIT_BUDGET`，0=关闭），用尽即拒并指向分段读/检索；**压缩完成后额度自动恢复**。
 - test: 新增 `tests/policy-audit.test.mjs` 5 条、`tests/result-admit.test.mjs` 4 条；回归 419/419。
+- feat(hints): **检索后端探测与提示协调**（2026-10-25）——整读闸理由此前**无条件**写死 `xerj search/def`，没装 XERJ 的用户照做必然失败（与"死闸"同类的假提示）。新增 `src/dsh/search-hints.mjs`：探测 `xerj` / `rg` / `fd`，按**本机实际可用**的给换法（xerj→rg→fd→降级为 glob+分段读），三者全无时**每会话一次**提醒安装并说明可用 `FG_SEARCH_TOOL=<名字>` / `FG_SEARCH_BIN_DIR=<目录>` 与用户已装的其他检索插件协调。本机实测：`rg / fd` 可用、首选 rg（xerj 在 `E:\DSH\xerj.exe` 未入 PATH → 可 `FG_SEARCH_BIN_DIR=E:\DSH` 纳入）。新增 `tests/search-hints.test.mjs` 5 条；回归 424/424。
+- 关于**内置 XERJ**（评估结论，不实施）：单平台二进制 126.1 MB，三平台约 378 MB，另需守护进程/索引生命周期/许可证核查，而收益仅是省一步安装 → 不内置；需要时改用 `focusguard setup:search` 按需下载（未实现）。
 
 ## 3.0.10 · 2026-10-22
 

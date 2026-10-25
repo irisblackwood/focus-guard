@@ -11,6 +11,7 @@
  */
 
 const MAX_TRACK = 200
+import { detectSearchBackends, retrievalHint } from './search-hints.mjs'
 const counts = new Map()
 // 会话级被拦总数：≥5 次时给一句"先停手"的提示（实测被拦后越试越乱）。
 const sessionDenies = new Map()
@@ -35,7 +36,8 @@ function keyOf(exec) {
 /** 按闸的类型给"换法"——必须是**另一条路**，不是同一句话再说一遍。 */
 export function altHint(reason) {
   const r = String(reason || '')
-  if (/整文件闸|整读/.test(r)) return '改用 XERJ：`xerj search "<关键词>"` 或 `xerj def "<符号>"` 定位；确实要读全文就带 offset/limit 分段读。'
+  // 整读类：提示按本机可用的检索后端给（xerj→rg→fd→无）。
+  if (/整文件闸|整读/.test(r)) return retrievalHint(detectSearchBackends())
   if (/Grep 未收窄|体积刺客/.test(r)) return 'Grep 补 `include`（如 `**/*.mjs`）收窄，或先按文件名定位再读指定文件。'
   if (/取证|未读/.test(r)) return '先用 read 读目标文件（或它所在目录的清单），再重试改动；不要连着改多个没读过的文件。'
   if (/fg_apply|申请授权/.test(r)) return '调用 `fg_apply`（purpose/scope 必填）一次性申请；同一条命令直接重试只会再次被拒。'

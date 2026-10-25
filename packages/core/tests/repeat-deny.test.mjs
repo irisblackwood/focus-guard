@@ -25,7 +25,8 @@ test("第 2 次同一条：加「重复被拦 ×2」+ 换法（不再重复原�
   rg.augmentDeny(e, d);
   const out = rg.augmentDeny(e, d);
   assert.match(out.reason, /重复被拦 ×2/);
-  assert.match(out.reason, /xerj search/);
+  // 换法按本机可用检索后端动态生成（2026-10-25），不再写死 xerj。
+  assert.match(out.reason, /检索定位|rg -n|xerj search|offset\/limit/);
   assert.match(out.reason, /原始理由/);
   assert.equal(out.repeat, 2);
 });
