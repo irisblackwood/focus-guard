@@ -18,6 +18,7 @@ import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // 2026-10-22：体积闸判定内核下沉到母版，两条适配路径共用同一套判据（参数提取各自做）。
 import { judgeReadGate, judgeGrepGate, judgeCatGate } from '../core/outputGate.mjs'
 import { detectSearchBackends, retrievalHint, installReminder } from './search-hints.mjs'
+import { shouldGate, gateReason, promptDeclaresBenefit } from './value-gate.mjs'
 // 每会话只提醒一次"没装检索工具"（避免每步刷屏）。
 const remindedNoBackend = new Set()
 // ⚠ 必须用别名：preExecuteListener 的参数名就叫 statePath（自检注入用），
@@ -952,6 +953,38 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
       } catch (error) {
         warn('资格审核闸异常，fail-open 放行：', (error && error.message) || error)
       }
+    }
+
+    // ===== 改动面闸（2026-10-25）=====
+    // 人类判据："改大量文件只换来一个小彩灯"。新建架构敏感文件 / 加依赖时，
+    // 要求先回三行（收益 / 改动面 / 替代）；**只拒一次**，重试即放行。
+    // 人类指令里已声明收益（≥20 字且含收益词）时不介入。
+    try {
+      if (String(process.env.FG_VALUE_GATE || '1') !== '0') {
+        const fPath = resolveToolPath(pathOfTool((exec && exec.arguments) || {}), exec)
+        const sid5 = sessionIdOf(exec)
+        const sf = guardStateFile(sid5)
+        const st5 = existsSync(sf) ? loadState(sf) : null
+        const needGate =
+          shouldGate({ filePath: fPath, exists: existsSync, command: cmd }) &&
+          !(st5 && st5.valueGateSeen) &&
+          !promptDeclaresBenefit(st5 && (st5.turnPromptFull || st5.turnPrompt))
+        if (needGate) {
+          try {
+            saveState(sf, { ...(st5 || {}), valueGateSeen: true })
+          } catch {
+            /* 记账失败不阻断（宁可少拦，不做死锁） */
+          }
+          warn('改动面闸：', `新建敏感文件或加依赖 → 要求一行收益 ${fPath || cmd || ''}`)
+          auditDeny(exec, fPath || cmd || 'value-gate', { trigger: 'value-gate' })
+          return {
+            kind: 'deny',
+            reason: gateReason({ filePath: fPath, kind: fPath ? 'file' : 'dep' }),
+          }
+        }
+      }
+    } catch (error) {
+      warn('改动面闸异常，fail-open 放行：', (error && error.message) || error)
     }
 
     // ===== 3.0.8（移植批 2）：体积刺客三闸 =====
