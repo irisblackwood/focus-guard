@@ -425,6 +425,20 @@ export function turnStoppingListener({ warn } = {}) {
       } catch (error) {
         if (typeof warn === 'function') warn('授权 ttl 回收异常（不阻塞）:', (error && error.message) || error)
       }
+      // 2026-10-25：改动面收尾报告——必须在 KPI 零增量提前 return **之前**执行，
+      // 否则没有 KPI 增量的回合（大多数回合）永远报不出来。
+      // 只统计 FG 亲眼看过的写操作（state.editedFiles），阈值 FG_BLAST_REPORT（默认 6，0=关闭）。
+      try {
+        const threshold = Number(process.env.FG_BLAST_REPORT ?? 6)
+        const touched = Object.keys(state.editedFiles || {})
+        if (threshold > 0 && touched.length >= threshold) {
+          const { noteLivenessEvent } = await import('./heartbeat.mjs')
+          noteLivenessEvent(`blast:${touched.length}`)
+          auditRow(sid, 'blast-radius', `本轮改动 ${touched.length} 个文件（阈值 ${threshold}）：${touched.slice(0, 6).join(', ')}`)
+        }
+      } catch {
+        /* 报告失败不影响结算 */
+      }
       // 2026-10-18 修（REPORT-2026-10-12「KPI 重复结算」）：state.kpi 是**会话累计值**，
       // 而本缝每回合都跑一次。原实现把累计值当成"本任务 KPI"：
       //   ① `kpiCarry += kpiNow` 每回合重复累加 → ΣΣ（实测 -10 被记成 -80）；

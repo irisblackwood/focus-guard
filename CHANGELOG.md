@@ -12,6 +12,7 @@
 - feat(hints): **检索后端探测与提示协调**（2026-10-25）——整读闸理由此前**无条件**写死 `xerj search/def`，没装 XERJ 的用户照做必然失败（与"死闸"同类的假提示）。新增 `src/dsh/search-hints.mjs`：探测 `xerj` / `rg` / `fd`，按**本机实际可用**的给换法（xerj→rg→fd→降级为 glob+分段读），三者全无时**每会话一次**提醒安装并说明可用 `FG_SEARCH_TOOL=<名字>` / `FG_SEARCH_BIN_DIR=<目录>` 与用户已装的其他检索插件协调。本机实测：`rg / fd` 可用、首选 rg（xerj 在 `E:\DSH\xerj.exe` 未入 PATH → 可 `FG_SEARCH_BIN_DIR=E:\DSH` 纳入）。新增 `tests/search-hints.test.mjs` 5 条；回归 424/424。
 - 关于**内置 XERJ**（评估结论，不实施）：单平台二进制 126.1 MB，三平台约 378 MB，另需守护进程/索引生命周期/许可证核查，而收益仅是省一步安装 → 不内置；需要时改用 `focusguard setup:search` 按需下载（未实现）。
 - feat(gate): **改动面闸（Blast-Radius Gate）**（2026-10-25，人类判据"改大量文件只换来一个小彩灯"）——新建 `src/`/`packages/` 下**不存在的**文件、或执行 `npm|pnpm|yarn|bun|pip|poetry|uv install/add` 时，第一次调用被拒并要求先回三行：**收益**（说不清就是小彩灯）/ **改动面**（预计文件数、是否跨层）/ **替代**（更小做法）。**只拒一次**，重试即放行；人类指令里已声明收益（≥10 字且含"收益/可测/减少/避免…"）时不介入；`FG_VALUE_GATE=0` 可关闭。判的是**改动面 × 收益量级**，不预测 token/金额数字（不可测的 ROI 一律不写）。新增 `tests/value-gate.test.mjs` 5 条；回归 429/429。
+- feat(report): **改动面收尾报告**（2026-10-25）——"小彩灯"要在收尾时暴露：`agent/turn-stopping` 统计本回合 FG 亲眼看过的写操作（`state.editedFiles`），≥`FG_BLAST_REPORT`（默认 6，0=关闭）时写 `blast-radius` 审计行并把 `blast:N` 事件挂到下一次徽标。位置必须在 KPI 零增量提前 return **之前**（否则无 KPI 增量的回合永远报不出来）。新增 `tests/blast-radius-report.test.mjs` 3 条；回归 432/432。
 
 ## 3.0.10 · 2026-10-22
 
