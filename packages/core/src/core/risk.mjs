@@ -30,7 +30,7 @@ export function registerToolKind(kind, names) {
 }
 
 /** 名字 → 语义类别；未注册返回 'other'（安全默认：既不算只读也不算改动）。 */
-export function semanticOf(tool) {
+function semanticOf(tool) {
   const key = String(tool || "").toLowerCase();
   if (!key) return "other";
   const direct = KIND_BY_NAME.get(key);

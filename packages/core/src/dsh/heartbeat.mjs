@@ -21,13 +21,13 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 心跳周期；`FG_HEARTBEAT_INTERVAL_MS` 可覆盖（测试用）。 */
-export const HEARTBEAT_INTERVAL_MS = Number(process.env.FG_HEARTBEAT_INTERVAL_MS) || 10_000
+const HEARTBEAT_INTERVAL_MS = Number(process.env.FG_HEARTBEAT_INTERVAL_MS) || 10_000
 
 /** 超过该时长未更新即判 STALE；`FG_STALE_AFTER_MS` 可覆盖（测试用）。 */
 export const STALE_AFTER_MS = Number(process.env.FG_STALE_AFTER_MS) || 30_000
 
 /** 插件文件位于 <仓库根>/packages/core/src/dsh/ → 上溯 4 级到仓库根。 */
-export const STATUS_FILE = fileURLToPath(new URL('../../../../.focus-guard/status.json', import.meta.url))
+const STATUS_FILE = fileURLToPath(new URL('../../../../.focus-guard/status.json', import.meta.url))
 
 /** 心跳文件路径；与 `auditFilePath()` 同思路。 */
 export function statusFilePath() {
@@ -108,7 +108,7 @@ export function setKpiSnapshot(snap) {
 }
 
 /** 供 status.json 与徽标共用的一份快照（无则 null）。 */
-export function kpiTag() {
+function kpiTag() {
   if (!kpiSnapshot) return ''
   const parts = []
   if (kpiSnapshot.kpi !== null) parts.push(`KPI ${kpiSnapshot.kpi > 0 ? '+' : ''}${kpiSnapshot.kpi}`)

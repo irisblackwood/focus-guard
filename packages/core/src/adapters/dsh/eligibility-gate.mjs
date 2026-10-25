@@ -79,7 +79,7 @@ const PTC_SHELL_TOOLS = /^(?:Bash|Shell|sh|pwsh|powershell|cmd|Terminal|RunComma
  * 默认只读模式下的门槛判定：写类工具、以及变更型 shell 命令，未授权即拦。
  * @returns {string|null} 门槛 id（ptc:write / ptc:shell），非门槛返回 null
  */
-export function ptcReasonOf(tool, command = '') {
+function ptcReasonOf(tool, command = '') {
   if (!PTC.readOnlyDefault) return null
   const name = String(tool ?? '')
   if (PTC_WRITE_TOOLS.test(name)) return 'ptc:write'
@@ -88,7 +88,7 @@ export function ptcReasonOf(tool, command = '') {
 }
 
 /** 对系统路径的写入类工具：与命令型高危同属"必须先申请"的门槛清单（显式成文）。 */
-export const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
+const GATED_WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 
 /** 可直接重建的 rm -rf 目标：构建产物 / 缓存 / TEMP。命中则不进门槛清单（交回第 2 层分级判定）。 */
 const DISPOSABLE_TARGET_RE =
@@ -203,7 +203,7 @@ export function pendingOf(session) {
 }
 
 /** 记一条待批（同 tool+reason 去重，超上限丢最旧）。 */
-export function notePending(session, tool, reason, command = '') {
+function notePending(session, tool, reason, command = '') {
   const key = String(session || 'dsh-native')
   const list = PENDING.get(key) || []
   if (!list.some((x) => x.tool === tool && x.reason === reason)) {
@@ -511,7 +511,7 @@ export const FG_APPLY_TOOL_SPEC = {
 // 属条文错配——本机制即为该错配补上的实体程序。
 
 /** 红线豁免凭据的授权键前缀：申辩获批后按 `redline:<名称>` 记账，供 pipeline 红线层查询。 */
-export const REDLINE_GRANT_PREFIX = 'redline:'
+const REDLINE_GRANT_PREFIX = 'redline:'
 
 /** 取会话标识（与 audit.mjs 的 auditDeny 口径一致）。 */
 function sessionOf(exec) {

@@ -54,7 +54,7 @@ export function isPeakAt(date) {
 }
 
 /** 官方价目（USD / 1M tokens，2026-09-10 生效；空闲 = 高峰的一半） */
-export const PRICING_USD = {
+const PRICING_USD = {
   effective: '2026-09-10',
   currency: 'USD',
   unit: 'per-1M-tokens',

@@ -26,7 +26,7 @@ export const PROFILES = {
  * 显式别名表：真实模型名 → 画像 id。这是**数据**，不是分支。
  * 已知真实 modelId 时在此登记一行即可，无需改任何逻辑。
  */
-export const PROFILE_ALIASES = {
+const PROFILE_ALIASES = {
   // 例：'deepseek-v4.1-flash': 'deepseek-flash',
 }
 
@@ -46,13 +46,13 @@ export const LAYER_SWITCHES = {
 }
 
 /** 已登记但引擎尚未实现的开关：只进 trace 的 skipped 报告，不参与执行。 */
-export const UNIMPLEMENTED_SWITCHES = {
+const UNIMPLEMENTED_SWITCHES = {
   reasoningWatch: 'no engine implementation, TODO',
   emotionFilter: 'no engine implementation, TODO',
 }
 
 /** modelId 归一化：去空白 + 小写。 */
-export function normalizeModelId(modelId) {
+function normalizeModelId(modelId) {
   return String(modelId ?? '').trim().toLowerCase()
 }
 
@@ -61,10 +61,10 @@ export function normalizeModelId(modelId) {
  * 若允许画像关掉它，则"decide 跳过 L3 + 闸只认授权表"会把审批端到端绕过
  * （HANDOFF §十 安全项，子代理实测）。加载时强制启用并留痕，不静默接受。
  */
-export const FORCED_ON_SWITCHES = ['approvalGate']
+const FORCED_ON_SWITCHES = ['approvalGate']
 
 /** 审批范围合法值（与 checkEligibility 的 L3 判定对齐）。 */
-export const APPROVAL_SCOPES = ['mutating', 'irreversible']
+const APPROVAL_SCOPES = ['mutating', 'irreversible']
 
 /** 规避风险合法值。 */
 export const EVASION_RISKS = ['high', 'low']

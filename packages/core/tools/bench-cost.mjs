@@ -32,7 +32,7 @@ const CASE_FILE = process.env.FG_CASE_FILE || join(REPO, '.ai', 'CASE_FILE.md')
 const AUDIT_FILE = process.env.FG_AUDIT_FILE || join(REPO, '.focus-guard', 'AUDIT.log')
 
 /** 解析【五】成本台账行：| 时间 | 模型 | 时段 | 输入未缓存 | 缓存读 | 输出 | 成本USD | */
-export function parseCostRows(text) {
+function parseCostRows(text) {
   const start = text.indexOf('【五】成本台账')
   if (start < 0) return []
   const rows = []
@@ -59,7 +59,7 @@ export function parseCostRows(text) {
 }
 
 /** 解析 AUDIT.log：按 action/trigger 统计，并可算"拦截→获准"的误伤比。 */
-export function parseAudit(text) {
+function parseAudit(text) {
   const rows = []
   for (const raw of text.split('\n')) {
     const line = raw.trim()

@@ -4,9 +4,9 @@
  * 背景：资格闸会拦高危操作（`npm publish` 之类），但 `fg_apply` / `fg_appeal` 两个工具
  * **从未接进装配层**——被拦后模型无路可走，只能让人绕过 DSH。本文件补这条通道。
  *
- * 为什么不用 `adapters/dsh/fg-apply-tool.mjs` 里的 defineTool 版本：
+ * 为什么自己构造而不复用早期版本（`adapters/dsh/fg-apply-tool.mjs` 已于 2026-10-25 删除）：
  *   ① `@deepseek-ai/dsh-tools` 在 FG 安装目录下不可解析（peerDependency 未随包安装）；
- *   ② 那两个文件调 `defineTool` 时没传 `output`，而 defineTool 会读 `options.output.render`
+ *   ② 早期那两个文件调 `defineTool` 时没传 `output`，而 defineTool 会读 `options.output.render`
  *      → 一导入就抛，说明它们从未被真正执行过（本次才第一次接线）。
  * 故按宿主 register 的既证形状直接构造：`{ name, description, parameters(JSON Schema),
  * output: { schema, render }, execute }`——与 dsh-memory 的 state_checkpoint 同构。
@@ -75,7 +75,7 @@ export function buildApplyTool() {
 }
 
 /** 构造 fg_appeal 工具定义。 */
-export function buildAppealTool() {
+function buildAppealTool() {
   return {
     name: FG_APPEAL_TOOL_SPEC.name,
     description: FG_APPEAL_TOOL_SPEC.description,

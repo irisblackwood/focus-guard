@@ -68,7 +68,7 @@ export function currentPosition(agentOrSession) {
  * 有副作用是刻意的——所有 stall-fuse 写点（seams / postProgress / stopGuard）都经 appendAudit，
  * 在写入器这一处识别比逐个改调用点更不容易漏。
  */
-export function traceMetaOf(session, row) {
+function traceMetaOf(session, row) {
   const key = String(session || 'dsh-native')
   const pos = sessions.get(key)
   if (!pos) return null

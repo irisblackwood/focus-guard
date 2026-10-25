@@ -66,10 +66,10 @@ function warnIfStaleOnce(warn) {
   }
 }
 
-export const PIPELINE_VERSION_INFO = { version: PIPELINE_VERSION, memoryMtime: MEM_PIPELINE_MTIME }
+const PIPELINE_VERSION_INFO = { version: PIPELINE_VERSION, memoryMtime: MEM_PIPELINE_MTIME }
 
 /** 供自检/诊断调用：返回本次是否检出磁盘更新 */
-export function checkDiskVersion(warn = console.warn) {
+function checkDiskVersion(warn = console.warn) {
   return warnIfStaleOnce(warn)
 }
 
@@ -247,16 +247,16 @@ function buildAsk(cmd, risk, category, extra) {
 }
 
 // ── 第 2 层·真哨兵接线（观察模式）──
-export const SENTINEL_PY = fileURLToPath(new URL('./sentinel.py', import.meta.url))
-export const SENTINEL_TIMEOUT_MS = 1500 // 实测 Needle 冷启 0.30s / 单次 0.13-0.42s → 取 ~5x 余量
-export const SENTINEL_PYTHON = process.env.FG_PYTHON || 'python'
-export const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
+const SENTINEL_PY = fileURLToPath(new URL('./sentinel.py', import.meta.url))
+const SENTINEL_TIMEOUT_MS = 1500 // 实测 Needle 冷启 0.30s / 单次 0.13-0.42s → 取 ~5x 余量
+const SENTINEL_PYTHON = process.env.FG_PYTHON || 'python'
+const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
 
 const OBSERVATION = { effective: false, judgements: 0, highRisk: 0 }
 let observeNoticeEmitted = false
 
 /** 观察模式状态（自检/汇报用只读快照） */
-export function observeState() {
+function observeState() {
   return { ...OBSERVATION }
 }
 
@@ -327,7 +327,7 @@ export function riskOfSentinel(cmd) {
 // 熔断标志实际落在 os.tmpdir() 的会话状态文件里。
 export const STATE_GATE = { effective: true }
 export const EVIDENCE_GATE = { effective: process.env.FG_EVIDENCE_GATE !== '0' }
-export const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
+const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
 
 const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|NotebookEdit)$/i
 const READ_TOOL = /^(?:Read|Grep|Glob|read_image|NotebookRead)$/i
@@ -702,7 +702,7 @@ let envFpCache = { path: null, mtimeMs: 0, map: null }
 let envFpMissingWarned = false
 
 /** 读环境指纹的 map 表；缺失或损坏返回 null（fail-open）。 */
-export function readEnvMap(warn, cwd = process.cwd()) {
+function readEnvMap(warn, cwd = process.cwd()) {
   const p = join(cwd, ENV_FINGERPRINT_REL)
   try {
     const mtimeMs = statSync(p).mtimeMs

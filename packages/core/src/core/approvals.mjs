@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
 /** 默认目录：<仓库根>/.focus-guard/approvals；FG_APPROVAL_DIR 可覆盖（测试必须覆盖）。 */
-export function approvalDir() {
+function approvalDir() {
   return process.env.FG_APPROVAL_DIR || fileURLToPath(new URL('../../../../.focus-guard/approvals', import.meta.url))
 }
 

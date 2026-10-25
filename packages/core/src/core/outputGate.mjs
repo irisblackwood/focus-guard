@@ -14,7 +14,7 @@
 // 纪律：本模块纯函数，不读文件、不写审计、不碰状态。副作用留在适配层。
 
 /** 审计/盘点/审查类任务的整读豁免（法典：审计是 50 预算重大专项）。 */
-export const AUDIT_TASK_RE = /审计|盘点|审查/
+const AUDIT_TASK_RE = /审计|盘点|审查/
 
 /** 裸 cat/type 刷屏的识别与放行条件。 */
 const CAT_RE = /(^|[;&|]\s*)(cat|type|Get-Content)\s/i

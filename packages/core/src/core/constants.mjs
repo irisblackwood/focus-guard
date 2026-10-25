@@ -71,7 +71,7 @@ export const SESSION_RULES =
   "细则见 docs/RULES.md。";
 
 /** 完整条文（**不常驻**）：保留原文供审计、文档与测试引用，需要时由人工/条款号查阅。 */
-export const SESSION_RULES_FULL =
+const SESSION_RULES_FULL =
   "<focus-guard AI履职执法模型v3.0：日常零打扰，只看行为>" +
   "【触发】①未取证就改 ②≥5次收尾无[文件:行号]锚点且无【假设】 ③整读>50KB/Grep无head_limit/裸cat ④超预算 ⑤查无实据硬凑。" +
   "【额度】批示关键词定(50/15/10)，【任务规模】可上调；侦查/执行/委托三池分立，执行满+10上限200。" +

@@ -126,11 +126,11 @@ export function isDangerousCmd(cmd) {
 //   （解释器一并排除，口径与 R5-3 解释器黑名单一致。）
 
 /** 执行外壳：会把引号内字符串真正执行掉的写法。命中即不得豁免。 */
-export const SHELL_EXEC_WRAPPER_RE =
+const SHELL_EXEC_WRAPPER_RE =
   /(?:\b(?:ba|z|k|da|a)?sh\s+-[a-z]*c\b|\b(?:pwsh|powershell)(?:\.exe)?\s+[^|;]*-(?:[a-z]*c|Command)\b|\bcmd(?:\.exe)?\s+\/[ck]\b|\beval\b|\bexec\b|\biex\b|Invoke-Expression|\b(?:node|deno|bun)\s+(?:-e|--eval)\b|\bpython[0-9.]*\s+-c\b|\b(?:perl|ruby|php)\s+-[er]\b)/i;
 
 /** 数据用途标记：命中片段之前出现，表明内容是"被引用的数据"。 */
-export const DATA_MARKER_RES = [
+const DATA_MARKER_RES = [
   /示例[：:]/,
   /例如[：:]/,
   /测试数据/,
@@ -141,11 +141,11 @@ export const DATA_MARKER_RES = [
 ];
 
 /** 只读输出命令：首 token 属此类时，命令本身不产生变更。 */
-export const READONLY_HEAD_RE =
+const READONLY_HEAD_RE =
   /^(?:echo|printf|Write-Output|Write-Host|Write-Verbose|Out-String|Out-Host|Out-File\s+[^|;]*-WhatIf|Get-Content|type|cat|Select-String|findstr)\b/i;
 
 /** 列出字符串中被引号包裹的内容区间 [start, end)。处理反斜杠转义。 */
-export function quotedSpans(s) {
+function quotedSpans(s) {
   const spans = [];
   const str = String(s || "");
   let i = 0;
@@ -269,10 +269,10 @@ export const RM_RF_ROOT = /\brm\s+(?:-{1,2}[\w-]+\s+)*(?:-\w*(?:r\w*f|f\w*r)\w*|
 /** 破坏库结构：DROP DATABASE / DROP SCHEMA / DROP TABLE / TRUNCATE TABLE */
 // 2026-10-22 人类批示补 `DROP TABLE`：等变矩阵实测 `sqlite3 db 'DROP TABLE users'` 当时放行，
 // 而它与 DROP DATABASE 同级不可逆（数据行全灭、无法回滚）；同批补 `TRUNCATE` 的两种写法。
-export const DROP_DB = /\b(?:drop\s+(?:database|schema|table)|truncate\s+(?:table\s+)?[\w."`[\]]+)\b/i
+const DROP_DB = /\b(?:drop\s+(?:database|schema|table)|truncate\s+(?:table\s+)?[\w."`[\]]+)\b/i
 
 /** 强制推送：git push -f / --force / --force-with-lease */
-export const GIT_PUSH_FORCE = /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i
+const GIT_PUSH_FORCE = /\bgit\s+push\b[^\n]*\s(?:-f|--force(?:-with-lease)?)\b/i
 
 /** 零延迟短路的绝对红线表（命中即 deny，不进语义层） */
 export const ABSOLUTE_REDLINES = [

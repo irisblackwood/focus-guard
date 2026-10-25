@@ -15,7 +15,7 @@
 const SENSITIVE_RE = /(^|[\\/])(src|packages)[\\/]/i
 
 /** 是否为"新建架构敏感文件"（路径不存在 + 落在 src/ 或 packages/ 下）。 */
-export function isNewSensitiveFile(filePath, exists) {
+function isNewSensitiveFile(filePath, exists) {
   const p = String(filePath || '')
   if (!p || !SENSITIVE_RE.test(p)) return false
   try {

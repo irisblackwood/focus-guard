@@ -82,7 +82,7 @@ export function auditRedlineExempt(exec, cmd, detail = {}) {
  * 默认 = 仓库根 `.ai/CASE_FILE.md`；`FG_CASE_FILE` 可覆盖——测试**必须**用它重定向到临时目录，
  * 否则自检会写进人类真实卷宗（2026-10-07 事故）。落盘前另有一道守卫，见 appendCostRow。
  */
-export function caseFilePath() {
+function caseFilePath() {
   return process.env.FG_CASE_FILE || fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
 }
 
