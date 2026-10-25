@@ -44,6 +44,7 @@ const audit = (sid, action, opts = {}) =>
     evidence: String(opts.evidence || '').slice(0, 200),
     pardon: !!opts.pardon,
   })
+import { budgetVerdict, stallVerdict, invPoolOverLimit } from '../core/progressPolicy.mjs'
 import {
   BLOCKS_RE,
   BUDGET_CAP,
@@ -197,20 +198,27 @@ export function postProgressListener({ warn } = {}) {
           state.effectiveCalls = (state.effectiveCalls || 0) + 1
           state.stalledStreak = 0
         }
-        if ((state.effectiveCalls || 0) >= BUDGET_CAP) {
+        // 判定来自母版 `core/progressPolicy.mjs`（阶段 2）：本文件只做落状态 + 审计 + 提示。
+        const budget = budgetVerdict({
+          effectiveCalls: state.effectiveCalls || 0,
+          taskBudget: state.taskBudget || BUDGET_DEFAULT,
+          cap: BUDGET_CAP,
+          refill: REFILL,
+        })
+        if (budget.kind === 'fuse') {
           state.fused = true
           state.violations = Math.max(state.violations || 0, 3)
           audit(sid, 'stall-fuse', { level: 3, evidence: `硬上限：有效调用达 ${BUDGET_CAP}` })
           reason = `[触发④·L3]硬上限 ${BUDGET_CAP} 次，强制熔断。输出『${FUSE_PHRASE}』+三行降级方案，等批示。`
-        } else if ((state.effectiveCalls || 0) >= (state.taskBudget || BUDGET_DEFAULT)) {
-          state.taskBudget = Math.min((state.taskBudget || BUDGET_DEFAULT) + REFILL, BUDGET_CAP)
+        } else if (budget.kind === 'refill') {
+          state.taskBudget = budget.nextBudget
           audit(sid, 'budget-extend', {
             level: null,
             evidence: `自动续杯 budget=${state.taskBudget} eff=${state.effectiveCalls} stall=0`,
           })
           reason = `[触发④]续杯：执行池 ${state.effectiveCalls} 次达阈值，预算+${REFILL}→${state.taskBudget}。任务继续，自查是否收敛。`
         }
-        if (inv && !state.invWarned && (state.invCalls || 0) > (state.invCap || INV_POOL_DEFAULT)) {
+        if (inv && !state.invWarned && invPoolOverLimit({ invCalls: state.invCalls || 0, invCap: state.invCap || INV_POOL_DEFAULT })) {
           state.invWarned = true
           audit(sid, 'inv-pool-exceeded', {
             level: null,
@@ -221,7 +229,7 @@ export function postProgressListener({ warn } = {}) {
       } else {
         state.stalledStreak = (state.stalledStreak || 0) + 1
         state.ineffCalls = (state.ineffCalls || 0) + 1
-        if ((state.stalledStreak || 0) >= STALL_FUSE) {
+        if (stallVerdict({ stalledStreak: state.stalledStreak || 0, threshold: STALL_FUSE }).fuse) {
           state.fused = true
           state.violations = Math.max(state.violations || 0, 3)
           audit(sid, 'stall-fuse', {
