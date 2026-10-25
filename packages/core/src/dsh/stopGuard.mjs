@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { statePath, loadState, saveState } from '../core/state.mjs'
 import { appendAudit } from './audit.mjs'
+import { needsDowngrade, needsAccount, needsAnchorCheck } from '../core/stopPolicy.mjs'
 import {
   AUTH_SEMANTICS_RE,
   BUDGET_CAP,
@@ -200,7 +201,8 @@ export function stopGuardListener({ warn } = {}) {
           }
         }
         // 声明熔断但缺降级方案 → 只提醒一次（不再打回）
-        const needDowngrade = formalFuse && !DOWNGRADE_MARKERS.test(text) && !state.stopBlocked
+        // 判定搬到母版 `core/stopPolicy.mjs`（2026-10-25）：此处只做"取结果 + 落状态 + 发提示"。
+        const needDowngrade = needsDowngrade({ text, state })
         if (needDowngrade) {
           state.stopBlocked = true
           audit(sid, 'reject-no-downgrade', { level: 3, evidence: '声明熔断但缺降级方案（只审计，不打回）' })
@@ -212,8 +214,8 @@ export function stopGuardListener({ warn } = {}) {
         return
       }
 
-      // 双规后必须交代（只审计一次，不打回）
-      if (state.fused && !EVIDENCE_ANCHORS.test(text) && !DOWNGRADE_MARKERS.test(text) && !state.stopBlocked) {
+      // 双规后必须交代（只审计一次，不打回）——判定来自母版
+      if (needsAccount({ text, state })) {
         state.stopBlocked = true
         state.turnCount = 0
         saveState(file, state)
@@ -225,8 +227,8 @@ export function stopGuardListener({ warn } = {}) {
 
       state.unknownStreak = 0
 
-      // 触发②：本回合调用 ≥5 且收尾无证据锚点（回合边界不依赖 reset）
-      if (!noText && (state.turnCount || 0) >= 5 && !EVIDENCE_ANCHORS.test(text) && !state.stopBlocked) {
+      // 触发②：本回合调用 ≥5 且收尾无证据锚点（回合边界不依赖 reset）——判定来自母版
+      if (!noText && needsAnchorCheck({ text, state })) {
         state.stopBlocked = true
         const tc = state.turnCount
         state.turnCount = 0

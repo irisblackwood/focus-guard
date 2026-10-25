@@ -39,6 +39,8 @@ import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFI
 import { judgeReadGate, judgeGrepGate, judgeCatGate } from "../src/core/outputGate.mjs";
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail, setProjectDirProvider } from "../src/core/audit.mjs";
+// 2026-10-25 分层：收尾判定搬到母版 `core/stopPolicy.mjs`，本文件只做"取结果 → 打回/审计"。
+import { declaresFuse, needsDowngrade, needsAccount, needsAnchorCheck } from "../src/core/stopPolicy.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize, registerToolKind } from "../src/core/risk.mjs";
 import { gradeOfKpi } from "../src/core/kpi.mjs";
 import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
@@ -1067,7 +1069,7 @@ if (mode === "stop") {
     }
     // 2.5.2 一次性打回：声明熔断却缺降级方案时打回一次；二次起仅审计放行，防宿主强制续跑死循环
     // （DSH 桥接的 Stop 打回会强制续步且无连败上限，本分支此前没有 stopBlocked 保护）。
-    const needDowngradeBlock = formalFuse && !DOWNGRADE_MARKERS.test(text) && !state.stopBlocked && !stopReentry;
+    const needDowngradeBlock = needsDowngrade({ text, state, stopReentry });
     if (needDowngradeBlock) state.stopBlocked = true;
     state.turnCount = 0;
     saveState(path, state);
@@ -1079,13 +1081,7 @@ if (mode === "stop") {
   }
 
   // 双规后必须交代（2.5.2：加 stop_hook_active 一次性信号；否则打回→放行→再打回来回震荡）
-  if (
-    state.fused &&
-    !EVIDENCE_ANCHORS.test(text) &&
-    !DOWNGRADE_MARKERS.test(text) &&
-    !state.stopBlocked &&
-    !stopReentry
-  ) {
+  if (needsAccount({ text, state, stopReentry })) {
     state.stopBlocked = true;
     state.turnCount = 0;
     saveState(path, state);
@@ -1124,13 +1120,7 @@ if (mode === "stop") {
   state.unknownStreak = 0;
 
   // 触发②：本回合调用≥5 且收尾无证据锚点（turnCount 由本事件清零，回合边界不依赖 reset）；DSH 桥接降级审计
-  if (
-    (state.turnCount || 0) >= 5 &&
-    !EVIDENCE_ANCHORS.test(text) &&
-    !state.stopBlocked &&
-    !stopReentry &&
-    !dshBridge
-  ) {
+  if (needsAnchorCheck({ text, state }) && !stopReentry && !dshBridge) {
     const tc = state.turnCount;
     const level = penalize(state, sid, "violation-no-anchor", `收尾无锚点，本回合 ${tc} 次调用`);
     state.stopBlocked = true;
