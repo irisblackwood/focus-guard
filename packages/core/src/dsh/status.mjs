@@ -60,12 +60,19 @@ const body = {
   modules_ok: beat.modules_ok ?? null,
   degraded: Array.isArray(beat.degraded) ? beat.degraded : null,
   modules: beat.modules ?? null,
+  // 2026-10-25：KPI 可见化时写进了 status.json，但本 CLI 没读 → 人类 `npm run status`
+  // 依旧看不到。补上（null 表示本进程尚未结算过 KPI）。
+  kpi: typeof beat.kpi === 'number' ? beat.kpi : null,
+  delegate_budget: typeof beat.delegate_budget === 'number' ? beat.delegate_budget : null,
+  kpi_at: beat.kpi_at ?? null,
   file,
 }
 
 console.log(
   `${body.status}  心跳延迟 ${lagMs}ms（阈值 ${staleAfter}ms）  pid=${body.pid}  模块 ${body.modules_ok ?? '?'}` +
     (body.degraded && body.degraded.length > 0 ? `  缺失 ${body.degraded.join(',')}` : '') +
+    (body.kpi !== null ? `  KPI ${body.kpi}` : '') +
+    (body.delegate_budget !== null ? `  委托 ${body.delegate_budget}` : '') +
     `  ${file}`,
 )
 console.log(JSON.stringify(body))

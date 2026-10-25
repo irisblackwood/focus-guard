@@ -1,4 +1,8 @@
 /**
+ * ⚠ 未使用（2026-10-25 模块普查确认）：与 fg-apply-tool.mjs 同属**早期 defineTool 版本**参考实现。
+ * 生产路径是 `src/dsh/tools.mjs::buildAppealTool`（申辩的 ask 在 pipeline 里最先处理）。
+ * 全仓无 import；改了它不影响线上行为。
+ *
  * focus-guard 适配层 · fg_appeal 工具注册（3.0.7 · 误伤申辩）
  *
  * 契约与 fg-apply-tool.mjs 相同：defineTool({ name, description, parameters, execute })。

@@ -1,4 +1,9 @@
 /**
+ * ⚠ 未使用（2026-10-25 模块普查确认）：本文件是**早期 defineTool 版本**的参考实现。
+ * 生产路径是 `src/dsh/tools.mjs::buildApplyTool/registerGateTools`（不依赖宿主 SDK），
+ * 全仓没有任何地方 import 本文件。**改了它不会改变线上行为**——要改行为请改 tools.mjs。
+ * 保留原因：作为其它宿主接 `fg_apply` 时的契约样例；若哪天确认无用，可整体删除。
+ *
  * focus-guard 适配层 · fg_apply 工具注册（3.0.5 第二步·入口一）
  *
  * 契约来源：装机 dsh-tools 的 defineTool —— 字段为
