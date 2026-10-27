@@ -371,10 +371,19 @@ export function preStepListener({ warn } = {}) {
       state.ineffCalls = 0
       const chain = 'T' + Date.now().toString(36)
 
+      // 2026-10-27 修（熔断只活一步）：`agent/pre-step` **每个 step 都触发**，而原实现无条件写
+      // `fused: stopOrdered` → 熔断在**下一步**就被清掉，模型来不及看见，执法形同虚设。
+      // 实测 turn 128：step 19 硬上限熔断，step 20 起 eff 仍 200→206、inv 787→793，白走 16 步。
+      // 设计意图本就是"回合级状态"（本函数下方 residue-check 已把 fused 列为待清残留）。
+      // 改为：只在**换回合**（turn 变化）时重置 fused；同一回合内保留熔断。
+      // 注意：只动 fused。其余字段（turnCount/readSet/lastSig…）保持每步重置的现状不动——
+      // 尤其 lastSig/lastInput 每步清空意味着"无效调用"只在单步内判定，改成跨步会放大停滞误判。
+      const isNewTurn = Number.isInteger(turn) ? turn !== state.lastTurn : true
       saveState(file, {
         ...state, // envCache/caseCache（侦查缓存）随 spread 保留；kpi/delegateUsed 跨回合保留
+        lastTurn: Number.isInteger(turn) ? turn : state.lastTurn,
         turnCount: 0,
-        fused: stopOrdered,
+        fused: isNewTurn ? stopOrdered : state.fused,
         stopBlocked: false,
         randomFusePending: false, // 反规避抽查B：检查点属回合内状态，换回合作废（写操作计数 fuseOps 保留）
         mercy,

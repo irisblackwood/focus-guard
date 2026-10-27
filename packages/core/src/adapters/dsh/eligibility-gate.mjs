@@ -9,12 +9,11 @@
  * grants 是 FG 自己的状态（按 session 分表，内存版；第五步持久化到 FG 状态文件），不进 guard.mjs 的 state。
  * 审计默认写 .focus-guard/AUDIT.log；FG_AUDIT_FILE 可重定向——自检**只写 tmpdir()**，绝不碰真实工作区。
  */
-import { appendFileSync } from 'node:fs'
 import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
 import { redlineExempt, isMutatingBashCmd } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
-import { AUDIT_FILE, appendAudit } from '../../core/audit-writer.mjs'
+import { appendAudit } from '../../core/audit-writer.mjs'
 import { createApprovalRequest, consumeApproval } from '../../core/approvals.mjs'
 
 /** 需要人工批准的不可逆类别（默认只严抓 rm-rf；strictAll 时扩到全部）。 */

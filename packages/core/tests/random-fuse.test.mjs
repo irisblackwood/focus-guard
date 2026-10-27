@@ -1,10 +1,11 @@
 // FocusGuard · 反规避随机检查点（抽查B，2026-10-19 人类批示）
 //
 // 覆盖四件事：
-//   ① 默认关闭：不设环境变量时，写操作不计数、不挂检查点、不写 random-fuse 行
+//   ① 默认开启（间隔随机 2-5）；显式 FG_RANDOM_FUSE=0 才关闭
 //   ② 独立参数：FG_RANDOM_FUSE_EVERY=N 固定间隔；FG_RANDOM_FUSE=1 间隔在 [2,5] 随机
-//   ③ 消费语义：post-execute 只「挂检查点」（那次写已发生），pre-execute 第 3 层对下一次变更拒**一次**，
-//      审计 trigger 记 `random-fuse`（不是 evidence-gate）
+//   ③ 消费语义（2026-10-27 改）：post-execute 只「挂检查点」（那次写已发生），
+//      pre-execute 第 3 层**默认不打断**——只清 pending，因为"拒一次"必然多一次工具往返，
+//      而它不检查任何内容（理由原文"重试即放行"）。旧语义保留在 `FG_RANDOM_FUSE_BLOCK=1`。
 //   ④ 与抽查A 完全独立：只开抽查B 时不会产生 random-audit 行；换回合作废检查点、保留计数
 //
 // 纪律：审计重定向 tmpdir；状态写 tmpdir；不碰真实工作区。
@@ -92,7 +93,7 @@ describe("反规避抽查B · 随机检查点", () => {
     rmSync(statePath(sid), { force: true });
   });
 
-  test("r3. pre-execute 消费检查点：拒一次 → 重试放行；审计 trigger 是 random-fuse", async () => {
+  test("r3. 消费检查点：默认不打断（只清 pending）；FG_RANDOM_FUSE_BLOCK=1 才拒一次", async () => {
     clearEnv();
     const sid = `rf-consume-${process.pid}`;
     withState(sid, { randomFusePending: true, randomFuseAt: 3 });
@@ -102,15 +103,25 @@ describe("反规避抽查B · 随机检查点", () => {
     rmSync(target, { force: true }); // 新文件：不触发取证闸，变量收敛到抽查B
     const exec = mkExec(sid, "Write", { file_path: target, content: "x" });
 
+    // 默认语义（2026-10-27）：不拒。拒一次必然多一次工具往返，而它不核对任何内容。
     const first = await l(exec, pass);
     console.log("[r3] first =", JSON.stringify(first).slice(0, 160));
-    assert.equal(first.kind, "deny", "检查点应拒一次");
-    assert.match(first.reason, /反规避抽查B/);
+    assert.notEqual(first && first.kind, "deny", "默认不该打断：往返比拦截贵");
+    assert.equal(loadState(statePath(sid)).randomFusePending, false, "检查点应被消费");
+
+    // 逃生口：旧语义仍可恢复，供需要时序干扰时用。
+    process.env.FG_RANDOM_FUSE_BLOCK = "1";
+    withState(sid, { randomFusePending: true, randomFuseAt: 3 });
+    const blocked = await l(exec, pass);
+    console.log("[r3] blocked =", JSON.stringify(blocked).slice(0, 160));
+    assert.equal(blocked.kind, "deny", "FG_RANDOM_FUSE_BLOCK=1 应恢复「拒一次」");
+    assert.match(blocked.reason, /反规避抽查B/);
     const denyRow = auditLines().find((r) => r.action === "deny");
     assert.equal(denyRow.trigger, "random-fuse", "审计要能回答「为什么被拦」");
 
-    const second = await l(exec, pass);
-    assert.equal(second.kind, "allow", "重试必须放行（只拒一次，不做死锁）");
+    const after = await l(exec, pass);
+    assert.equal(after.kind, "allow", "重试必须放行（只拒一次，不做死锁）");
+    delete process.env.FG_RANDOM_FUSE_BLOCK;
     rmSync(statePath(sid), { force: true });
   });
 

@@ -9,13 +9,22 @@
  * 职责分工：pipeline 那条记成本台账；本条做进度/预算/污染/考核。
  *
  * 工具名适配（DSH 与 ZCode 命名不同）：
- *   ZCode: Read/Write/Edit/Grep/Bash/Agent  →  DSH: read/write/edit/grep/pwsh|bash/subagent
+ *   ZCode: Read/Write/Edit/Grep/Bash/Agent  →  DSH: read/write/edit/grep|pwsh|bash/subagent
  *   故一律用大小写不敏感匹配；子代理同时认 'agent' 与 'subagent'。
  * 入参适配：DSH 的 post-execute 签名是 `(exec, result, next)`，
  *   对应 guard.mjs 的 `input.tool_response` 是这里的 result、`input.tool_name` 是 exec.name、
  *   `input.tool_input` 是 exec.arguments。
  *
  * 纪律：任何异常只 warn，绝不断开 DSH 主流程；写状态走 saveState（原子落盘）。
+ *
+ * ── 2026-10-27 按段拆分（brooks-lint 判 Divergent Change）──
+ * 原先 `postProgressListener` 是单个 320 行闭包，按段落顺序堆放 7 个互不相干的职责
+ * （预算 / 上下文污染 / 巨量输出追责 / 子代理摘要 / 强制委派 KPI / 抽查A / 抽查B），
+ * 共用 `reason` 一个短路变量——改任一职责都要读完全部前序短路条件。
+ * 现抽成 9 个命名函数（7 个产出 reason，2 个只落状态），监听器退化为顺序调用 + 首个非空即短路。
+ *
+ * **如实申报：这次拆分不降行数**（320 → 约 340，多出的是每段的签名、ctx 解构与段落注释）。
+ * 收益是**可测性与可读性**：每段可单独喂 ctx 断言，不再需要构造一整个 exec/result 才能碰到某条判定。
  */
 import { statSync } from 'node:fs'
 import { statePath as guardStateFile, loadState, saveState, fingerprint, gitDirty, casePath, loadCaseRecords, saveCaseRecords } from '../core/state.mjs'
@@ -24,6 +33,21 @@ import { collectStrings, callHash, isInvestigation } from '../core/risk.mjs'
 import { zcodeToolName } from './toolName.mjs'
 import { isDangerousCmd, SCRIPT_FILE_RE } from '../core/redlines.mjs'
 import { appendAudit } from './audit.mjs'
+import { budgetVerdict, stallVerdict, invPoolOverLimit, judgeProgress, poolOf } from '../core/progressPolicy.mjs'
+import {
+  BLOCKS_RE,
+  BUDGET_CAP,
+  BUDGET_DEFAULT,
+  CASE_MAX_ROWS,
+  FUSE_PHRASE,
+  INV_POOL_DEFAULT,
+  OUTPUT_GATE_BYTES,
+  RANDOM_AUDIT_EVERY,
+  RANDOM_FUSE_MAX,
+  RANDOM_FUSE_MIN,
+  REFILL,
+  STALL_FUSE,
+} from '../core/constants.mjs'
 
 /**
  * 本地 audit：**签名与母版一致**（sid, action, { level, evidence }），但落点走 DSH 侧统一入口。
@@ -44,21 +68,6 @@ const audit = (sid, action, opts = {}) =>
     evidence: String(opts.evidence || '').slice(0, 200),
     pardon: !!opts.pardon,
   })
-import { budgetVerdict, stallVerdict, invPoolOverLimit } from '../core/progressPolicy.mjs'
-import {
-  BLOCKS_RE,
-  BUDGET_CAP,
-  BUDGET_DEFAULT,
-  CASE_MAX_ROWS,
-  FUSE_PHRASE,
-  INV_POOL_DEFAULT,
-  OUTPUT_GATE_BYTES,
-  RANDOM_AUDIT_EVERY,
-  RANDOM_FUSE_MAX,
-  RANDOM_FUSE_MIN,
-  REFILL,
-  STALL_FUSE,
-} from '../core/constants.mjs'
 
 /**
  * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。
@@ -97,10 +106,352 @@ function projDirOf(exec) {
 }
 const normalize = (p) => String(p || '').replace(/\\/g, '/')
 
+// 段 1/9 · 取证销账（只落状态，不产出 reason）
+
+/** 取证销账：一次成功调查解除强制取证。 */
+function settleForcedInvestigate(ctx) {
+  const { sid, tool, ti, isFail, state } = ctx
+  if (state.forcedInvestigate && !isFail && isInvestigation(tool, ti)) {
+    state.forcedInvestigate = false
+    audit(sid, 'L2-cleared', { level: 2, evidence: `${tool} 取证完成` })
+  }
+}
+
+// 段 2/9 · 本回合已读/已写集合 + 卷宗取证指纹（只落状态）
+
+/** 本回合已读/已写集合 + 卷宗取证指纹（供 TTL 与免重读）。 */
+function trackReadSet(ctx) {
+  const { exec, tool, ti, isFail, state } = ctx
+  if (isFail) return
+  state.readSet = state.readSet || {}
+  if (ti.file_path && (RE_READ.test(tool) || RE_WRITE.test(tool))) state.readSet[normalize(ti.file_path)] = 1
+  if (RE_WRITE.test(tool) && ti.file_path && SCRIPT_FILE_RE.test(String(ti.file_path))) {
+    state.scriptFiles = state.scriptFiles || {}
+    const body = String(ti.content ?? '') + String(ti.old_string ?? '') + String(ti.new_string ?? '')
+    state.scriptFiles[normalize(ti.file_path)] = isDangerousCmd(body) ? 'd' : 'c'
+  }
+  if (RE_GREP.test(tool) && typeof ti.path === 'string') state.readSet[normalize(ti.path)] = 1
+  // 卷宗【三】取证记录（指纹 + TTL 依据）。3.0.5：派生积木不进卷宗
+  if (RE_READ.test(tool) && ti.file_path && !BLOCKS_RE.test(String(ti.file_path))) {
+    try {
+      const fp = fingerprint(ti.file_path)
+      const key = normalize(ti.file_path)
+      const cc = state.caseCache || {}
+      const prev = cc[key]
+      const changedFp = !!(
+        prev &&
+        (prev.mtime !== fp.mtime || prev.size !== fp.size || (prev.sha && fp.sha && prev.sha !== fp.sha))
+      )
+      cc[key] = {
+        path: ti.file_path,
+        mtime: fp.mtime,
+        size: fp.size,
+        sha: fp.sha || '',
+        gitDirty: fp.sha ? null : gitDirty(projDirOf(exec), ti.file_path),
+        readAt: Date.now(),
+        changes: (prev ? prev.changes || 0 : 0) + (changedFp ? 1 : 0),
+        lastChange: prev ? (changedFp ? Date.now() : prev.lastChange || 0) : 0,
+        ttlOverride: prev ? prev.ttlOverride || '' : '',
+        via: fp.sha ? 'mtime+size+sha' : 'mtime+size+git',
+      }
+      state.caseCache = cc
+      const ccKeys = Object.keys(cc)
+      if (ccKeys.length > CASE_MAX_ROWS) {
+        ccKeys.sort((a, b) => (cc[a].readAt || 0) - (cc[b].readAt || 0))
+        for (const k of ccKeys.slice(0, ccKeys.length - CASE_MAX_ROWS)) delete cc[k]
+      }
+      const pDir = projDirOf(exec)
+      if (pDir) saveCaseRecords(pDir, { ...loadCaseRecords(casePath(pDir)), ...cc })
+    } catch {
+      /* 指纹/卷宗失败不阻断 */
+    }
+  }
+}
+
+// 段 3/9 · 动态预算：进度检测 + 三池记账 + 熔断/续杯/侦查池
+
+/**
+ * 进度与三池核算。
+ *
+ * 判定全部来自母版 `core/progressPolicy.mjs`（阶段 2 第一/第二刀）：本函数只算签名、落计数、
+ * 写审计、给提示。行为细节（刻意保留原语义）：
+ * - 侦查池超限会**覆盖**同一次调用里已产生的续杯/熔断 reason——原实现如此，未改；
+ * - 工具失败（`isFail`）时 `progress` 恒为 false，走停滞分支，因此失败也计入 `ineffCalls`。
+ */
+function judgeBudgetPools(ctx) {
+  const { sid, tool, ti, isFail, state, inv, respText } = ctx
+  let progress = false
+  if (!isFail) {
+    const contentSig = respText.slice(0, 1500)
+    const inputSig = callHash({ tool_name: tool, tool_input: ti })
+    progress = judgeProgress({
+      isWrite: RE_WRITE.test(tool),
+      respSig: contentSig,
+      inputSig,
+      prevRespSig: state.lastSig,
+      prevInputSig: state.lastInput,
+    })
+    state.lastSig = contentSig
+    state.lastInput = inputSig
+  }
+
+  let reason = null
+  if (progress) {
+    // 池归属来自母版 `poolOf`（阶段 2 第二刀）：三池分立的语义在母版，本文件只落计数。
+    const pool = poolOf({ isDelegation: RE_AGENT.test(tool), isInvestigation: inv })
+    state.stalledStreak = 0
+    if (pool === 'investigate') state.invCalls = (state.invCalls || 0) + 1
+    else if (pool === 'execute') state.effectiveCalls = (state.effectiveCalls || 0) + 1
+    // 判定来自母版 `core/progressPolicy.mjs`（阶段 2）：本文件只做落状态 + 审计 + 提示。
+    const budget = budgetVerdict({
+      effectiveCalls: state.effectiveCalls || 0,
+      taskBudget: state.taskBudget || BUDGET_DEFAULT,
+      cap: BUDGET_CAP,
+      refill: REFILL,
+    })
+    if (budget.kind === 'fuse') {
+      // 2026-10-27 修（审计重复记账）：`effectiveCalls >= cap` 一旦成立就永远成立，
+      // 原来每次调用都再写一条 `stall-fuse`——实测同一会话写了 61 条"硬上限：有效调用达 200"，
+      // 而真实熔断只发生 1 次。日志虚高会让所有基于它的判断失真（测量工具本身没被测量）。
+      // 只在「从未熔断 → 熔断」的跃迁点记账；重复期间静默。
+      const firstFuse = !state.fused
+      state.fused = true
+      state.violations = Math.max(state.violations || 0, 3)
+      if (firstFuse) {
+        audit(sid, 'stall-fuse', { level: 3, evidence: `硬上限：有效调用达 ${BUDGET_CAP}` })
+        reason = `[触发④·L3]硬上限 ${BUDGET_CAP} 次，强制熔断。输出『${FUSE_PHRASE}』+三行降级方案，等批示。`
+      }
+    } else if (budget.kind === 'refill') {
+      state.taskBudget = budget.nextBudget
+      audit(sid, 'budget-extend', {
+        level: null,
+        evidence: `自动续杯 budget=${state.taskBudget} eff=${state.effectiveCalls} stall=0`,
+      })
+      reason = `[触发④]续杯：执行池 ${state.effectiveCalls} 次达阈值，预算+${REFILL}→${state.taskBudget}。任务继续，自查是否收敛。`
+    }
+    if (inv && !state.invWarned && invPoolOverLimit({ invCalls: state.invCalls || 0, invCap: state.invCap || INV_POOL_DEFAULT })) {
+      state.invWarned = true
+      audit(sid, 'inv-pool-exceeded', {
+        level: null,
+        evidence: `20条 侦查池超限 inv=${state.invCalls}/${state.invCap || INV_POOL_DEFAULT}`,
+      })
+      reason = `[20条]侦查池（${state.invCap || INV_POOL_DEFAULT}次）超限。汇总证据请示追加（『追加额度』+10），或交子代理压缩侦查成本。`
+    }
+  } else {
+    state.stalledStreak = (state.stalledStreak || 0) + 1
+    state.ineffCalls = (state.ineffCalls || 0) + 1
+    if (stallVerdict({ stalledStreak: state.stalledStreak || 0, threshold: STALL_FUSE }).fuse) {
+      // 2026-10-27 修（审计重复记账）：判据是 `stalledStreak >= 3`，而熔断后 stalledStreak 不清零
+      // → 越线之后每一次无效调用都再写一条 stall-fuse。实测 10-18 07:58:25~07:59:01 一秒内写了
+      // 17 条（连续 3/4/5/…/19 次），把 1 次熔断记成 17 次。只在跃迁点记账。
+      const firstFuse = !state.fused
+      state.fused = true
+      state.violations = Math.max(state.violations || 0, 3)
+      if (firstFuse) {
+        audit(sid, 'stall-fuse', {
+          level: 3,
+          evidence: `连续 ${state.stalledStreak} 次无效调用 eff=${state.effectiveCalls || 0}`,
+        })
+        reason = `[触发④·L3]真失控：连续 ${state.stalledStreak} 次无效调用。停止探索，输出『${FUSE_PHRASE}』+三行降级方案，或等批示。`
+      }
+    } else if ((state.stalledStreak || 0) === STALL_FUSE - 1) {
+      audit(sid, 'stall-warning', {
+        level: null,
+        evidence: `停滞 ${state.stalledStreak} 次 eff=${state.effectiveCalls || 0}`,
+      })
+      reason = `[触发④]停滞预警：连续 ${state.stalledStreak} 次无效，再有一次即熔断。换有证据的方法，或结束回合发【信用延期】请批示。`
+    }
+  }
+  return reason
+}
+
+// 段 4/9 · 58条 上下文污染检测（批 2 的消费侧在此闭环）
+
+/** 输出与指令矛盾：head N 行实得更多 / 清单出现不可能的重复路径。 */
+function detectCtxPollution(ctx) {
+  const { sid, tool, ti, isFail, state, respText } = ctx
+  if (isFail || !RE_BASH.test(tool)) return null
+  let reason = null
+  const cmd = String(ti.command || '')
+  const outLines = respText.split('\n').filter((l) => l.trim() !== '')
+  // 2.5.3（案三）：输出对账只对单条语句有意义；复合命令跳过分段对账，宁宽勿严。
+  const stmts = cmd.split(/[;&\n]+/).map((s) => s.trim()).filter(Boolean)
+  if (stmts.length === 1) {
+    const hm = cmd.match(/\bhead\s+(?:-n\s*(\d{1,6})|-(\d{1,6}))\b/)
+    if (hm) {
+      const n = parseInt(hm[1] || hm[2], 10)
+      if (n > 0 && outLines.length > n) {
+        state.pollutionFlagged = true
+        audit(sid, 'ctx-pollution', {
+          level: null,
+          evidence: `58条 行数超限 head ${n} → 实际 ${outLines.length} 行 | ${cmd.slice(0, 60)}`,
+        })
+        reason = `[38条·上下文污染]输出与指令矛盾：head ${n} 行实得 ${outLines.length}。停用本次输出，echo MARK-X 隔离核实并报告人类。`
+      }
+    }
+    if (!reason && /\b(find|git\s+(ls-files|ls-tree))\b/.test(cmd)) {
+      const seen = new Set()
+      let dup = ''
+      for (const l of outLines) {
+        if (seen.has(l)) {
+          dup = l
+          break
+        }
+        const tok = l.trim().split(/\s+/)[0] || ''
+        if (/[/\\]/.test(tok) && !/[:：]$/.test(tok)) seen.add(l)
+      }
+      if (dup) {
+        state.pollutionFlagged = true
+        audit(sid, 'ctx-pollution', {
+          level: null,
+          evidence: `58条 路径重复 ${dup.slice(0, 80)} | ${cmd.slice(0, 50)}`,
+        })
+        reason = `[38条·上下文污染]清单出现不可能的重复路径（${dup.slice(0, 60)}）。停用本次输出，echo MARK-X 隔离核实并报告人类。`
+      }
+    }
+  }
+  return reason
+}
+
+// 段 5/9 · 巨量输出事后追责
+
+/** 巨量输出事后追责。注意：原实现**不看 isFail**（失败的巨量输出同样要追责），此处保持。 */
+function scoldDump(ctx) {
+  const { sid, tool, state, respProbe } = ctx
+  if (!(RE_BASH.test(tool) || RE_GREP.test(tool))) return null
+  if (respProbe.total <= OUTPUT_GATE_BYTES) return null
+  state.dumpCount = (state.dumpCount || 0) + 1
+  audit(sid, 'scold-dump', { level: null, evidence: `${tool} 输出 ${Math.round(respProbe.total / 1024)}KB` })
+  return `体积刺客：${tool} 输出 ${Math.round(respProbe.total / 1024)}KB 已入上下文。下次先 head/tail/wc/grep 过滤（累计 ${state.dumpCount} 次）。`
+}
+
+// 段 6/9 · 子代理摘要格式校验
+
+/** 只收【子代理摘要】，≤200 字，五段字段齐全；合格 +3、不合格 -3。 */
+function checkDelegateSummary(ctx) {
+  const { sid, tool, isFail, state, respText } = ctx
+  if (isFail || !RE_AGENT.test(tool)) return null
+  const sumText = respText
+  const fmtOk =
+    /【子代理摘要】/.test(sumText) &&
+    /任务[:：]/.test(sumText) &&
+    /结果[:：]/.test(sumText) &&
+    /异常[:：]/.test(sumText) &&
+    /文件线索[:：]/.test(sumText)
+  if (!fmtOk || sumText.length > 200) {
+    state.kpi = (state.kpi || 0) - 3
+    audit(sid, 'delegate-summary-pollution', {
+      level: null,
+      evidence: `2.3.0 摘要污染 -3 len=${sumText.length} fmt=${fmtOk ? '有' : '无'}`,
+    })
+    return '[委派摘要拒收·KPI-3]超200字或缺字段，拒绝全量采纳。压缩为：【子代理摘要】任务：…｜结果：≤5条｜异常：…｜文件线索：文件:行号，以此继续。'
+  }
+  state.kpi = (state.kpi || 0) + 3
+  audit(sid, 'kpi-summary-good', { level: null, evidence: `2.3.0 委派摘要合格 +3 len=${sumText.length}` })
+  return null
+}
+
+// 段 7/9 · 强制委派场景检测（该委派不委派 → KPI-5；已委派 → KPI+5 一次）
+
+/** 识别三类强制委派场景：全库搜索 / 大文档摘要 / 批量文件处理。 */
+function detectForcedDelegation(ctx) {
+  const { sid, tool, ti, isFail, state, respText } = ctx
+  if (isFail) return null
+  const scLines = respText.split('\n').map((l) => l.trim()).filter(Boolean)
+  const scPaths = scLines.filter((l) => /[/\\]/.test(l) && l.length <= 200 && !/^(total|\.\.?|d[-rwx]|-[-rwx])/.test(l))
+  const scDirs = new Set(scPaths.map((l) => l.replace(/[/\\][^/\\]*$/, '')))
+  let scenario = ''
+  if (RE_GREP.test(tool) || (RE_BASH.test(tool) && /\b(find|rg|grep)\b/i.test(String(ti.command || '')))) {
+    if (scPaths.length >= 10 || scDirs.size >= 3) scenario = '全库搜索'
+  } else if (RE_READ.test(tool) && ti.file_path) {
+    let kb = 0
+    try {
+      kb = statSync(ti.file_path).size / 1024
+    } catch {
+      kb = 0
+    }
+    if (kb > OUTPUT_GATE_BYTES / 1024 || scLines.length > 2000) scenario = '大文档摘要'
+  } else if (RE_WRITE.test(tool) && ti.file_path) {
+    state.editedFiles = state.editedFiles || {}
+    state.editedFiles[normalize(ti.file_path)] = 1
+    if (Object.keys(state.editedFiles).length >= 5) scenario = '批量文件处理'
+  }
+  if (!scenario) return null
+  if (state.delegated) {
+    if (!state.kpiDelegatedAwarded) {
+      state.kpiDelegatedAwarded = true
+      state.kpi = (state.kpi || 0) + 5
+      audit(sid, 'kpi-delegated', { level: null, evidence: `2.3.0 强制场景已委派 +5 ${scenario}` })
+    }
+    return null
+  }
+  state.kpiScolded = state.kpiScolded || {}
+  const key = scenario === '全库搜索' ? 'search' : scenario === '大文档摘要' ? 'bigdoc' : 'batch'
+  if (state.kpiScolded[key]) return null
+  state.kpiScolded[key] = true
+  state.kpi = (state.kpi || 0) - 5
+  audit(sid, 'kpi-not-delegated', { level: null, evidence: `2.3.0 强制场景未委派 -5 ${scenario}` })
+  return (
+    `[未尽职·KPI-5]${scenario}属强制委派场景（≥3目录/≥10文件、>50KB或>2000行、≥5文件批量、并行任务），本任务未委派过。` +
+    `改用 Agent 委派，只回【子代理摘要】；特例需向人类说明。`
+  )
+}
+
+// 段 8/9 · 抽查A：每 5 次写操作全量审计 1 次（确定性节奏，不是随机抽样）
+
+/** 抽查A：确定性节奏的留痕。 */
+function spotCheckA(ctx) {
+  const { sid, tool, ti, isFail, state } = ctx
+  if (isFail || !RE_WRITE.test(tool)) return null
+  state.writeOps = (state.writeOps || 0) + 1
+  if (state.writeOps % RANDOM_AUDIT_EVERY !== 0) return null
+  audit(sid, 'random-audit', {
+    level: null,
+    evidence: `第 ${state.writeOps} 次写操作全量审计 ${normalize(ti.file_path)}`,
+  })
+  return `抽查A：第 ${state.writeOps} 次写操作已留痕。确认有锚点([文件:行号])，无则补【假设】。`
+}
+
+// 段 9/9 · 抽查B：反规避随机检查点（只挂检查点，不产出 reason）
+
+/**
+ * 抽查B（2026-10-19；与抽查A 的 RANDOM_AUDIT_EVERY **完全独立**）。
+ *
+ * 目的：让"何时被检查"不可预测，"攒着批量绕过"无法规划。
+ * 触发时机只能是 post-execute（那次写已经发生），所以这里只**挂检查点**：
+ * pre-execute 第 3 层只清 pending、**默认不打断**（2026-10-27 改；旧"拒一次"语义保留在
+ * `FG_RANDOM_FUSE_BLOCK=1`）。因此本段**不产出 reason**。
+ */
+function spotCheckB(ctx) {
+  const { sid, tool, isFail, state } = ctx
+  if (isFail || !RE_WRITE.test(tool)) return
+  const fuseInterval = randomFuseInterval()
+  if (!fuseInterval) return
+  state.fuseOps = (state.fuseOps || 0) + 1
+  const nextAt = Number(state.fuseNextAt) || 0
+  if (nextAt <= 0) {
+    // 第一轮先定阈值，不在本轮就触发（否则"2-5 次"会退化成"第一次就查"）
+    state.fuseNextAt = state.fuseOps + fuseInterval.pick()
+    return
+  }
+  if (state.fuseOps < nextAt) return
+  const gap = state.fuseOps - nextAt
+  state.randomFusePending = true
+  state.randomFuseAt = state.fuseOps
+  state.fuseNextAt = state.fuseOps + fuseInterval.pick()
+  audit(sid, 'random-fuse', {
+    level: null,
+    evidence: `反规避抽查B：第 ${state.fuseOps} 次写操作命中随机检查点（间隔 ${fuseInterval.kind === 'fixed' ? fuseInterval.n : '2-5 随机'}${gap > 0 ? `，超出阈值 ${gap} 次` : ''}）`,
+  })
+}
+
 /**
  * post-execute 进度与执法缝。
  * 对应 guard.mjs 的 `post`（工具成功后）与 `postfail`（工具失败后）两种语义——
  * DSH 侧没有独立的失败缝，故用 `result` 是否含 error 判定。
+ *
+ * 顺序即优先级：前一段产出 reason 后，后续段一律跳过（原实现的 `!reason` 短路）。
+ * 唯一的例外是段 9（抽查B）——它不产出 reason，故放在最后且**只在无 reason 时**执行。
  */
 export function postProgressListener({ warn } = {}) {
   return async (exec, result, next) => {
@@ -113,7 +464,6 @@ export function postProgressListener({ warn } = {}) {
       const state = loadState(file)
       auditChainInit(state)
 
-      let reason = null
       state.turnCount = (state.turnCount || 0) + 1
 
       // 响应内容单次采样：进度/污染/追责/摘要/强制场景五处共用
@@ -121,285 +471,25 @@ export function postProgressListener({ warn } = {}) {
       if (!isFail) collectStrings(result ?? {}, respProbe, 200000)
       const respText = respProbe.parts.join('\n')
 
-      // 取证销账：一次成功调查解除强制取证
-      if (state.forcedInvestigate && !isFail && isInvestigation(tool, ti)) {
-        state.forcedInvestigate = false
-        audit(sid, 'L2-cleared', { level: 2, evidence: `${tool} 取证完成` })
-      }
-
-      // ── 本回合已读/已写集合 + 卷宗取证指纹（供 TTL 与免重读）──
-      if (!isFail) {
-        state.readSet = state.readSet || {}
-        if (ti.file_path && (RE_READ.test(tool) || RE_WRITE.test(tool))) state.readSet[normalize(ti.file_path)] = 1
-        if (RE_WRITE.test(tool) && ti.file_path && SCRIPT_FILE_RE.test(String(ti.file_path))) {
-          state.scriptFiles = state.scriptFiles || {}
-          const body = String(ti.content ?? '') + String(ti.old_string ?? '') + String(ti.new_string ?? '')
-          state.scriptFiles[normalize(ti.file_path)] = isDangerousCmd(body) ? 'd' : 'c'
-        }
-        if (RE_GREP.test(tool) && typeof ti.path === 'string') state.readSet[normalize(ti.path)] = 1
-        // 卷宗【三】取证记录（指纹 + TTL 依据）。3.0.5：派生积木不进卷宗
-        if (RE_READ.test(tool) && ti.file_path && !BLOCKS_RE.test(String(ti.file_path))) {
-          try {
-            const fp = fingerprint(ti.file_path)
-            const key = normalize(ti.file_path)
-            const cc = state.caseCache || {}
-            const prev = cc[key]
-            const changedFp = !!(
-              prev &&
-              (prev.mtime !== fp.mtime || prev.size !== fp.size || (prev.sha && fp.sha && prev.sha !== fp.sha))
-            )
-            cc[key] = {
-              path: ti.file_path,
-              mtime: fp.mtime,
-              size: fp.size,
-              sha: fp.sha || '',
-              gitDirty: fp.sha ? null : gitDirty(projDirOf(exec), ti.file_path),
-              readAt: Date.now(),
-              changes: (prev ? prev.changes || 0 : 0) + (changedFp ? 1 : 0),
-              lastChange: prev ? (changedFp ? Date.now() : prev.lastChange || 0) : 0,
-              ttlOverride: prev ? prev.ttlOverride || '' : '',
-              via: fp.sha ? 'mtime+size+sha' : 'mtime+size+git',
-            }
-            state.caseCache = cc
-            const ccKeys = Object.keys(cc)
-            if (ccKeys.length > CASE_MAX_ROWS) {
-              ccKeys.sort((a, b) => (cc[a].readAt || 0) - (cc[b].readAt || 0))
-              for (const k of ccKeys.slice(0, ccKeys.length - CASE_MAX_ROWS)) delete cc[k]
-            }
-            const pDir = projDirOf(exec)
-            if (pDir) saveCaseRecords(pDir, { ...loadCaseRecords(casePath(pDir)), ...cc })
-          } catch {
-            /* 指纹/卷宗失败不阻断 */
-          }
-        }
-      }
-
-      // ── 动态预算：进度检测引擎 ──
-      let progress = false
-      if (!isFail) {
-        const contentSig = respText.slice(0, 1500)
-        const inputSig = callHash({ tool_name: tool, tool_input: ti })
-        progress = RE_WRITE.test(tool) || contentSig !== (state.lastSig ?? '') || inputSig !== (state.lastInput ?? '')
-        state.lastSig = contentSig
-        state.lastInput = inputSig
-      }
-
       // ⚠ 母版 isInvestigation 按 ZCode 命名判定（Read/Grep/Glob/Bash），DSH 传小写 → 必须归一化。
       // 未归一化时只读调用恒被判为"非侦查"，于是全部计入 effectiveCalls：侦查池永不满、
       // 执行池被只读调用提前耗尽（2026-10-10 由批 5 的用例连带抓出本批缺陷）。
       const inv = isInvestigation(zcodeToolName(tool), ti)
-      if (progress) {
-        if (RE_AGENT.test(tool)) {
-          state.stalledStreak = 0 // 委派不占主会话执行池（委托池在 pre 核算）
-        } else if (inv) {
-          state.invCalls = (state.invCalls || 0) + 1
-          state.stalledStreak = 0
-        } else {
-          state.effectiveCalls = (state.effectiveCalls || 0) + 1
-          state.stalledStreak = 0
-        }
-        // 判定来自母版 `core/progressPolicy.mjs`（阶段 2）：本文件只做落状态 + 审计 + 提示。
-        const budget = budgetVerdict({
-          effectiveCalls: state.effectiveCalls || 0,
-          taskBudget: state.taskBudget || BUDGET_DEFAULT,
-          cap: BUDGET_CAP,
-          refill: REFILL,
-        })
-        if (budget.kind === 'fuse') {
-          state.fused = true
-          state.violations = Math.max(state.violations || 0, 3)
-          audit(sid, 'stall-fuse', { level: 3, evidence: `硬上限：有效调用达 ${BUDGET_CAP}` })
-          reason = `[触发④·L3]硬上限 ${BUDGET_CAP} 次，强制熔断。输出『${FUSE_PHRASE}』+三行降级方案，等批示。`
-        } else if (budget.kind === 'refill') {
-          state.taskBudget = budget.nextBudget
-          audit(sid, 'budget-extend', {
-            level: null,
-            evidence: `自动续杯 budget=${state.taskBudget} eff=${state.effectiveCalls} stall=0`,
-          })
-          reason = `[触发④]续杯：执行池 ${state.effectiveCalls} 次达阈值，预算+${REFILL}→${state.taskBudget}。任务继续，自查是否收敛。`
-        }
-        if (inv && !state.invWarned && invPoolOverLimit({ invCalls: state.invCalls || 0, invCap: state.invCap || INV_POOL_DEFAULT })) {
-          state.invWarned = true
-          audit(sid, 'inv-pool-exceeded', {
-            level: null,
-            evidence: `20条 侦查池超限 inv=${state.invCalls}/${state.invCap || INV_POOL_DEFAULT}`,
-          })
-          reason = `[20条]侦查池（${state.invCap || INV_POOL_DEFAULT}次）超限。汇总证据请示追加（『追加额度』+10），或交子代理压缩侦查成本。`
-        }
-      } else {
-        state.stalledStreak = (state.stalledStreak || 0) + 1
-        state.ineffCalls = (state.ineffCalls || 0) + 1
-        if (stallVerdict({ stalledStreak: state.stalledStreak || 0, threshold: STALL_FUSE }).fuse) {
-          state.fused = true
-          state.violations = Math.max(state.violations || 0, 3)
-          audit(sid, 'stall-fuse', {
-            level: 3,
-            evidence: `连续 ${state.stalledStreak} 次无效调用 eff=${state.effectiveCalls || 0}`,
-          })
-          reason = `[触发④·L3]真失控：连续 ${state.stalledStreak} 次无效调用。停止探索，输出『${FUSE_PHRASE}』+三行降级方案，或等批示。`
-        } else if ((state.stalledStreak || 0) === STALL_FUSE - 1) {
-          audit(sid, 'stall-warning', {
-            level: null,
-            evidence: `停滞 ${state.stalledStreak} 次 eff=${state.effectiveCalls || 0}`,
-          })
-          reason = `[触发④]停滞预警：连续 ${state.stalledStreak} 次无效，再有一次即熔断。换有证据的方法，或结束回合发【信用延期】请批示。`
-        }
-      }
 
-      // ── 58条 上下文污染检测（批 2 的消费侧在此闭环）──
-      if (!reason && !isFail && RE_BASH.test(tool)) {
-        const cmd = String(ti.command || '')
-        const outLines = respText.split('\n').filter((l) => l.trim() !== '')
-        // 2.5.3（案三）：输出对账只对单条语句有意义；复合命令跳过分段对账，宁宽勿严。
-        const stmts = cmd.split(/[;&\n]+/).map((s) => s.trim()).filter(Boolean)
-        if (stmts.length === 1) {
-          const hm = cmd.match(/\bhead\s+(?:-n\s*(\d{1,6})|-(\d{1,6}))\b/)
-          if (hm) {
-            const n = parseInt(hm[1] || hm[2], 10)
-            if (n > 0 && outLines.length > n) {
-              state.pollutionFlagged = true
-              audit(sid, 'ctx-pollution', {
-                level: null,
-                evidence: `58条 行数超限 head ${n} → 实际 ${outLines.length} 行 | ${cmd.slice(0, 60)}`,
-              })
-              reason = `[38条·上下文污染]输出与指令矛盾：head ${n} 行实得 ${outLines.length}。停用本次输出，echo MARK-X 隔离核实并报告人类。`
-            }
-          }
-          if (!reason && /\b(find|git\s+(ls-files|ls-tree))\b/.test(cmd)) {
-            const seen = new Set()
-            let dup = ''
-            for (const l of outLines) {
-              if (seen.has(l)) {
-                dup = l
-                break
-              }
-              const tok = l.trim().split(/\s+/)[0] || ''
-              if (/[/\\]/.test(tok) && !/[:：]$/.test(tok)) seen.add(l)
-            }
-            if (dup) {
-              state.pollutionFlagged = true
-              audit(sid, 'ctx-pollution', {
-                level: null,
-                evidence: `58条 路径重复 ${dup.slice(0, 80)} | ${cmd.slice(0, 50)}`,
-              })
-              reason = `[38条·上下文污染]清单出现不可能的重复路径（${dup.slice(0, 60)}）。停用本次输出，echo MARK-X 隔离核实并报告人类。`
-            }
-          }
-        }
-      }
+      const ctx = { exec, sid, tool, ti, isFail, state, respText, respProbe, inv }
 
-      // 巨量输出事后追责
-      if (!reason && (RE_BASH.test(tool) || RE_GREP.test(tool))) {
-        if (respProbe.total > OUTPUT_GATE_BYTES) {
-          state.dumpCount = (state.dumpCount || 0) + 1
-          audit(sid, 'scold-dump', { level: null, evidence: `${tool} 输出 ${Math.round(respProbe.total / 1024)}KB` })
-          reason = `体积刺客：${tool} 输出 ${Math.round(respProbe.total / 1024)}KB 已入上下文。下次先 head/tail/wc/grep 过滤（累计 ${state.dumpCount} 次）。`
-        }
-      }
+      settleForcedInvestigate(ctx)
+      trackReadSet(ctx)
 
-      // ── 子代理摘要格式校验（只收【子代理摘要】，≤200字）──
-      if (!reason && !isFail && RE_AGENT.test(tool)) {
-        const sumText = respText
-        const fmtOk =
-          /【子代理摘要】/.test(sumText) &&
-          /任务[:：]/.test(sumText) &&
-          /结果[:：]/.test(sumText) &&
-          /异常[:：]/.test(sumText) &&
-          /文件线索[:：]/.test(sumText)
-        if (!fmtOk || sumText.length > 200) {
-          state.kpi = (state.kpi || 0) - 3
-          audit(sid, 'delegate-summary-pollution', {
-            level: null,
-            evidence: `2.3.0 摘要污染 -3 len=${sumText.length} fmt=${fmtOk ? '有' : '无'}`,
-          })
-          reason =
-            '[委派摘要拒收·KPI-3]超200字或缺字段，拒绝全量采纳。压缩为：【子代理摘要】任务：…｜结果：≤5条｜异常：…｜文件线索：文件:行号，以此继续。'
-        } else {
-          state.kpi = (state.kpi || 0) + 3
-          audit(sid, 'kpi-summary-good', { level: null, evidence: `2.3.0 委派摘要合格 +3 len=${sumText.length}` })
-        }
-      }
+      let reason =
+        judgeBudgetPools(ctx) ||
+        detectCtxPollution(ctx) ||
+        scoldDump(ctx) ||
+        checkDelegateSummary(ctx) ||
+        detectForcedDelegation(ctx) ||
+        spotCheckA(ctx)
 
-      // ── 强制委派场景检测（该委派不委派 → KPI-5；已委派 → KPI+5 一次）──
-      if (!reason && !isFail) {
-        const scLines = respText.split('\n').map((l) => l.trim()).filter(Boolean)
-        const scPaths = scLines.filter((l) => /[/\\]/.test(l) && l.length <= 200 && !/^(total|\.\.?|d[-rwx]|-[-rwx])/.test(l))
-        const scDirs = new Set(scPaths.map((l) => l.replace(/[/\\][^/\\]*$/, '')))
-        let scenario = ''
-        if (
-          RE_GREP.test(tool) ||
-          (RE_BASH.test(tool) && /\b(find|rg|grep)\b/i.test(String(ti.command || '')))
-        ) {
-          if (scPaths.length >= 10 || scDirs.size >= 3) scenario = '全库搜索'
-        } else if (RE_READ.test(tool) && ti.file_path) {
-          let kb = 0
-          try {
-            kb = statSync(ti.file_path).size / 1024
-          } catch {
-            kb = 0
-          }
-          if (kb > OUTPUT_GATE_BYTES / 1024 || scLines.length > 2000) scenario = '大文档摘要'
-        } else if (RE_WRITE.test(tool) && ti.file_path) {
-          state.editedFiles = state.editedFiles || {}
-          state.editedFiles[normalize(ti.file_path)] = 1
-          if (Object.keys(state.editedFiles).length >= 5) scenario = '批量文件处理'
-        }
-        if (scenario) {
-          if (state.delegated) {
-            if (!state.kpiDelegatedAwarded) {
-              state.kpiDelegatedAwarded = true
-              state.kpi = (state.kpi || 0) + 5
-              audit(sid, 'kpi-delegated', { level: null, evidence: `2.3.0 强制场景已委派 +5 ${scenario}` })
-            }
-          } else {
-            state.kpiScolded = state.kpiScolded || {}
-            const key = scenario === '全库搜索' ? 'search' : scenario === '大文档摘要' ? 'bigdoc' : 'batch'
-            if (!state.kpiScolded[key]) {
-              state.kpiScolded[key] = true
-              state.kpi = (state.kpi || 0) - 5
-              audit(sid, 'kpi-not-delegated', { level: null, evidence: `2.3.0 强制场景未委派 -5 ${scenario}` })
-              reason =
-                `[未尽职·KPI-5]${scenario}属强制委派场景（≥3目录/≥10文件、>50KB或>2000行、≥5文件批量、并行任务），本任务未委派过。` +
-                `改用 Agent 委派，只回【子代理摘要】；特例需向人类说明。`
-            }
-          }
-        }
-      }
-
-      // ── 抽查A：每 5 次写操作全量审计 1 次（确定性节奏，不是随机抽样）──
-      if (!reason && !isFail && RE_WRITE.test(tool)) {
-        state.writeOps = (state.writeOps || 0) + 1
-        if (state.writeOps % RANDOM_AUDIT_EVERY === 0) {
-          audit(sid, 'random-audit', {
-            level: null,
-            evidence: `第 ${state.writeOps} 次写操作全量审计 ${normalize(ti.file_path)}`,
-          })
-          reason = `抽查A：第 ${state.writeOps} 次写操作已留痕。确认有锚点([文件:行号])，无则补【假设】。`
-        }
-      }
-
-      // ── 抽查B：反规避随机检查点（2026-10-19；与抽查A 的 RANDOM_AUDIT_EVERY **完全独立**）──
-      // 目的：让"何时被检查"不可预测，"攒着批量绕过"无法规划。
-      // 触发时机只能是 post-execute（那次写已经发生），所以这里只**挂检查点**：
-      // 由 pre-execute 第 3 层对**下一次**变更型调用拒一次（与取证闸「拒一次」同手感），不冻结会话。
-      const fuseInterval = randomFuseInterval()
-      if (!reason && !isFail && RE_WRITE.test(tool) && fuseInterval) {
-        state.fuseOps = (state.fuseOps || 0) + 1
-        const nextAt = Number(state.fuseNextAt) || 0
-        if (nextAt <= 0) {
-          // 第一轮先定阈值，不在本轮就触发（否则"2-5 次"会退化成"第一次就查"）
-          state.fuseNextAt = state.fuseOps + fuseInterval.pick()
-        } else if (state.fuseOps >= nextAt) {
-          const gap = state.fuseOps - nextAt
-          state.randomFusePending = true
-          state.randomFuseAt = state.fuseOps
-          state.fuseNextAt = state.fuseOps + fuseInterval.pick()
-          audit(sid, 'random-fuse', {
-            level: null,
-            evidence: `反规避抽查B：第 ${state.fuseOps} 次写操作命中随机检查点（间隔 ${fuseInterval.kind === 'fixed' ? fuseInterval.n : '2-5 随机'}${gap > 0 ? `，超出阈值 ${gap} 次` : ''}）`,
-          })
-        }
-      }
+      if (!reason) spotCheckB(ctx)
 
       saveState(file, state)
       if (reason && typeof warn === 'function') warn('事后执法：', reason)

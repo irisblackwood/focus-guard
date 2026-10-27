@@ -10,6 +10,25 @@
 // 退出码：以最后一个引擎（受测引擎）为准——有漏检或良性误报即 exit 1，可直接做 CI 闸门。
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+// 2026-10-27 修（隔离缺口）：本脚本此前用裸 `execFileSync`，子进程继承宿主环境。
+// DSH/WorkBuddy 会在自己的进程里设 `CLAUDE_PROJECT_DIR`，guard.mjs 据此把审计写到
+// **真实工作区** `.focus-guard/AUDIT.log` —— 实测单跑一次 `npm run eval` 就写进 62 行，
+// 而 `audit-isolation` 只守住了测试阶段、守不住 eval。评测写脏真实审计，等于让
+// "按 AUDIT.log 统计"的所有口径失真（本仓已因同类问题返工过两次）。
+// 现按 `acceptance.test.mjs` 的同款纪律：显式清空两个"工作区根"变量，
+// 并把审计重定向到 tmpdir 的独立文件。
+const EVAL_AUDIT = join(tmpdir(), `focus-guard-eval-${process.pid}-${Date.now()}.log`);
+const CHILD_ENV = {
+  ...process.env,
+  ZCODE_PROJECT_DIR: "",
+  CLAUDE_PROJECT_DIR: "",
+  FG_PROJECT_DIR: "",
+  FG_SHELL: "",
+  FG_AUDIT_FILE: EVAL_AUDIT,
+};
 
 const engines = process.argv.slice(2);
 if (!engines.length) {
@@ -62,7 +81,7 @@ const ALLOW = [
 
 function runOne(engine, sid, mode, obj) {
   try {
-    const out = execFileSync("node", [engine, mode], { input: JSON.stringify({ ...obj, session_id: sid }), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    const out = execFileSync("node", [engine, mode], { input: JSON.stringify({ ...obj, session_id: sid }), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], env: CHILD_ENV });
     return { rc: 0, out };
   } catch (e) {
     return { rc: e.status, out: (e.stderr || "") + (e.stdout || "") };

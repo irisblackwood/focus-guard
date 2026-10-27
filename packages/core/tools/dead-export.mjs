@@ -3,8 +3,7 @@
  * 死导出检查（2026-10-25）：找出"导出了但没人调用"的符号——模块活着、功能没接上的典型形态。
  * 只读。排除：tests/ 内的引用不算使用者；同名不同文件的第二个实现会单独列出。
  */
-import { readFileSync } from 'node:fs'
-import { readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 

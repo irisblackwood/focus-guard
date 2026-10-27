@@ -1,13 +1,8 @@
 // FocusGuard 母版层 · 改动前备份（v3.0.5；《资料与代码分层总规范》二·1）
 // .ai/backup/ 物理回滚副本，保留最近 BACKUP_KEEP 份；敏感文件不落明文。项目根由参数传入。
-import {
-  readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
-} from "node:fs";
-import { join, dirname, sep, basename, relative } from "node:path";
-import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+// 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（11 个符号）。ESLint no-unused-vars 全量扫描发现。
+import { rmSync, statSync, mkdirSync, readdirSync, copyFileSync } from "node:fs";
+import { join, dirname, relative } from "node:path";
 import { SHA_LIMIT, BACKUP_KEEP, SECRET_FILE_RE } from "./constants.mjs";
 import { normalize } from "./state.mjs";
 import { audit, noteFail } from "./audit.mjs";

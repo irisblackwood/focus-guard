@@ -10,9 +10,16 @@
  * 两次都是"某条路径忘了重定向"，靠人盯着不现实，所以把它变成一条会红的断言。
  *
  * 用法：
- *   node tests/audit-isolation.mjs              # 跑同目录全部 *.test.mjs
- *   node tests/audit-isolation.mjs -- <args>    # 透传给 node --test
- *   FG_ALLOW_AUDIT_GROWTH=1 …                   # 临时放行（排查用，不提交）
+ *   node tests/audit-isolation.mjs                        # 跑同目录全部 *.test.mjs
+ *   node tests/audit-isolation.mjs -- <args>              # 透传给 node --test
+ *   node tests/audit-isolation.mjs --wrap "<命令>"        # 包裹任意命令（2026-10-27 新增）
+ *   FG_ALLOW_AUDIT_GROWTH=1 …                             # 临时放行（排查用，不提交）
+ *
+ * 2026-10-27 补第三个缺口：守卫此前只包住 `test:all`，而 `npm run check` 里还有
+ * eval / selftest / bridges 三段在守卫**外面**。实测 `npm run eval` 单独一次就往真实
+ * `AUDIT.log` 写 62 行（threat-eval 用裸 execFileSync，子进程继承了宿主的
+ * `CLAUDE_PROJECT_DIR`）。已修 threat-eval 并加 `--wrap` 模式，让整条 check 链都在守卫内。
+ * 教训同源：**"隔离"必须包住整条链，只包住自己那一环等于没包。**
  */
 
 import { spawnSync } from 'node:child_process'
@@ -35,19 +42,31 @@ function snapshot(file) {
 
 const before = snapshot(realAudit)
 
+const wrapIdx = process.argv.indexOf('--wrap')
+const wrapped = wrapIdx >= 0 ? process.argv[wrapIdx + 1] : null
 const passthrough = process.argv.slice(2)
 const files =
-  passthrough[0] === '--'
-    ? passthrough.slice(1)
+  wrapped || passthrough[0] === '--'
+    ? []
     : readdirSync(here)
         .filter((f) => f.endsWith('.test.mjs'))
         .sort()
         .map((f) => join(here, f))
 
 console.log(`[audit-isolation] 真实审计基线：${before.lines} 行 / ${before.bytes} 字节`)
-console.log(`[audit-isolation] 运行 ${files.length} 个测试文件`)
+if (wrapped) console.log(`[audit-isolation] 包裹模式：${wrapped}`)
+else console.log(`[audit-isolation] 运行 ${files.length} 个测试文件`)
 
-const run = spawnSync('node', ['--test', ...files], { cwd: repoRoot, stdio: 'inherit' })
+// 子进程环境必须和终端一致（2026-10-27）：`NODE_TEST_CONTEXT` 在 `node --test` 里会被设成
+// `child-v8`，子进程继承后 `node --test` 会**恒 exit 0**，哪怕测试明确失败。
+// `tools/mutate.mjs` 上踩过这个坑（变异体全被判"存活"，得分是假的）。
+// 本文件目前是顶层运行器、不受影响，但一旦有人从测试里调它就会静默失效，所以一并剔掉。
+const childEnv = { ...process.env }
+delete childEnv.NODE_TEST_CONTEXT
+
+const run = wrapped
+  ? spawnSync(wrapped, { cwd: repoRoot, stdio: 'inherit', shell: true, env: childEnv })
+  : spawnSync('node', ['--test', ...files], { cwd: repoRoot, stdio: 'inherit', env: childEnv })
 const after = snapshot(realAudit)
 
 console.log(
@@ -64,7 +83,7 @@ if (run.status !== 0) {
 
 const grew = after.lines > before.lines || after.bytes > before.bytes
 if (!grew) {
-  console.log('[audit-isolation] PASS：测试与自检对真实 AUDIT.log 零增长')
+  console.log(`[audit-isolation] PASS：${wrapped ? '整条命令链' : '测试与自检'}对真实 AUDIT.log 零增长`)
   process.exit(run.status === 0 ? 0 : 1)
 }
 if (process.env.FG_ALLOW_AUDIT_GROWTH === '1') {

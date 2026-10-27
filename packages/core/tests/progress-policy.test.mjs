@@ -28,3 +28,33 @@ test("invPoolOverLimit：严格大于才算超限", () => {
   assert.equal(pp.invPoolOverLimit({ invCalls: 20, invCap: 20 }), false);
   assert.equal(pp.invPoolOverLimit({ invCalls: 21, invCap: 20 }), true);
 });
+
+// ── 阶段 2 第二刀（2026-10-27）：进度判定与池归属从 postProgress 监听器搬进母版 ──
+// 搬之前这两段埋在 317 行的监听器中间，既无法单测，ZCode 侧也无法复用。
+
+test("judgeProgress：写操作恒算进度（不看签名）", () => {
+  // 写操作即使内容和上次完全一样，也是进度——它改变了工作区。
+  assert.equal(pp.judgeProgress({ isWrite: true, respSig: "same", inputSig: "same", prevRespSig: "same", prevInputSig: "same" }), true);
+});
+
+test("judgeProgress：响应或入参签名变化即算进度", () => {
+  const base = { isWrite: false, prevRespSig: "a", prevInputSig: "b" };
+  assert.equal(pp.judgeProgress({ ...base, respSig: "a2", inputSig: "b" }), true, "响应变了");
+  assert.equal(pp.judgeProgress({ ...base, respSig: "a", inputSig: "b2" }), true, "入参变了");
+  assert.equal(pp.judgeProgress({ ...base, respSig: "a", inputSig: "b" }), false, "两者都没变才是无效调用");
+});
+
+test("judgeProgress：首次调用（无上次签名）恒算进度", () => {
+  // 上次签名为 undefined 时不能判成"没变"，否则第一条调用就被记无效。
+  assert.equal(pp.judgeProgress({ isWrite: false, respSig: "", inputSig: "", prevRespSig: undefined, prevInputSig: undefined }), false,
+    "空签名与缺失签名视为相同（等价于旧实现的 ?? '' 口径）");
+  assert.equal(pp.judgeProgress({ isWrite: false, respSig: "x", inputSig: "", prevRespSig: undefined, prevInputSig: undefined }), true);
+});
+
+test("poolOf：委派 > 侦查 > 执行（委派不占执行池）", () => {
+  assert.equal(pp.poolOf({ isDelegation: true, isInvestigation: true }), "delegate", "委派优先，即使它也是只读");
+  assert.equal(pp.poolOf({ isDelegation: true, isInvestigation: false }), "delegate");
+  assert.equal(pp.poolOf({ isDelegation: false, isInvestigation: true }), "investigate");
+  assert.equal(pp.poolOf({ isDelegation: false, isInvestigation: false }), "execute");
+  assert.equal(pp.poolOf({}), "execute", "默认进执行池");
+});

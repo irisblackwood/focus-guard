@@ -1,10 +1,11 @@
 // FocusGuard 母版层 · 状态与卷宗（v3.0.5；《资料与代码分层自规范》二·1）
 // 会话状态读写与陈旧清扫；卷宗【三】取证记录与 TTL 自适应；文件指纹与 git 脏检。
+// 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（6 个符号）。ESLint no-unused-vars 全量扫描发现。
 import {
-  readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
+  readFileSync, writeFileSync, rmSync, statSync, mkdirSync,
+  existsSync, renameSync, readdirSync,
 } from "node:fs";
-import { join, dirname, sep, basename, relative } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";

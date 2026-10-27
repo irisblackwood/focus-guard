@@ -9,6 +9,11 @@ import { tmpdir } from "node:os";
 const GUARD = fileURLToPath(new URL("../hooks/guard.mjs", import.meta.url));
 // 母版层模块（v3.0.5 拆分）：常量表与红线表的唯一真相源，工程自检须读这里而非 guard.mjs
 const CONSTANTS = fileURLToPath(new URL("../src/core/constants.mjs", import.meta.url));
+// 2026-10-27：原先三处用正则从 `constants.mjs` 的**源码文本**里抠值（`ENGINE_VERSION`、
+// `PARDON_DECL_RE`）。这既断言了实现细节（改注释/改格式即误报），也与 Stryker 的插桩
+// 天然互斥——插桩后文本匹配必然失败，导致 `constants.mjs` 无法进入变异范围。
+// 现改为 import 运行时值；`PARDON_DECL_RE` 的断言同时从「源码里有这行字」升级为「这个正则真匹配」。
+const { ENGINE_VERSION, PARDON_DECL_RE } = await import("../src/core/constants.mjs");
 const REDLINES = fileURLToPath(new URL("../src/core/redlines.mjs", import.meta.url));
 const AUDIT = fileURLToPath(new URL("../src/core/audit.mjs", import.meta.url));
 const RISK = fileURLToPath(new URL("../src/core/risk.mjs", import.meta.url));
@@ -1264,8 +1269,8 @@ describe("工程自检（防版本与文档漂移）", () => {
 
   test("版本一致性：七处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
     const guard = readFileSync(GUARD, "utf8");
-    const consts = readFileSync(CONSTANTS, "utf8");
-    const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
+    // 2026-10-27：改用 import 的运行时值（原先是正则抠源码文本，见文件头说明）。
+    const engine = ENGINE_VERSION;
     assert.ok(engine, "未找到 ENGINE_VERSION");
     // 2026-10-09：guard.mjs 为封存的 ZCode 兼容层，版本号独立（不随 FG 主版本更新）。
     // 原断言要求「头注释 == ENGINE_VERSION」，与封存决策直接冲突，故改为锁定「封存标注存在」——
@@ -1299,8 +1304,7 @@ describe("工程自检（防版本与文档漂移）", () => {
     // 缺口背景：原「版本一致性」用例只校验清单彼此相等，不校验是否跟上 CHANGELOG，
     // 于是 3.0.5/3.0.6 已落地而清单齐刷刷停在 3.0.4 时测试全绿、漂移藏了整轮。
     // 2026-10-09 二次补漏：清单本身也漏了 monorepo 子包（packages/core 是 DSH 实际挂载的那个）。
-    const consts = readFileSync(CONSTANTS, "utf8");
-    const engine = (consts.match(/ENGINE_VERSION = "([^"]+)"/) || [])[1];
+    const engine = ENGINE_VERSION;
     const changelog = readFileSync(ROOT("../CHANGELOG.md"), "utf8");
     const versions = [...changelog.matchAll(/^## (\d+\.\d+\.\d+) · /gm)].map((m) => m[1]);
     assert.ok(versions.length > 0, "CHANGELOG 未找到版本条目（形如 ## X.Y.Z · 标题）");
@@ -1351,10 +1355,11 @@ describe("工程自检（防版本与文档漂移）", () => {
     const rules = readFileSync(ROOT("packages/core/docs/RULES.md"), "utf8");
     const skill = readFileSync(ROOT("packages/core/skills/focus-thinking/SKILL.md"), "utf8");
     const guard = readFileSync(GUARD, "utf8");
-    const consts = readFileSync(CONSTANTS, "utf8");
     // 术语统一：映射表不再要求【请示报告】，引擎只认【授权识别】
     assert.ok(!rules.includes("须输出【请示报告】"), "法条映射表仍残留旧术语【请示报告】");
-    assert.ok(rules.includes("【授权识别】") && consts.includes("PARDON_DECL_RE = /【授权识别】/"));
+    // 2026-10-27：原断言是「constants.mjs 源码里有 `PARDON_DECL_RE = /【授权识别】/` 这行字」，
+    // 属断言实现细节。改为直接验证正则行为——常量被改成匹配不到【授权识别】时才会失败。
+    assert.ok(rules.includes("【授权识别】") && PARDON_DECL_RE.test("【授权识别】"), "引擎须认【授权识别】");
     // 43条：法条处置与引擎一致（记档后清理，而非"停止执行并报告"）
     assert.ok(rules.includes("残留则记录在案并清理"));
     assert.ok(guard.includes('"residue-check"'));

@@ -34,3 +34,32 @@ export function stallVerdict({ stalledStreak = 0, threshold }) {
 export function invPoolOverLimit({ invCalls = 0, invCap }) {
   return invCalls > invCap
 }
+
+/**
+ * 进度判定（2026-10-27 阶段 2 第二刀）：写操作恒算进度；否则响应签名或入参签名变化即算进度。
+ *
+ * 签名由适配层算好传入（母版不做序列化，避免绑定宿主形态——DSH 的 callHash 与 ZCode 的不同）。
+ * 此前这段判定只在 `postProgress.mjs` 的监听器里，317 行的长函数把它埋在中间，
+ * 既无法单测，也无法在 ZCode 侧复用。
+ *
+ * @param {{ isWrite?: boolean, respSig?: string, inputSig?: string, prevRespSig?: string, prevInputSig?: string }} p
+ * @returns {boolean}
+ */
+export function judgeProgress({ isWrite = false, respSig = '', inputSig = '', prevRespSig, prevInputSig }) {
+  if (isWrite) return true
+  return respSig !== (prevRespSig ?? '') || inputSig !== (prevInputSig ?? '')
+}
+
+/**
+ * 调用池归属（2026-10-27 阶段 2 第二刀）：委派独立核算，侦查进侦查池，其余进执行池。
+ *
+ * 三池分立的语义：委派不占主会话执行池（委托池在 pre 侧核算）；只读侦查不挤占执行额度。
+ * 此前是三段 if/else if 散在监听器里，加一个池就得改一次控制流。
+ *
+ * @param {{ isDelegation?: boolean, isInvestigation?: boolean }} p
+ * @returns {'delegate' | 'investigate' | 'execute'}
+ */
+export function poolOf({ isDelegation = false, isInvestigation = false }) {
+  if (isDelegation) return 'delegate'
+  return isInvestigation ? 'investigate' : 'execute'
+}

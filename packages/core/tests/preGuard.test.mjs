@@ -15,6 +15,26 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+// ── 状态文件隔离（2026-10-27 修，此前是偶发失败的根源）────────────────────────
+//
+// `statePath(id)` 的实现是 `join(tmpdir(), 'focus-guard-' + id + '.json')`，**不带 pid**。
+// 本文件里那条"异常一律不阻塞"的用例传 `exec = null`，`sidOf` 于是回落到常量
+// `'dsh-native'` —— 读的就是**真实会话的状态文件** `focus-guard-dsh-native.json`，
+// 而真实会话（宿主里的 agent）随时在写它。熔断/委托池/已否决命令恰好非空时，
+// 那条用例就会拿到 deny，next 不被调用，断言失败。
+//
+// 实测症状：连续 3 次红 → 之后连续 6 次全绿 → 8 次全量里复现 1 次。**不是随机的**，
+// 是"取决于跑测试时真实会话的状态"——所以靠重试治不好，必须隔离。
+//
+// 修法：把本进程的 tmpdir 整体重定向到独立沙箱。`os.tmpdir()` 每次调用都读 TEMP/TMP，
+// 所以在任何 `statePath()` 之前设置即生效；测试文件各自独立进程，不影响其他文件。
+const BASE_TMP = tmpdir();
+const SANDBOX = join(BASE_TMP, `fg-pre-sandbox-${process.pid}-${Date.now()}`);
+mkdirSync(SANDBOX, { recursive: true });
+process.env.TEMP = SANDBOX;
+process.env.TMP = SANDBOX;
+process.on("exit", () => rmSync(SANDBOX, { recursive: true, force: true }));
+
 const AUDIT_TMP = join(tmpdir(), `fg-pre-audit-${process.pid}-${Date.now()}.log`);
 process.env.FG_AUDIT_FILE = AUDIT_TMP;
 
@@ -40,6 +60,18 @@ const withState = (sid, patch = {}) => {
 };
 
 describe("3.0.8 · pre 结构性执法（移植批 5）", () => {
+  test("隔离：状态文件必须落在沙箱内（防止再次读到真实会话状态）", () => {
+    // 这条不是"多测一遍"，是**把上面那段隔离固定住**。
+    // 一旦有人删掉 TEMP/TMP 重定向，`statePath('dsh-native')` 会指回真实 tmpdir，
+    // 本文件的"异常一律不阻塞"又会变成偶发红——而偶发红最难查。
+    const p = statePath("dsh-native");
+    assert.ok(
+      p.startsWith(SANDBOX),
+      `statePath 必须落在沙箱 ${SANDBOX} 内，实际 ${p}。` +
+        `如果这条红了，说明 tmpdir 重定向被删了，preGuard 的偶发失败会回来。`,
+    );
+  });
+
   test("资料分层隔离：直写静态资料区/派生积木区 → deny", async () => {
     const sid = `pre-lib-${process.pid}`;
     withState(sid);

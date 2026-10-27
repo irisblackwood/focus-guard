@@ -16,12 +16,15 @@ import { postProgressListener } from './postProgress.mjs'
 import { stopGuardListener } from './stopGuard.mjs'
 import { preGuardListener } from './preGuard.mjs'
 import { announceWatchReady, compactionEventListener, contextOverflowListener } from './compactionWatch.mjs'
-import { startHeartbeat } from './heartbeat.mjs'
-import { degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
+// 2026-10-27：两行 import 同一模块（ESLint no-duplicate-imports 命中），已合并。
+import { startHeartbeat, degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
 import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
 import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
 import { setProjectDirProvider } from '../core/audit.mjs'
+// 熔断告知（2026-10-27）：文案在母版，宿主缝只决定"何时注入"。
+import { FUSE_NOTICE } from '../core/constants.mjs'
+import { loadState, statePath } from '../core/state.mjs'
 
 // 分层纪律（2026-10-22）：项目目录由宿主层注入；DSH 侧用中立变量 FG_PROJECT_DIR，
 // 母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_（那是替别的宿主代言）。
@@ -112,6 +115,13 @@ export function apply(ctx) {
           const sid = header ? header.id : null
           const section = renderWorkspaceSection(readWorkspace(cwd), { sid })
           if (section) extra.push({ name: 'focus-guard-workspace', text: section })
+          // 熔断告知（2026-10-27）：熔断此前只写 warn（日志），模型完全看不见——
+          // 实测 turn 128 熔断后仍白走 16 步只读探索。这里在熔断期间追加固定文案，
+          // 让模型在下一次请求就知道该收尾。文案固定 → 前缀只变一次，不会每步抖动。
+          if (sid) {
+            const st = loadState(statePath(sid))
+            if (st && st.fused) extra.push({ name: 'focus-guard-fuse', text: FUSE_NOTICE })
+          }
         } catch {
           /* fail-open：卷宗读取失败不影响系统提示 */
         }

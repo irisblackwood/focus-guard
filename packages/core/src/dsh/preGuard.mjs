@@ -31,7 +31,6 @@ import { BLOCKS_RE, DELEGATE_DEFAULT, DOWNGRADE_MSG, LIBRARY_RE } from '../core/
 
 const RE_WRITE = /^(?:write|edit|multiedit)$/i
 const RE_READ = /^(?:read|notebookread)$/i
-const RE_GREP = /^grep$/i
 const RE_BASH = /^(?:pwsh|bash|shell|bash-persistent|pwsh-persistent)$/i
 // 委派类工具（2026-10-22 补口）：此前只认 `agent|subagent`，而 DSH 原生还有
 // `subagent_fork`、`spawn_teammate`（Agent Teams）、`summon_expert(s)` / `summon_expert_team`（Agency 专家团）。

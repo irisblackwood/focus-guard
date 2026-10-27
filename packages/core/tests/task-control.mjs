@@ -14,9 +14,9 @@
  * 用法：node tests/task-control.mjs [--json]
  */
 
-import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))

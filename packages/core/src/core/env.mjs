@@ -1,12 +1,8 @@
 // FocusGuard 母版层 · 平台环境（v3.0.5；《资料与代码分层总规范》二·1）
 // shell/编码/大小写检测与平台命令规则；项目根由适配层以参数传入（母版不认 harness）。
-import {
-  readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
-} from "node:fs";
-import { join, dirname, sep, basename, relative } from "node:path";
-import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
+// 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（14 个符号）。ESLint no-unused-vars 全量扫描发现。
+import { statSync, realpathSync } from "node:fs";
+import { join, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
 export function quickShellId() {

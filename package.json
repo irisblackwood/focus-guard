@@ -1,6 +1,6 @@
 {
   "name": "focus-guard-monorepo",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "description": "FocusGuard 聚焦护栏 monorepo：packages/core（focus-guard，零依赖范本）+ packages/extended（focus-guard-extended，外接三件套衍生包）。下载核心包永不拉取扩展依赖。",
   "workspaces": [
@@ -10,7 +10,8 @@
     "test": "node --test packages/core/tests/acceptance.test.mjs",
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
-    "check": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges && npm run schema:verify",
+    "check": "node packages/core/tests/audit-isolation.mjs --wrap \"npm run check:inner\"",
+    "check:inner": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges && npm run quality:audit:brief && npm run lint:gate && npm run smells:gate && npm run schema:verify",
     "test:all": "node packages/core/tests/audit-isolation.mjs",
     "selftest": "node packages/core/tools/selftest.mjs",
     "test:bridges": "node --test packages/extended/tests/bridges.test.mjs",
@@ -28,7 +29,20 @@
     "schema:update": "node packages/core/tools/schema-fingerprint.mjs --update",
     "fixtures:capture": "node packages/core/tools/capture-fixtures.mjs",
     "handoff": "node packages/core/tools/handoff.mjs",
-    "layers:audit": "node packages/core/tools/layering-audit.mjs"
+    "layers:audit": "node packages/core/tools/layering-audit.mjs",
+    "quality:audit": "node packages/core/tools/quality-audit.mjs",
+    "quality:mutate": "npx --yes --package @stryker-mutator/core@10.1.1 --package @stryker-mutator/tap-runner@10.1.1 stryker run",
+    "quality:audit:brief": "node packages/core/tools/quality-audit.mjs --brief",
+    "lint": "node packages/core/tools/lint.mjs",
+    "lint:brief": "node packages/core/tools/lint.mjs --brief",
+    "lint:gate": "node packages/core/tools/lint.mjs --strict --brief",
+    "smells:gate": "node packages/core/tools/smells.mjs --strict --brief",
+    "mutate:smoke": "node packages/core/tools/mutate.mjs dsh/toolName.mjs",
+    "mutate": "node packages/core/tools/mutate.mjs",
+    "smells": "node packages/core/tools/smells.mjs",
+    "smells:brief": "node packages/core/tools/smells.mjs --brief",
+    "health": "node packages/core/tools/health.mjs",
+    "health:brief": "node packages/core/tools/health.mjs --brief"
   },
   "license": "AGPL-3.0-only",
   "engines": {

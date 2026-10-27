@@ -4,7 +4,10 @@
 export const OUTPUT_GATE_BYTES = 50 * 1024; // 触发③：体积闸值
 export const RANDOM_AUDIT_EVERY = 5; // 抽查A：每 N 次写操作全量审计 1 次
 // 抽查B（反规避随机检查点，2026-10-19）：间隔在 [MIN, MAX] 次写操作之间随机，**与抽查A 完全独立**。
-// 默认关闭：FG_RANDOM_FUSE=1 开随机；FG_RANDOM_FUSE_EVERY=N 固定间隔（运维/测试用）。
+// **默认开启**（2026-10-19 晚人类批示；代码口径见 postProgress.mjs 的 randomFuseInterval）：
+//   FG_RANDOM_FUSE=0 关闭；FG_RANDOM_FUSE_EVERY=N 固定间隔（运维/测试用）。
+// 2026-10-27 改：检查点默认**只留痕不打断**——"拒一次"必然多一次工具往返，而它不核对任何内容；
+//   旧语义保留在 FG_RANDOM_FUSE_BLOCK=1（见 pipeline.mjs 的 layer3Check）。
 export const RANDOM_FUSE_MIN = 2; // 反规避抽查B：随机间隔下限（次写操作）
 export const RANDOM_FUSE_MAX = 5; // 反规避抽查B：随机间隔上限（次写操作）
 export const BUDGET_DEFAULT = 10; // 默认任务预算
@@ -12,7 +15,7 @@ export const BUDGET_CAP = 200; // 硬上限：达到强制熔断
 export const REFILL = 10; // 自动续杯步长
 export const STALL_FUSE = 3; // 连续无效调用 → L3 熔断
 export const MERCY_SHORT = 30; // 特赦短语仅认短指令(trim 后 ≤30 字符)，防协议文本误触
-export const ENGINE_VERSION = "3.1.0"; // 42条：部署版本核验基准（须与五处清单及本文件头注释一致，见验收"版本一致性"用例）
+export const ENGINE_VERSION = "3.2.0"; // 42条：部署版本核验基准（须与七处清单一致，见验收"版本一致性""版本追赶"两条用例）
 export const INV_POOL_DEFAULT = 15; // 20条：侦查池独立额度（批示可追加）
 export const SHA_LIMIT = 200 * 1024; // 总纲四：SHA-256 校验上限（≤200KB）
 export const CASE_MAX_ROWS = 200; // 卷宗【三】最大行数（超出淘汰最旧）
@@ -57,6 +60,14 @@ export const DELEGATE_DEFAULT = 20; // 2.3.0：委托池默认额度（独立于
 export const DOWNGRADE_MSG =
   "[触发⑤·熔断]改动类已拒（只读放行）。三选一各一行：" + FUSE_HINT +
   "。禁静默禁硬凑。解除后经验按 [环境:x][任务:y] 记入 .ai/PATTERNS.md。";
+
+// 熔断告知（2026-10-27）：熔断此前对模型**完全不可见**——postProgress 的熔断理由只进 warn，
+// 模型要等到自己尝试写才被拒。实测 turn 128：熔断后仍白走 16 步（全是只读探索，闸不管）。
+// 现于系统提示追加这一段（**仅熔断期间**出现，文案固定以免每步变化破坏前缀缓存）。
+// 文案属母版层：宿主缝只负责"何时注入"，不负责措辞。
+export const FUSE_NOTICE =
+  "<focus-guard 熔断：本任务已终止>改动类调用已拒（只读放行）。不要再探索或取证——" +
+  "直接输出结论 + 三行降级方案：① 已完成什么 ② 卡在哪 ③ 需要人类做什么。";
 
 // 常驻注入（按需自证 Lazy Rules，2026-10-24 人类批示"按需注入"）
 // 病根：完整条文 427 字常驻 system prompt，每步都付；而其中多数条目只在**被触发时**才有意义。

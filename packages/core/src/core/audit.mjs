@@ -1,13 +1,9 @@
 // FocusGuard 母版层 · 审计与因果链（v3.0.5；《资料与代码分层总规范》二·1）
 // AUDIT.log 写入、seq/chain/ref 因果链上下文、假留痕防线（写失败一律上 stderr）。
-import {
-  readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
-} from "node:fs";
-import { join, dirname, sep, basename, relative } from "node:path";
+// 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（13 个符号）。ESLint no-unused-vars 全量扫描发现。
+import { statSync, appendFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 
 export let auditFile = null;
 

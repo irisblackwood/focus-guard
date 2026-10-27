@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "变异测试配置（2026-10-27）。第三方工具，**不进依赖**：用 `npm run quality:mutate` 经 npx 按需拉取（首次约 26s 下载，之后走 npx 缓存）。tap-runner 做 perTest 覆盖分析，每个变异体只跑相关测试，不是全量 465 条。",
+  "_scope": "默认只变异「判定类」7 个模块（闸门/预算/收尾/风险/审批/红线/常量表）——行为正确性的核心，且都是纯函数、变异信号干净。全量 18 模块见 `npm run quality:mutate:all`（约 2749 个变异体，实测 8 分钟以上，不建议日常跑）。",
+  "_constants_now_included": "2026-10-27 起 `constants.mjs` 进入默认范围。原先排除它，是因为 `acceptance.test.mjs` 有 3 处用正则读它的**源码文本**（`ENGINE_VERSION`、`PARDON_DECL_RE`），而 Stryker 会对变异范围内的文件插桩，文本匹配必然失败。那 3 处已改成 import 运行时值（`PARDON_DECL_RE` 的断言同时升级为「正则真匹配」），互斥解除。",
+  "_why_timeout": "8 秒而非 30 秒：某个变异体若让测试挂起，30 秒超时会把总时长拖到不可用。",
+  "_why_break_80": "`break: 80`（2026-10-27 起）：分数低于 80 即让命令失败。此前是 `null`——一个永不阻断的闸门等于没有闸门，这正是「质量门没用」的同一个病。**注意**：AI 执行环境的批量删除保护会拦住 Stryker 清理临时文件（945 变异体里 820 个 RuntimeError），该环境跑不通属环境限制，不等于本项目未达标；需在本机终端验证。",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": ["packages/core/tests/*.test.mjs"]
+  },
+  "mutate": [
+    "packages/core/src/core/outputGate.mjs",
+    "packages/core/src/core/progressPolicy.mjs",
+    "packages/core/src/core/stopPolicy.mjs",
+    "packages/core/src/core/risk.mjs",
+    "packages/core/src/core/approvals.mjs",
+    "packages/core/src/core/redlines.mjs",
+    "packages/core/src/core/constants.mjs"
+  ],
+  "reporters": ["clear-text", "json"],
+  "concurrency": 8,
+  "timeoutMS": 8000,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "ignorePatterns": [".git", ".stryker-tmp", "reports", ".ai"],
+  "thresholds": { "high": 90, "low": 80, "break": 80 }
+}

@@ -22,7 +22,7 @@
 //   <节正文>
 
 import {
-  readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync,
+  readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync,
 } from "node:fs";
 import { join, basename, relative, dirname } from "node:path";
 import { createHash } from "node:crypto";

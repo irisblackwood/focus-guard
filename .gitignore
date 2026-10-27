@@ -11,6 +11,10 @@ HANDOFF.md
 _guard_under_test.mjs
 _test.mjs
 
+# 变异测试（Stryker，2026-10-27）：沙箱与报告都是本机产物，禁止入库
+.stryker-tmp/
+reports/
+
 # 环境与系统
 node_modules/
 .DS_Store

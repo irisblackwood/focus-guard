@@ -1,13 +1,7 @@
 // FocusGuard 母版层 · 高危审批状态机（v3.0.5；《资料与代码分层总规范》二·1）
 // 待批队列、批量出示、批示消费与目标绑定、阶梯提示。
-import {
-  readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
-} from "node:fs";
-import { join, dirname, sep, basename, relative } from "node:path";
-import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+// 2026-10-27：删掉从 guard.mjs 拆分时复制过来的一批未使用 import（fs/path/os/crypto/child_process 共 19 个符号）。
+// 本模块只操作 state 对象，不碰文件系统——落盘由宿主缝负责。ESLint no-unused-vars 全量扫描发现。
 import { HIGH_RISK_QUEUE_MAX } from "./constants.mjs";
 
 export function pushHighRiskPending(state, key, cmdBrief) {

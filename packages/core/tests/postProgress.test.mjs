@@ -21,7 +21,7 @@ process.env.FG_AUDIT_FILE = AUDIT_TMP;
 const { postProgressListener } = await import("../src/dsh/postProgress.mjs");
 const { preExecuteListener } = await import("../src/dsh/pipeline.mjs");
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
-const { STALL_FUSE, RANDOM_AUDIT_EVERY } = await import("../src/core/constants.mjs");
+const { STALL_FUSE, RANDOM_AUDIT_EVERY, BUDGET_CAP } = await import("../src/core/constants.mjs");
 
 const noop = () => {};
 const pass = () => ({ kind: "allow" });
@@ -74,6 +74,44 @@ describe("3.0.8 · 进度检测与三预算池（移植批 3）", () => {
     assert.equal(st.fused, true, "达 STALL_FUSE 应熔断");
     assert.ok(auditLines().some((r) => r.action === "stall-fuse"), "应留痕 stall-fuse");
     console.log("熔断：stalledStreak =", st.stalledStreak, "fused =", st.fused);
+    rmSync(statePath(sid), { force: true });
+  });
+
+  // 2026-10-27：审计重复记账。判据是 `stalledStreak >= 3`，熔断后不清零 →
+  // 越线之后每一次无效调用都再写一条 stall-fuse。实测 10-18 一秒内写了 17 条（连续 3/4/5/…/19）。
+  test("熔断后继续无效调用 → 不重复写 stall-fuse（一次熔断只记一行）", async () => {
+    const sid = `post-fuse-once-${process.pid}`;
+    const exec = mkExec(sid, "pwsh", { command: "pwsh -c 'echo x'" });
+    const { callHash } = await import("../src/core/risk.mjs");
+    withState(sid, {
+      stalledStreak: STALL_FUSE - 1,
+      lastSig: "同样内容",
+      lastInput: callHash({ tool_name: "pwsh", tool_input: exec.arguments }),
+    });
+    resetAudit();
+    const l = postProgressListener({ warn: noop });
+    await l(exec, { content: "同样内容" }, pass); // 跃迁点：应记 1 行
+    for (let i = 0; i < 5; i += 1) await l(exec, { content: "同样内容" }, pass); // 后续：不该再记
+    const rows = auditLines().filter((r) => r.action === "stall-fuse");
+    assert.equal(rows.length, 1, `一次熔断只该留 1 行，实际 ${rows.length} 行`);
+    assert.match(rows[0].evidence, /连续 \d+ 次无效调用/, "证据要保留跃迁点的真实次数");
+    console.log("熔断重复记账：6 次调用 → stall-fuse 行数 =", rows.length);
+    rmSync(statePath(sid), { force: true });
+  });
+
+  test("硬上限熔断后继续有效调用 → 不重复写 stall-fuse", async () => {
+    const sid = `post-cap-once-${process.pid}`;
+    const l = postProgressListener({ warn: noop });
+    withState(sid, { effectiveCalls: BUDGET_CAP, fused: false });
+    resetAudit();
+    // 每次换入参 → 判为"有进展"，走 budget 分支（硬上限）
+    for (let i = 0; i < 4; i += 1) {
+      await l(mkExec(sid, "pwsh", { command: `pwsh -c 'echo ${i}'` }), { content: `out-${i}` }, pass);
+    }
+    const rows = auditLines().filter((r) => r.action === "stall-fuse");
+    assert.equal(rows.length, 1, `硬上限只该留 1 行，实际 ${rows.length} 行`);
+    assert.match(rows[0].evidence, /硬上限/);
+    console.log("硬上限重复记账：4 次调用 → stall-fuse 行数 =", rows.length);
     rmSync(statePath(sid), { force: true });
   });
 

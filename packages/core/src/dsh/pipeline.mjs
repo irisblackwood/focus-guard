@@ -12,7 +12,7 @@
  *   - dsh-tools/lib/index.js:3504  post-execute 三参瀑布 (exec, result, next)。
  */
 import { auditDeny, appendCostRow, auditRedlineExempt } from './audit.mjs'
-import { redlineExempt, MUTATOR_HEAD_RE, isMutatingBashCmd } from '../core/redlines.mjs'
+import { redlineExempt, MUTATOR_HEAD_RE, isMutatingBashCmd, ABSOLUTE_REDLINES } from '../core/redlines.mjs'
 import { loadProfile } from '../core/profileLoader.mjs'
 import { OUTPUT_GATE_BYTES, RISKY_FILE_RE } from '../core/constants.mjs'
 // 2026-10-22：体积闸判定内核下沉到母版，两条适配路径共用同一套判据（参数提取各自做）。
@@ -28,7 +28,7 @@ import { statePath as guardStateFile, loadState, saveState } from '../core/state
 import { isPeakAt, isSaveStreamEnabled } from '../peak-cost.mjs'
 import { statSync, readFileSync, readdirSync, existsSync, openSync, readSync, closeSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { dirname, join, isAbsolute } from 'node:path'
+import { join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 
@@ -79,7 +79,8 @@ const RM_RF = /\brm\s+(?:-{1,2}[\w-]+\s+)*-\w*(?:r\w*f|f\w*r)\w*\b/
 // ── 第 1 层·绝对红线（零延迟短路 deny，不进第 2 层）──
 // 2026-10-18：红线表下沉到 src/core/redlines.mjs —— 适配层资格闸要用它，
 // 而适配层不能反向依赖宿主缝。此处保留 re-export，避免打断既有引用面。
-import { ABSOLUTE_REDLINES } from "../core/redlines.mjs"
+// 2026-10-27：原先此处另起一行 import 同一模块（ESLint no-duplicate-imports 命中），
+// 已合并到文件头的 import；re-export 保留，引用面不变。
 export { ABSOLUTE_REDLINES }
 
 /** 命中哪条绝对红线；未命中返回 null */
@@ -555,18 +556,32 @@ function layer3Check(exec, warn, statePathOverride) {
     }
   }
 
-  // 反规避抽查B（2026-10-19 人类批示）：随机检查点消费——「拒一次」语义，不冻结会话。
-  // 触发点在 post-execute（那次写已发生、无法回滚），所以检查点挂在**下一次**变更型调用上。
-  // 安全取向：状态清不掉就**不拒**（宁可不拦，也不做永久死锁）——与其余 fail-open 口径一致。
+  // 反规避抽查B（2026-10-19 人类批示；**2026-10-27 改：默认只留痕，不打断**）。
+  //
+  // 原实现是「拒一次 → 重试即放行」。审计实测（2026-10-06~10-26，6230 行）：
+  //   命中 61 次，全部集中在 1 个长会话（turn 174，第 179/183/187 次写操作…）。
+  //   而拒绝理由原文写着"重试即放行"——即**不检查任何内容、不要求任何声明**，
+  //   模型最理性的反应就是原样重试。它收不到信息，也拦不住任何东西。
+  //
+  // 代价是确定的：每拒一次 = 多一次工具往返（≥15k 前缀 + 输出，长会话里最贵）。
+  // 收益是 0：它没有核对任何内容。而抽查A（RANDOM_AUDIT_EVERY，同期 143 次）
+  // 已经在做同样"不可预测"的留痕，且零成本。抽查B 的净增量只有"打断"。
+  // → 往返比拦截贵，所以默认不打断。
+  //
+  // 保留：计数（fuseOps/fuseNextAt）、post 侧审计行、pending 状态（供观测）。
+  // 逃生口：`FG_RANDOM_FUSE_BLOCK=1` 恢复旧语义（拒一次即放行），供需要时序干扰时用。
+  // 安全取向不变：状态清不掉就**不拒**（宁可不拦，也不做永久死锁）。
   if (state.randomFusePending) {
     try {
       saveState(gs.file, { ...state, randomFusePending: false })
-      return {
-        kind: 'deny',
-        trigger: 'random-fuse',
-        reason:
-          `focus-guard-native 反规避抽查B：随机检查点命中（第 ${Number(state.randomFuseAt) || 0} 次写操作），本次变更被拒一次；` +
-          '这不是报错，是防「攒批量绕过」的不可预测抽查，重试即放行。',
+      if (String(process.env.FG_RANDOM_FUSE_BLOCK || '') === '1') {
+        return {
+          kind: 'deny',
+          trigger: 'random-fuse',
+          reason:
+            `focus-guard-native 反规避抽查B：随机检查点命中（第 ${Number(state.randomFuseAt) || 0} 次写操作），本次变更被拒一次；` +
+            '这不是报错，是防「攒批量绕过」的不可预测抽查，重试即放行。',
+        }
       }
     } catch (error) {
       warn('反规避抽查B：检查点状态回写失败 → 本次放行（不做永久死锁）:', (error && error.message) || error)

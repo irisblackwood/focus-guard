@@ -124,8 +124,13 @@ const report = {
 
 if (argv.includes('--update')) {
   mkdirSync(dirname(BASELINE), { recursive: true })
-  writeFileSync(BASELINE, JSON.stringify({ ...report, tools_map: undefined }, null, 2) + '\n')
-  console.log(`[schema-fingerprint] 已写基线 hash=${hash} tools=${schema.size} sessions=${used}`)
+  // 2026-10-27 修：原先写 `{ ...report, tools_map: undefined }`，而 JSON.stringify 会把
+  // 值为 undefined 的键整个丢掉 → 基线里**从来没有**工具名表。后果不是"文件小一点"，
+  // 而是漂移明细永久说谎：`added` 恒等于「当前全部工具」、`removed` 恒为空，
+  // 于是"新增工具 84"这种读数其实只是"当前有 84 个"，一条都没和基线比过。
+  // 现保留 tools_map（名称 → 参数个数），diff 才成立。
+  writeFileSync(BASELINE, JSON.stringify(report, null, 2) + '\n')
+  console.log(`[schema-fingerprint] 已写基线 hash=${hash} tools=${schema.size} sessions=${used}（含 tools_map）`)
   process.exit(0)
 }
 
@@ -145,13 +150,40 @@ if (base.hash === hash) {
   process.exit(0)
 }
 
-console.error(`[schema-fingerprint] FAIL 工具 schema 漂移`)
-console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
-console.error(`  当前 hash=${hash} tools=${schema.size}`)
 const baseNames = Object.keys(base.tools_map || {})
+
+// 2026-10-27：存量基线没有 tools_map（见 --update 处的说明），此时**无法判断**是漂移还是换环境，
+// 也不该假装判断。只报事实并要求重建，不阻断 —— 阻断会训练人忽略这条红。
+if (baseNames.length === 0) {
+  console.error('[schema-fingerprint] 无法判断：基线缺 tools_map（工具名表），diff 不可算')
+  console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
+  console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used}`)
+  console.error('  该字段此前被 --update 主动剥掉（JSON.stringify 丢弃 undefined），导致 added 恒为「全部」、removed 恒为空')
+  console.error('  已在 --update 中修正。请在**目标宿主**上重建基线后提交：npm run schema:verify -- --update')
+  process.exit(0)
+}
+
 const curNames = canonical.map(([n]) => n)
 const added = curNames.filter((n) => !baseNames.includes(n))
 const removed = baseNames.filter((n) => !curNames.includes(n))
+
+// 2026-10-27：**换环境 ≠ 漂移**。基线是在某个宿主/profile 下采集的；在另一个宿主里跑，
+// 工具集可能整批不同（实测：基线 254 个，另一宿主 84 个，交集 0）。
+// 真漂移永远是「大部分还在、个别增删」；整批换掉只能是尺子换了。
+// 原先这里一律 FAIL，于是 `npm run check` 在换环境后永久红 —— 红的不是缺陷，是测量环境，
+// 这种红会训练人忽略它，比不检查更糟。零交集时改为跳过并说明，仍需 --update 才改基线。
+const overlap = curNames.filter((n) => baseNames.includes(n)).length
+if (overlap === 0) {
+  console.error('[schema-fingerprint] 跳过：当前工具集与基线**零交集**，判定为换宿主/换 profile，不是 schema 漂移')
+  console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
+  console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used} 交集=0`)
+  console.error('  若确认当前宿主就是目标宿主，再运行 --update 换基线并提交')
+  process.exit(0)
+}
+
+console.error(`[schema-fingerprint] FAIL 工具 schema 漂移`)
+console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
+console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used} 交集=${overlap}`)
 if (added.length) console.error(`  新增工具 ${added.length}：${added.slice(0, 12).join(', ')}`)
 if (removed.length) console.error(`  消失工具 ${removed.length}：${removed.slice(0, 12).join(', ')}`)
 console.error('  判定条件可能引用已不存在的参数 —— 请核对 gate-audit 输出后，确认无误再 --update')
