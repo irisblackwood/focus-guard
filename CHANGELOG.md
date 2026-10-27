@@ -179,6 +179,16 @@
   - **判死**：`todo-density` 8 条**全部不是债务**——`reasoningWatch`/`emotionFilter` 已由 `profileLoader.mjs:50-51` 登记为 `'no engine implementation, TODO'`。
   - **证据**：`profile.test.mjs:107-112` 把该申报本身锁成断言，属**诚实的空头申报**。工具只看 `TODO` 三个字母，分不出「已申报」与「已遗忘」。
   - **不修**：`deep-nesting` 最深 7 层在已封存的 `guard.mjs:193`；`hooks/guard.mjs` 1168 行**不修**（已封存的 ZCode 兼容层）。
+- refactor(layers): **`pipeline.mjs` 拆到 `src/dsh/guard/`，1242 → 106 行**
+  - **口径**：纯搬运——判定逻辑、阈值、审计字段、理由文案零改动；14 个导出名逐一比对不变。
+  - **切法**：按层拆 10 个模块（tooling/evidence/redline/superpowers/wholeFile/hardCheck/authz/volume/risk/runtime），`pipeline.mjs` 只留编排。
+  - **测试**：`npm run check` exit 0、**522/522**；测试文件只改 1 处（见下条）。
+  - **如实申报**：健康分仍 **79**——结构维被 27 条存量异味压在下限 30；本刀买的是可读性与改动局部化，不是分数。
+- test(fixtures): **真实夹具重放改为「按前提重算期望」**
+  - **起因**：3 条样本是「read `pipeline.mjs` 被整文件闸拦」，而该闸的触发前提是目标文件 >300 行。
+  - **缺陷**：拆分后 `pipeline.mjs` 只剩 106 行，同一条 read 理应放行，旧断言却要求继续 deny——把「文件缩水」误判成「漏拦回归」。
+  - **改法**：整文件闸样本按当前行数重算期望；前提成立 → 仍须 deny，前提已不成立 → 必须 allow（同时防「过时的拦」）。
+  - **另加过滤**：目标文件已不存在的样本不可重放（文件系统是前提，不是判定）。
 
 ### 回归
 
@@ -192,7 +202,7 @@
 | bridges | 3/3 |
 | 口径对账 | **0 未交代** |
 | 房规 `lint:gate` | 活跃层 0/0 |
-| 结构 `smells:gate` | 28/28 |
+| 结构 `smells:gate` | 27/28（上限不变，实际降 1） |
 | 健康分 | 79/100 |
 | 整链审计 | **Δ 0 行 / Δ 0 字节** |
 
