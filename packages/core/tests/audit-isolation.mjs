@@ -20,6 +20,13 @@
  * `AUDIT.log` 写 62 行（threat-eval 用裸 execFileSync，子进程继承了宿主的
  * `CLAUDE_PROJECT_DIR`）。已修 threat-eval 并加 `--wrap` 模式，让整条 check 链都在守卫内。
  * 教训同源：**"隔离"必须包住整条链，只包住自己那一环等于没包。**
+ *
+ * 2026-10-27 补第四个缺口：**只比行数会把宿主的正常写入算成隔离失效**。
+ * 实测一次 `npm run check` 报 Δ 3 行，逐条核对后发现是宿主进程（`status.json` 的 pid 22660、
+ * `compaction-watch-ready` 的 ts 与 `started_at` 差 1ms）在跑 check 期间自己写的——
+ * 与测试无关。这种假阳性比不检查更糟：它会训练人用 `FG_ALLOW_AUDIT_GROWTH=1` 绕过。
+ * 修法：`audit()` 落一行 `run` 字段（取 `FG_RUN_ID`），守卫给子进程注入批次号，
+ * **只把带本批次号的行算作"测试写的"**；其余如实报为"宿主并发写入，不计"。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -31,6 +38,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..', '..', '..')
 const realAudit = join(repoRoot, '.focus-guard', 'AUDIT.log')
 
+/** 本次运行批次号：注入子进程环境，只有带它的审计行才算"测试链写的" */
+const runId = `iso-${process.pid}-${Date.now().toString(36)}`
+
 /** @returns {{lines: number, bytes: number}} */
 function snapshot(file) {
   if (!existsSync(file)) return { lines: 0, bytes: 0 }
@@ -38,6 +48,12 @@ function snapshot(file) {
   // 行数口径 = 换行符个数 + 末尾残余；不用 split('\n')，避免最后一行空串多算一行。
   const lines = raw === '' ? 0 : raw.split('\n').filter(Boolean).length
   return { lines, bytes: statSync(file).size }
+}
+
+/** 基线之后新增的原始行（按行数切，不按内容猜） */
+function linesAfter(file, beforeLines) {
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8').split('\n').filter(Boolean).slice(beforeLines)
 }
 
 const before = snapshot(realAudit)
@@ -63,15 +79,23 @@ else console.log(`[audit-isolation] 运行 ${files.length} 个测试文件`)
 // 本文件目前是顶层运行器、不受影响，但一旦有人从测试里调它就会静默失效，所以一并剔掉。
 const childEnv = { ...process.env }
 delete childEnv.NODE_TEST_CONTEXT
+childEnv.FG_RUN_ID = runId
 
 const run = wrapped
   ? spawnSync(wrapped, { cwd: repoRoot, stdio: 'inherit', shell: true, env: childEnv })
   : spawnSync('node', ['--test', ...files], { cwd: repoRoot, stdio: 'inherit', env: childEnv })
 const after = snapshot(realAudit)
+const added = linesAfter(realAudit, before.lines)
+const mine = added.filter((l) => l.includes(`"run":"${runId}"`))
+const foreign = added.length - mine.length
 
 console.log(
-  `[audit-isolation] 运行后：${after.lines} 行 / ${after.bytes} 字节（Δ 行 ${after.lines - before.lines} / Δ 字节 ${after.bytes - before.bytes}）`,
+  `[audit-isolation] 运行后：${after.lines} 行 / ${after.bytes} 字节（Δ 行 ${after.lines - before.lines} / Δ 字节 ${after.bytes - before.bytes}；其中本批次 ${mine.length} 条）`,
 )
+if (foreign > 0)
+  console.log(
+    `[audit-isolation] 另有 ${foreign} 条来自宿主进程并发写入（批次号不匹配），不计入隔离结论`,
+  )
 
 if (run.error) {
   console.error('[audit-isolation] 测试进程启动失败：', run.error.message)
@@ -81,8 +105,7 @@ if (run.status !== 0) {
   console.error(`[audit-isolation] 测试本身失败（exit ${run.status}）；隔离结论仍取实测增量`)
 }
 
-const grew = after.lines > before.lines || after.bytes > before.bytes
-if (!grew) {
+if (mine.length === 0) {
   console.log(`[audit-isolation] PASS：${wrapped ? '整条命令链' : '测试与自检'}对真实 AUDIT.log 零增长`)
   process.exit(run.status === 0 ? 0 : 1)
 }
@@ -91,7 +114,9 @@ if (process.env.FG_ALLOW_AUDIT_GROWTH === '1') {
   process.exit(run.status === 0 ? 0 : 1)
 }
 
-console.error('[audit-isolation] FAIL：测试往真实 AUDIT.log 写了东西 —— 说明某条路径漏了 FG_AUDIT_FILE 重定向。')
+console.error(
+  `[audit-isolation] FAIL：测试链往真实 AUDIT.log 写了 ${mine.length} 行 —— 说明某条路径漏了 FG_AUDIT_FILE 重定向。`,
+)
 console.error(`[audit-isolation] 目标文件：${realAudit}`)
-console.error('[audit-isolation] 排查线索：deny/compaction-watch-ready 行的 session 字段通常是测试 sid 或 dsh-native。')
+for (const l of mine.slice(0, 3)) console.error(`[audit-isolation]   ${l.slice(0, 160)}`)
 process.exit(1)

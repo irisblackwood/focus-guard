@@ -54,6 +54,10 @@ export function audit(sid, trigger, opts = {}) {
   const record = JSON.stringify({
     ts: new Date().toISOString(),
     session: sid,
+    // 2026-10-27：运行批次标识。审计隔离守卫靠它区分"测试链写的"与"宿主并发写的"——
+    // 两者都落同一文件，只比行数时守卫分不开，会把宿主写入误报成隔离失效（实测 Δ 3 假阳性）。
+    // 宿主进程没有这个环境变量 → 值为 null。
+    run: process.env.FG_RUN_ID || null,
     seq,
     chain: opts.chain !== undefined ? opts.chain : auditCtx.chain,
     ref: opts.ref || null,
