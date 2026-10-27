@@ -8,7 +8,7 @@
  * 两种标注，粒度不同：
  *   - 段级 `> **影响面：开发期**`：整段每一条都属开发期（同质段落用，省得逐条标）
  *   - 条目级 `〔开发期〕`：段内个别条目属开发期（混合段落用）
- * 本仓 3.2.0 属混合段落：熔断/抽查B 修的是 3.1.0（已推 GitHub）里的问题，而工具链四件是当天新造的。
+ * 本仓 3.2.0（已推 GitHub `main`，2026-10-27）属混合段落：熔断/抽查B 修的是 3.1.0（已推 GitHub）里的问题，而工具链四件是当天新造的。
  *
  * 机械判据只有一个常量 `PUBLISHED_MAX`：
  *   **本仓主渠道是 GitHub `main` 公开源码**（clone 即得），npm 发的很少（只到 3.0.7）。
@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** 对外已分发的最高版本（各渠道取最高者，见文件头） */
-const PUBLISHED_MAX = "3.1.0";
+const PUBLISHED_MAX = "3.2.0";
 
 const CHANGELOG = fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url));
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
