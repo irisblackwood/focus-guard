@@ -18,6 +18,8 @@
  * 导出面保持不变：调用方（index.js / tests / selftest）无需改动。
  */
 import { auditDeny } from './audit.mjs'
+// 适配层语义注册（工具名→类别、只读动作表）：与 preGuard 同口径；组装根依赖适配层是允许的。
+import '../adapters/dsh/tool-kinds.mjs'
 import { commandOf } from './guard/tooling.mjs'
 import { rememberReads, evidenceStage } from './guard/evidence.mjs'
 import { redlineStage } from './guard/redline.mjs'

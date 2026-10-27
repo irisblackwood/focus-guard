@@ -16,7 +16,7 @@ process.env.FG_SHELL = "";
 const { isMutatingTool, preExecuteListener } = await import("../src/dsh/pipeline.mjs");
 // 2026-10-22 分层：母版只认语义，宿主工具名由适配层注册 —— 本组直接调 isMutating 前必须注册 DSH 方言。
 await import("../src/adapters/dsh/tool-kinds.mjs");
-const { isMutating } = await import("../src/core/risk.mjs");
+const { isMutating, isReadOnlyCall } = await import("../src/core/risk.mjs");
 const { statePath, saveState } = await import("../src/core/state.mjs");
 
 test("分类：真实改动类工具全部命中", () => {
@@ -78,13 +78,31 @@ test("MCP 写盘：给出 project_dir+relative_path 且文件已存在未读 →
   rmSync(statePath(sid), { force: true });
 });
 
-test("改动类工具无可解析路径（plugin_manager）→ 要求先授权", async () => {
+test("改动类工具无可解析路径（plugin_manager 写动作）→ 要求先授权", async () => {
   const sid = `mut-unmapped-${process.pid}`;
-  // 不能用 `target`：`pathOfTool` 把 `target` 当路径键，会把"插件目标"误判成文件路径，从而绕过本分支。
-  const r = await run(sid, "plugin_manager", { action: "install_bundle", spec: "x@1.0.0" });
+  // 2026-10-27：必须用真实参数形状 `target`（包名/安装 spec）。旧实现把 `target` 当文件路径，
+  // 解析出一个不存在的"新文件"从而绕过本分支；现由 evidence 按工具名排除该键。
+  const r = await run(sid, "plugin_manager", { action: "install_bundle", target: "@scope/pkg@1.0.0" });
   assert.equal(r.kind, "deny");
   assert.match(String(r.reason), /fg_apply|可解析/);
   rmSync(statePath(sid), { force: true });
+});
+
+test("plugin_manager 只读列举（list_*）→ 放行，不再要求路径或授权", async () => {
+  for (const action of ["list_plugins", "list_bundles", "list_version_exemptions"]) {
+    const sid = `mut-list-${action}-${process.pid}`;
+    const r = await run(sid, "plugin_manager", { action });
+    assert.notEqual(r && r.kind, "deny", `${action} 是只读动作，不应被拦`);
+    rmSync(statePath(sid), { force: true });
+  }
+});
+
+test("只读动作判定：list_* 只读，写动作/未知动作不算只读", () => {
+  assert.equal(isReadOnlyCall("plugin_manager", { action: "list_plugins" }), true);
+  assert.equal(isReadOnlyCall("plugin_manager", { action: "list_bundles" }), true);
+  assert.equal(isReadOnlyCall("plugin_manager", { action: "install_bundle" }), false);
+  assert.equal(isReadOnlyCall("plugin_manager", {}), false, "缺 action 一律按非只读（安全默认）");
+  assert.equal(isReadOnlyCall("write", { action: "list_plugins" }), false, "未登记的工具不靠动作名放行");
 });
 
 test("显式放开 FG_MUTATION_UNMAPPED=allow → 退回旧行为（放行）", async () => {

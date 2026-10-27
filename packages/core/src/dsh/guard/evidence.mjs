@@ -19,7 +19,7 @@ import {
   SHELL_TOOL,
   commandOf,
   evidenceKeyOf,
-  isMutatingTool,
+  isMutatingInvocation,
   pathOfTool,
   resolveToolPath,
   sameEvidenceKey,
@@ -168,7 +168,17 @@ function readGuardStateExact(exec, override) {
  */
 function layer3Check(exec, warn, statePathOverride) {
   const tool = String((exec && exec.name) || '')
-  const isMutating = isMutatingTool(tool)
+  // 2026-10-27：按 (工具, 动作) 判改动——`plugin_manager` 的 list_* 只读列举不写盘，
+  // 不能落进下面的"改动类无路径"分支；写动作仍按改动类处理。
+  // 参数读取必须防炸（同下段注释）：DSH 允许 arguments 为惰性 getter，
+  // 它可能抛错；此处只是取动作名，取不到就按"非只读"（安全默认）。
+  let argsForAction = null
+  try {
+    argsForAction = (exec && exec.arguments) || null
+  } catch {
+    argsForAction = null
+  }
+  const isMutating = isMutatingInvocation(tool, argsForAction)
   // 2026-10-18 补口：shell 重定向/写 cmdlet 与 Edit 是等效写操作，取证闸不能只认工具名。
   // 实测绕过路径：`pwsh Add-Content -Path README.md`（A/B 会话对照 B 组第 2 条）。
   // 参数读取必须防炸：DSH 允许 arguments 为惰性 getter，解析失败应降级而非中断整条判定链。
@@ -224,7 +234,12 @@ function layer3Check(exec, warn, statePathOverride) {
   if (EVIDENCE_GATE.effective) {
     // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
     // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
-    const toolPath = resolveToolPath(pathOfTool(exec && exec.arguments), exec)
+    // 2026-10-27：`plugin_manager` 的 `target` 是包名/条目 id，不是文件路径。旧实现把它
+    // 当路径 → 解析出一个不存在的"新文件" → 安装类调用反而绕过了下面的"要求授权"分支。
+    const toolPath =
+      isMutating && /^plugin_manager$/i.test(tool)
+        ? null
+        : resolveToolPath(pathOfTool(exec && exec.arguments), exec)
     // 2026-10-22 补口：改动类工具**解析不出路径**时（`plugin_manager`、`move_run`、`import_claude`、
     // `mcp__x__build_project` 等），取证闸无法核验"是否先读过"——旧行为是直接放行，
     // 等于这些工具天生免检。现改为默认要求授权（`fg_apply` 一次放行），可用

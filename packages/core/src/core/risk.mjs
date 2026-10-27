@@ -23,6 +23,34 @@ export function registerToolKind(kind, names) {
   }
 }
 
+/**
+ * 只读动作注册（2026-10-27）
+ *
+ * 有些工具同一个名字既可读也可写（`plugin_manager` 的 `list_plugins` 与 `install_bundle`）。
+ * 名字级分类只能判「这个工具能不能写」，判不出「这一次是读还是写」；
+ * 于是只读列举被当成"改动类且无路径"直接挡死，而真正的写动作（带 `target`）反而被
+ * `pathOfTool` 把包名当文件路径放过去——拦反了。
+ * 适配层把只读动作登记进来，取证闸按 (tool, action) 而不是只看工具名。
+ */
+const READ_ONLY_ACTIONS = new Map()
+
+/** @param {string} tool @param {string[]} actions */
+export function registerReadOnlyActions(tool, actions) {
+  const key = String(tool || "").toLowerCase();
+  if (!key) return;
+  const set = READ_ONLY_ACTIONS.get(key) || new Set();
+  for (const a of actions || []) set.add(String(a || "").toLowerCase());
+  READ_ONLY_ACTIONS.set(key, set);
+}
+
+/** 本次调用是否是已登记的只读动作；未登记/无 action 一律按"非只读"（安全默认）。 */
+export function isReadOnlyCall(tool, args) {
+  const set = READ_ONLY_ACTIONS.get(String(tool || "").toLowerCase());
+  if (!set) return false;
+  const action = String((args && args.action) || "").toLowerCase();
+  return Boolean(action) && set.has(action);
+}
+
 /** 名字 → 语义类别；未注册返回 'other'（安全默认：既不算只读也不算改动）。 */
 function semanticOf(tool) {
   const key = String(tool || "").toLowerCase();

@@ -5,7 +5,7 @@
  * 新增 DSH 工具时**只改这里**，母版不动。
  */
 
-import { registerToolKind } from '../../core/risk.mjs'
+import { registerToolKind, registerReadOnlyActions } from '../../core/risk.mjs'
 
 registerToolKind('mutation', [
   'write',
@@ -19,6 +19,14 @@ registerToolKind('mutation', [
   'move_run',
   'import_claude',
   'claude_export',
+])
+
+// 同名工具里的只读动作（2026-10-27）：`plugin_manager` 本身是改动类，
+// 但列举类动作不写盘、也无文件路径，取证闸不应按"改动类无路径"挡死。
+registerReadOnlyActions('plugin_manager', [
+  'list_plugins',
+  'list_bundles',
+  'list_version_exemptions',
 ])
 
 registerToolKind('shell', ['pwsh', 'bash', 'shell', 'sh', 'cmd', 'terminal', 'runcommand'])

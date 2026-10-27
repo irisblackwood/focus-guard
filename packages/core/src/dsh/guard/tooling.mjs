@@ -6,6 +6,7 @@
  */
 import { statSync } from 'node:fs'
 import { join, isAbsolute } from 'node:path'
+import { isReadOnlyCall } from '../../core/risk.mjs'
 
 /** 提取命令类参数；非命令类工具（write/read 等）返回 null，不做检查 */
 export function commandOf(exec) {
@@ -110,6 +111,15 @@ const MUTATING_MCP_TOOL =
 export function isMutatingTool(toolName) {
   const t = String(toolName || '')
   return MUTATING_TOOL.test(t) || MUTATING_TOOL_NAMED.test(t) || MUTATING_MCP_TOOL.test(t)
+}
+
+/**
+ * 本次调用的改动判定（工具名 + 参数级动作，2026-10-27）。
+ * 只读动作（适配层登记，如 `plugin_manager` 的 list_*）不算改动——
+ * 否则"只读列举"会落进取证闸的"改动类无路径"分支被直接挡死。
+ */
+export function isMutatingInvocation(toolName, args) {
+  return isMutatingTool(toolName) && !isReadOnlyCall(toolName, args)
 }
 
 /**
