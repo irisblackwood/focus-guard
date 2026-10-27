@@ -178,7 +178,13 @@ function main() {
     if (!activeIds.has(v.id)) rows.push({ id: v.id, file: v.file, title: v.title, sha: v.sha, src: "(源已移除)", status: "retired" });
   }
 
-  // 主题分组渲染：组标题 + 重复表头，保证每组独立成表；`| B` 行格式不变（外部解析器只认该前缀）
+  writeFileSync(index.path, renderIndex({ rows, built, kept, today, table: buildTable(rows) }), "utf8");
+
+  console.log(`library-build：共 ${rows.length} 块（新建 ${built}，保留 ${kept}），索引 ${index.path}`);
+}
+
+/** 按主题分组渲染成表：组标题 + 重复表头，保证每组独立成表；`| B` 行格式不变（外部解析器只认该前缀）。 */
+function buildTable(rows) {
   const header = [
     "| id | 积木 | 标题 | sha256(前16) | 源 | 状态 |",
     "|---|---|---|---|---|---|",
@@ -192,7 +198,7 @@ function main() {
   }
   const themeOrder = [...SRC_THEMES.map(([n]) => n), ...THEMES.map(([n]) => n), UNGROUPED];
   groups.sort((a, b) => themeOrder.indexOf(a.name) - themeOrder.indexOf(b.name));
-  const table = groups
+  return groups
     .map((g) =>
       [
         `### ${g.name}（${g.rows.length} 块）`,
@@ -202,7 +208,11 @@ function main() {
       ].join("\n")
     )
     .join("\n\n");
-  const indexMd = [
+}
+
+/** 索引文件全文（说明区 + 分组表 + 构建落款）。 */
+function renderIndex({ rows, built, kept, today, table }) {
+  return [
     "# 派生积木 · 索引（积木清单）",
     "",
     "> 本目录是 `.ai/library/` 外部原文的派生视图，由 library-build 生成；禁止直写（引擎拦截 Write/Edit）。",
@@ -214,9 +224,6 @@ function main() {
     `> 构建于 ${today} · 共 ${rows.length} 块（新建 ${built} / 保留 ${kept}）`,
     "",
   ].join("\n");
-  writeFileSync(index.path, indexMd, "utf8");
-
-  console.log(`library-build：共 ${rows.length} 块（新建 ${built}，保留 ${kept}），索引 ${index.path}`);
 }
 
 main();

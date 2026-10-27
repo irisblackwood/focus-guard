@@ -62,9 +62,9 @@ const THRESHOLDS = {
 
 /**
  * 债务上限（棘轮）：源文件异味不许超过这个数。降存量后手工下调，不许反弹。
- * 现状 28 条，主要是 `pipeline.mjs` 1243 行 / `preExecuteListener` 398 行。
+ * 现状 8 条（2026-10-27 从 28 降下来：seams/preGuard/stopGuard/postProgress/guard/* 均已拆）。
  */
-const BUDGET = 28
+const BUDGET = 8
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])
 const ROOTS = ['packages/core/src', 'packages/core/tools', 'packages/core/tests', 'packages/core/hooks', 'packages/extended/src'].map(

@@ -28,90 +28,80 @@ function isRegexStart(src, i) {
  * @param {string} src
  * @returns {string} 同长度、同换行位置的"只剩代码"文本
  */
+function blankSpan(out, from, to) {
+  for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' '
+}
+
+/** 引号/模板字符串的结束下标（不含）；未闭合的单行字符串停在换行处，不吞后面代码。 */
+function scanQuoted(src, start, n, quote) {
+  let j = start + 1
+  while (j < n) {
+    if (src[j] === '\\') {
+      j += 2
+      continue
+    }
+    if (src[j] === quote) return j + 1
+    if (src[j] === '\n' && quote !== '`') return j
+    j += 1
+  }
+  return j
+}
+
+/** 正则字面量的结束下标（不含）；未闭合返回 -1（按除号处理，不吞半行）。 */
+function scanRegex(src, start, n) {
+  let j = start + 1
+  let inClass = false
+  while (j < n) {
+    const c = src[j]
+    if (c === '\\') {
+      j += 2
+      continue
+    }
+    if (c === '[') inClass = true
+    else if (c === ']') inClass = false
+    else if (c === '/' && !inClass) return j + 1
+    else if (c === '\n') return -1
+    j += 1
+  }
+  return -1
+}
+
 export function stripLiterals(src) {
   const out = src.split('')
   const n = src.length
-  const blank = (from, to) => {
-    for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' '
-  }
-
   let i = 0
   while (i < n) {
     const c = src[i]
+    const next = src[i + 1]
 
-    if (c === '/' && src[i + 1] === '/') {
+    if (c === '/' && next === '/') {
       const j = src.indexOf('\n', i)
       const end = j < 0 ? n : j
-      blank(i, end)
+      blankSpan(out, i, end)
       i = end
       continue
     }
 
-    if (c === '/' && src[i + 1] === '*') {
+    if (c === '/' && next === '*') {
       const j = src.indexOf('*/', i + 2)
       const end = j < 0 ? n : j + 2
-      blank(i, end)
+      blankSpan(out, i, end)
       i = end
       continue
     }
 
-    if (c === '"' || c === "'") {
-      let j = i + 1
-      while (j < n) {
-        if (src[j] === '\\') {
-          j += 2
-          continue
-        }
-        if (src[j] === c) {
-          j += 1
-          break
-        }
-        if (src[j] === '\n') break // 未闭合的单行字符串：到此为止，别吞掉整个文件
-        j += 1
-      }
-      blank(i, j)
-      i = j
+    if (c === '"' || c === "'" || c === '`') {
+      const end = scanQuoted(src, i, n, c)
+      blankSpan(out, i, end)
+      i = end
       continue
     }
 
-    if (c === '`') {
-      let j = i + 1
-      while (j < n) {
-        if (src[j] === '\\') {
-          j += 2
-          continue
-        }
-        if (src[j] === '`') {
-          j += 1
-          break
-        }
-        j += 1
-      }
-      blank(i, j)
-      i = j
-      continue
-    }
-
-    if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && isRegexStart(src, i)) {
-      let j = i + 1
-      let inClass = false
-      while (j < n) {
-        if (src[j] === '\\') {
-          j += 2
-          continue
-        }
-        if (src[j] === '[') inClass = true
-        else if (src[j] === ']') inClass = false
-        else if (src[j] === '/' && !inClass) {
-          j += 1
-          break
-        } else if (src[j] === '\n') break // 未闭合：当除号处理，不吞
-        j += 1
-      }
-      // 只有真的闭合了（最后消费到 `/`）才抹；否则回退，避免把除号当正则吞掉半行
-      if (src[j - 1] === '/') {
-        blank(i, j)
-        i = j
+    if (c === '/' && next !== '/' && next !== '*' && isRegexStart(src, i)) {
+      const end = scanRegex(src, i, n)
+      if (end > 0) {
+        blankSpan(out, i, end)
+        i = end
         continue
       }
     }

@@ -88,6 +88,24 @@ function usageOf(u) {
 const COST_MISS_WARN_AT = 5
 let costMissStreak = 0
 
+/**
+ * 把成本行追加到下游装配结果里（形状见 dsh-system-prompt/lib/index.js:338-354）。
+ * 官方 assembly 顶层没有 text/system 字段，因此优先以新增 section 的方式注入
+ * （原实现遍历 text/system 等键，恒不命中）；其余形状为兼容分支。
+ */
+function appendCostLine(downstream, line) {
+  if (typeof downstream === 'string') return downstream ? downstream + '\n' + line : line
+  if (Array.isArray(downstream)) return [...downstream, line]
+  if (!downstream || typeof downstream !== 'object') return downstream
+  if (Array.isArray(downstream.sections)) {
+    return { ...downstream, sections: [...downstream.sections, { name: 'focus-guard-cost', text: line }] }
+  }
+  for (const k of ['system', 'systemPrompt', 'text', 'prompt']) {
+    if (typeof downstream[k] === 'string') return { ...downstream, [k]: downstream[k] + '\n' + line }
+  }
+  return downstream
+}
+
 /** ② 系统提示装配：追加成本提示行（改写失败原样放行下游） */
 export function systemPromptListener({ warn }) {
   return async (assembly, context, next) => {
@@ -95,22 +113,7 @@ export function systemPromptListener({ warn }) {
     let downstream
     try {
       downstream = await next()
-      const line = promptCostLine()
-      if (typeof downstream === 'string') return downstream ? downstream + '\n' + line : line
-      if (Array.isArray(downstream)) return [...downstream, line]
-      if (downstream && typeof downstream === 'object') {
-        // 官方 assembly 形状（dsh-system-prompt/lib/index.js:338-354）：
-        // { sections:[{name,text}], contexts, tools, variables } —— 顶层没有 text/system 字段，
-        // 因此成本行以新增 section 的方式注入（原实现遍历 text/system 等键，恒不命中）。
-        if (Array.isArray(downstream.sections)) {
-          return { ...downstream, sections: [...downstream.sections, { name: 'focus-guard-cost', text: line }] }
-        }
-        for (const k of ['system', 'systemPrompt', 'text', 'prompt']) {
-          if (typeof downstream[k] === 'string') {
-            return { ...downstream, [k]: downstream[k] + '\n' + line }
-          }
-        }
-      }
+      return appendCostLine(downstream, promptCostLine())
     } catch (error) {
       warn('system-prompt 注入异常，原样放行：', (error && error.message) || error)
     }

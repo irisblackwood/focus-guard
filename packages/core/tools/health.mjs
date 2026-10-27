@@ -54,8 +54,8 @@ const BRIEF = argv.includes('--brief')
 const AS_JSON = argv.includes('--json')
 const STRICT = argv.includes('--strict')
 
-/** 债务上限（棘轮）：总分不许低于此值。只许升不许降。 */
-const BUDGET = 79
+/** 债务上限（棘轮）：总分不许低于此值。只许升不许降。2026-10-27：79 → 93。 */
+const BUDGET = 93
 
 const runJson = (tool) => {
   const r = spawnSync('node', [join(HERE, tool), '--json'], { cwd: REPO, encoding: 'utf8' })

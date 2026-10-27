@@ -178,22 +178,26 @@ function trackReadSet(ctx) {
  * - 侦查池超限会**覆盖**同一次调用里已产生的续杯/熔断 reason——原实现如此，未改；
  * - 工具失败（`isFail`）时 `progress` 恒为 false，走停滞分支，因此失败也计入 `ineffCalls`。
  */
+/** 进度判定：失败调用不算进度；签名（响应前 1500 字 + 入参哈希）变化即算。 */
+function detectProgress({ tool, ti, isFail, state, respText }) {
+  if (isFail) return false
+  const contentSig = respText.slice(0, 1500)
+  const inputSig = callHash({ tool_name: tool, tool_input: ti })
+  const progress = judgeProgress({
+    isWrite: RE_WRITE.test(tool),
+    respSig: contentSig,
+    inputSig,
+    prevRespSig: state.lastSig,
+    prevInputSig: state.lastInput,
+  })
+  state.lastSig = contentSig
+  state.lastInput = inputSig
+  return progress
+}
+
 function judgeBudgetPools(ctx) {
   const { sid, tool, ti, isFail, state, inv, respText } = ctx
-  let progress = false
-  if (!isFail) {
-    const contentSig = respText.slice(0, 1500)
-    const inputSig = callHash({ tool_name: tool, tool_input: ti })
-    progress = judgeProgress({
-      isWrite: RE_WRITE.test(tool),
-      respSig: contentSig,
-      inputSig,
-      prevRespSig: state.lastSig,
-      prevInputSig: state.lastInput,
-    })
-    state.lastSig = contentSig
-    state.lastInput = inputSig
-  }
+  const progress = detectProgress({ tool, ti, isFail, state, respText })
 
   let reason = null
   if (progress) {

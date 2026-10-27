@@ -81,32 +81,207 @@ function finalTextOf(agent) {
 /** 生成"待人类裁决"的说明行（替代 guard.mjs 的 block，只警告不打断）。 */
 const advisory = (msg) => `[收尾核验·待裁决]${msg}`
 
+/** 收尾上下文：一次性取齐，各段只读同一份 state。 */
+function closeContext(agent, warn) {
+  const sid = sidOf(agent)
+  const file = statePath(sid)
+  const state = loadState(file)
+  const raw = finalTextOf(agent)
+  // 拿不到收尾文本 → 沿用 guard.mjs 对无文本宿主的降级口径：只留痕、不核验
+  const noText = raw === undefined
+  return {
+    agent,
+    sid,
+    file,
+    state,
+    projDir: projDirOf(agent),
+    noText,
+    text: noText ? '' : raw,
+    warn,
+  }
+}
+
+/** 任务规模声明：预算只升不降，declaredBudget 持久。 */
+function applyTaskScale({ sid, state, text }) {
+  const scale = text.match(TASK_SCALE_RE)
+  if (!scale) return
+  const x = Math.min(parseInt(scale[1], 10) || 0, BUDGET_CAP)
+  if (x > (state.taskBudget || BUDGET_DEFAULT)) {
+    state.taskBudget = x
+    audit(sid, 'budget-extend', { evidence: `任务规模声明上调 budget=${x}` })
+  }
+  state.declaredBudget = Math.max(state.declaredBudget || 0, x)
+}
+
+/**
+ * 《授权识别与留痕条例》+ 信用延期：仅在收尾无锚点（确需豁免/请示）时核验。
+ * 返回 true 表示本回合已处理完（调用方直接收尾）。
+ */
+function handleAuthorization(ctx) {
+  const { sid, file, state, text, noText } = ctx
+  if (noText || EVIDENCE_ANCHORS.test(text)) return false
+  if (PARDON_PENDING_RE.test(text)) {
+    audit(sid, 'pardon-pending', { evidence: '输出【授权待确认】暂停，等待人类明确批示' })
+    state.turnCount = 0
+    saveState(file, state)
+    return true
+  }
+  if (text.includes('【信用延期】')) {
+    audit(sid, 'credit-request', {
+      evidence: `eff=${state.effectiveCalls || 0} budget=${state.taskBudget} stall=${state.stalledStreak || 0}`,
+    })
+    state.turnCount = 0
+    saveState(file, state)
+    return true
+  }
+  if (!PARDON_DECL_RE.test(text)) return false
+  return handlePardonDeclaration(ctx)
+}
+
+/** 授权声明的引用是否合规；合规返回空串，否则返回违规原因（条例四-B/C/D/E）。 */
+function invalidPardonReason(state, q, b) {
+  if (!q) return '声明未引用人类指令原文（条例四-B）'
+  if (!b) return '声明未指明依据法条（条例四-C）'
+  const tp = String(state.turnPromptFull || state.turnPrompt || '').replace(/\s+/g, '')
+  const quote = q[1].replace(/\s+/g, '')
+  if (!quote || !tp.includes(quote)) return '引用的人类指令原文与本回合实际指令不符，涉嫌编造或事后补（条例四-D/E）'
+  if (!AUTH_SEMANTICS_RE.test(q[1])) return '引用的人类指令原文不含授权语义（条例四-E）'
+  return ''
+}
+
+/** 【授权识别】声明：合规则开绝境模式，不合规则 L3 熔断。返回 true（一律已处理）。 */
+function handlePardonDeclaration({ sid, file, state, text, warn }) {
+  const q = text.match(PARDON_QUOTE_RE)
+  const b = text.match(PARDON_BASIS_RE)
+  const invalid = invalidPardonReason(state, q, b)
+  if (!invalid) {
+    state.mercy = true
+    state.fused = false
+    audit(sid, 'pardon-interpreted', {
+      trigger: q[1],
+      level: 'PARDON',
+      evidence: b[1],
+      pardon: true,
+    })
+    saveState(file, state)
+    return true
+  }
+  state.fused = true
+  state.violations = Math.max(state.violations || 0, 3)
+  state.stopBlocked = true
+  audit(sid, 'violation-usurp-pardon', { level: 3, evidence: invalid })
+  saveState(file, state)
+  // ⚠ 必须 warn 后直接收尾：guard.mjs 此处是 block() + process.exit(0)（打完即结束）。
+  // 若继续往下走，末尾的 `state.stopBlocked = false` 会把此处刚设的一次性守卫清掉，
+  // 且待裁决提示永远不会被 warn 出来（2026-10-10 由测试抓到）。
+  if (typeof warn === 'function') {
+    warn(
+      advisory(
+        `[越权解释授权·L3]${invalid}。正确：【授权识别】引本回合人类指令原文+法条；未明→【授权待确认】。禁止自行推断。`,
+      ),
+    )
+  }
+  return true
+}
+
+/** 79条：熔断时确保经验库存在（解除后 AI 追加经验，卡点时 Grep 检索）。 */
+function ensurePatternsFile(sid, projDir) {
+  try {
+    const pat = join(projDir, '.ai', 'PATTERNS.md')
+    if (existsSync(pat)) return
+    mkdirSync(dirname(pat), { recursive: true })
+    writeFileSync(
+      pat,
+      '# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时 Grep 检索（79条）。\n',
+    )
+  } catch {
+    audit(sid, 'note-fail', { evidence: 'PATTERNS.md 经验库创建失败（降级继续）' })
+  }
+}
+
+/** 触发⑤：熔断声明与未知跟踪。返回 true 表示已收尾。 */
+function handleFuseDeclaration(ctx) {
+  const { sid, file, state, text, projDir, warn } = ctx
+  const formalFuse = text.includes('【熔断】')
+  if (!formalFuse && !text.includes('查无依据') && !text.includes('查无实据')) return false
+  const advisories = []
+  state.unknownStreak = (state.unknownStreak || 0) + 1
+  if (formalFuse || state.unknownStreak >= 2) {
+    state.fused = true
+    state.violations = Math.max(state.violations || 0, 3)
+    audit(sid, 'shuanggui-declared', {
+      level: 3,
+      evidence: formalFuse ? '明示熔断' : `连续 ${state.unknownStreak} 次未知声明`,
+    })
+    if (formalFuse && projDir) ensurePatternsFile(sid, projDir)
+  }
+  // 声明熔断但缺降级方案 → 只提醒一次（不再打回）
+  // 判定搬到母版 `core/stopPolicy.mjs`（2026-10-25）：此处只做"取结果 + 落状态 + 发提示"。
+  const needDowngrade = needsDowngrade({ text, state })
+  if (needDowngrade) {
+    state.stopBlocked = true
+    audit(sid, 'reject-no-downgrade', { level: 3, evidence: '声明熔断但缺降级方案（只审计，不打回）' })
+    advisories.push(advisory(`声明熔断但缺降级方案。需补三行降级方案（${FUSE_PHRASE} 之后）。`))
+  }
+  state.turnCount = 0
+  saveState(file, state)
+  if (advisories.length && typeof warn === 'function') warn(...advisories)
+  return true
+}
+
+/** 双规后必须交代（只审计一次，不打回）——判定来自母版。返回 true 表示已收尾。 */
+function handleNoAccount(ctx) {
+  const { sid, file, state, text, warn } = ctx
+  if (!needsAccount({ text, state })) return false
+  state.stopBlocked = true
+  state.turnCount = 0
+  saveState(file, state)
+  audit(sid, 'reject-no-account', { level: 3, evidence: '双规后未交代（只审计，不打回）' })
+  if (typeof warn === 'function') {
+    warn(advisory(`[触发⑤]熔断已触发未交代。需输出『${FUSE_PHRASE}』+三行降级方案。`))
+  }
+  return true
+}
+
+/** 触发②：本回合调用 ≥5 且收尾无证据锚点（回合边界不依赖 reset）——判定来自母版。 */
+function handleNoAnchor(ctx) {
+  const { sid, file, state, text, noText, warn } = ctx
+  if (noText || !needsAnchorCheck({ text, state })) return false
+  state.stopBlocked = true
+  const tc = state.turnCount
+  state.turnCount = 0
+  audit(sid, 'violation-no-anchor', { level: 3, evidence: `收尾无锚点，本回合 ${tc} 次调用（只审计，不打回）` })
+  saveState(file, state)
+  if (typeof warn === 'function') {
+    warn(
+      advisory(
+        `[触发②]本回合 ${tc} 次调用后无证据锚点收尾。补：结论+[文件:行号]证据链，或写 HANDOFF.md，或标【假设】；` +
+          `确有授权→【授权识别】引原文+法条，未明→【授权待确认】。`,
+      ),
+    )
+  }
+  return true
+}
+
+/** DSH 无收尾文本 → 降级审计（与原 dshBridge 口径一致，供人类复核）。 */
+function auditNoTextDegrade({ sid, state, noText }) {
+  if (!noText) return
+  if (!((state.turnCount || 0) >= 5 || state.highRiskDeniedThisTurn)) return
+  audit(sid, 'dsh-stop-observe', {
+    evidence: `无收尾文本，锚点核验降级审计 turnCalls=${state.turnCount || 0}`,
+  })
+}
+
 /**
  * stop 收尾核验缝（`agent/turn-stopping`，与 seams 的 KPI 结算并列监听）。
  */
 export function stopGuardListener({ warn } = {}) {
   return async ({ agent } = {}) => {
     try {
-      const sid = sidOf(agent)
-      const file = statePath(sid)
-      const state = loadState(file)
-      const projDir = projDirOf(agent)
-      const raw = finalTextOf(agent)
-      // 拿不到收尾文本 → 沿用 guard.mjs 对无文本宿主的降级口径：只留痕、不核验
-      const noText = raw === undefined
-      const text = noText ? '' : raw
-      const advisories = []
+      const ctx = closeContext(agent, warn)
+      const { file, state } = ctx
 
-      // 任务规模声明：预算只升不降，declaredBudget 持久
-      const scale = text.match(TASK_SCALE_RE)
-      if (scale) {
-        const x = Math.min(parseInt(scale[1], 10) || 0, BUDGET_CAP)
-        if (x > (state.taskBudget || BUDGET_DEFAULT)) {
-          state.taskBudget = x
-          audit(sid, 'budget-extend', { evidence: `任务规模声明上调 budget=${x}` })
-        }
-        state.declaredBudget = Math.max(state.declaredBudget || 0, x)
-      }
+      applyTaskScale(ctx)
 
       // 绝境模式：本回合结论锚点检查豁免
       if (state.mercy) {
@@ -115,140 +290,15 @@ export function stopGuardListener({ warn } = {}) {
         return
       }
 
-      // 《授权识别与留痕条例》+ 信用延期：仅在收尾无锚点（确需豁免/请示）时核验
-      if (!noText && !EVIDENCE_ANCHORS.test(text)) {
-        if (PARDON_PENDING_RE.test(text)) {
-          audit(sid, 'pardon-pending', { evidence: '输出【授权待确认】暂停，等待人类明确批示' })
-          state.turnCount = 0
-          saveState(file, state)
-          return
-        }
-        if (text.includes('【信用延期】')) {
-          audit(sid, 'credit-request', {
-            evidence: `eff=${state.effectiveCalls || 0} budget=${state.taskBudget} stall=${state.stalledStreak || 0}`,
-          })
-          state.turnCount = 0
-          saveState(file, state)
-          return
-        }
-        if (PARDON_DECL_RE.test(text)) {
-          const q = text.match(PARDON_QUOTE_RE)
-          const b = text.match(PARDON_BASIS_RE)
-          const tp = String(state.turnPromptFull || state.turnPrompt || '').replace(/\s+/g, '')
-          const quote = q ? q[1].replace(/\s+/g, '') : ''
-          let invalid = ''
-          if (!q) invalid = '声明未引用人类指令原文（条例四-B）'
-          else if (!b) invalid = '声明未指明依据法条（条例四-C）'
-          else if (!quote || !tp.includes(quote)) invalid = '引用的人类指令原文与本回合实际指令不符，涉嫌编造或事后补（条例四-D/E）'
-          else if (!AUTH_SEMANTICS_RE.test(q[1])) invalid = '引用的人类指令原文不含授权语义（条例四-E）'
-          if (invalid) {
-            state.fused = true
-            state.violations = Math.max(state.violations || 0, 3)
-            state.stopBlocked = true
-            audit(sid, 'violation-usurp-pardon', { level: 3, evidence: invalid })
-            saveState(file, state)
-            advisories.push(
-              advisory(
-                `[越权解释授权·L3]${invalid}。正确：【授权识别】引本回合人类指令原文+法条；未明→【授权待确认】。禁止自行推断。`,
-              ),
-            )
-            // ⚠ 必须 return：guard.mjs 此处是 block() + process.exit(0)（打完即结束）。
-            // 若继续往下走，末尾的 `state.stopBlocked = false` 会把此处刚设的一次性守卫清掉，
-            // 且待裁决提示永远不会被 warn 出来（2026-10-10 由测试抓到）。
-            if (typeof warn === 'function') warn(...advisories)
-            return
-          } else {
-            state.mercy = true
-            state.fused = false
-            audit(sid, 'pardon-interpreted', {
-              trigger: q[1],
-              level: 'PARDON',
-              evidence: b[1],
-              pardon: true,
-            })
-            saveState(file, state)
-            return
-          }
-        }
-      }
-
-      // 触发⑤：熔断声明与未知跟踪
-      const formalFuse = text.includes('【熔断】')
-      if (formalFuse || text.includes('查无依据') || text.includes('查无实据')) {
-        state.unknownStreak = (state.unknownStreak || 0) + 1
-        if (formalFuse || state.unknownStreak >= 2) {
-          state.fused = true
-          state.violations = Math.max(state.violations || 0, 3)
-          audit(sid, 'shuanggui-declared', {
-            level: 3,
-            evidence: formalFuse ? '明示熔断' : `连续 ${state.unknownStreak} 次未知声明`,
-          })
-          // 79条：熔断时确保经验库存在（解除后 AI 追加经验，卡点时 Grep 检索）
-          if (formalFuse && projDir) {
-            try {
-              const pat = join(projDir, '.ai', 'PATTERNS.md')
-              if (!existsSync(pat)) {
-                mkdirSync(dirname(pat), { recursive: true })
-                writeFileSync(
-                  pat,
-                  '# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时 Grep 检索（79条）。\n',
-                )
-              }
-            } catch {
-              audit(sid, 'note-fail', { evidence: 'PATTERNS.md 经验库创建失败（降级继续）' })
-            }
-          }
-        }
-        // 声明熔断但缺降级方案 → 只提醒一次（不再打回）
-        // 判定搬到母版 `core/stopPolicy.mjs`（2026-10-25）：此处只做"取结果 + 落状态 + 发提示"。
-        const needDowngrade = needsDowngrade({ text, state })
-        if (needDowngrade) {
-          state.stopBlocked = true
-          audit(sid, 'reject-no-downgrade', { level: 3, evidence: '声明熔断但缺降级方案（只审计，不打回）' })
-          advisories.push(advisory(`声明熔断但缺降级方案。需补三行降级方案（${FUSE_PHRASE} 之后）。`))
-        }
-        state.turnCount = 0
-        saveState(file, state)
-        if (advisories.length && typeof warn === 'function') warn(...advisories)
-        return
-      }
-
-      // 双规后必须交代（只审计一次，不打回）——判定来自母版
-      if (needsAccount({ text, state })) {
-        state.stopBlocked = true
-        state.turnCount = 0
-        saveState(file, state)
-        audit(sid, 'reject-no-account', { level: 3, evidence: '双规后未交代（只审计，不打回）' })
-        advisories.push(advisory(`[触发⑤]熔断已触发未交代。需输出『${FUSE_PHRASE}』+三行降级方案。`))
-        if (typeof warn === 'function') warn(...advisories)
-        return
-      }
+      if (handleAuthorization(ctx)) return
+      if (handleFuseDeclaration(ctx)) return
+      if (handleNoAccount(ctx)) return
 
       state.unknownStreak = 0
 
-      // 触发②：本回合调用 ≥5 且收尾无证据锚点（回合边界不依赖 reset）——判定来自母版
-      if (!noText && needsAnchorCheck({ text, state })) {
-        state.stopBlocked = true
-        const tc = state.turnCount
-        state.turnCount = 0
-        audit(sid, 'violation-no-anchor', { level: 3, evidence: `收尾无锚点，本回合 ${tc} 次调用（只审计，不打回）` })
-        saveState(file, state)
-        advisories.push(
-          advisory(
-            `[触发②]本回合 ${tc} 次调用后无证据锚点收尾。补：结论+[文件:行号]证据链，或写 HANDOFF.md，或标【假设】；` +
-              `确有授权→【授权识别】引原文+法条，未明→【授权待确认】。`,
-          ),
-        )
-        if (typeof warn === 'function') warn(...advisories)
-        return
-      }
+      if (handleNoAnchor(ctx)) return
 
-      // DSH 无收尾文本 → 降级审计（与原 dshBridge 口径一致，供人类复核）
-      if (noText && ((state.turnCount || 0) >= 5 || state.highRiskDeniedThisTurn)) {
-        audit(sid, 'dsh-stop-observe', {
-          evidence: `无收尾文本，锚点核验降级审计 turnCalls=${state.turnCount || 0}`,
-        })
-      }
+      auditNoTextDegrade(ctx)
 
       state.stopBlocked = false
       state.turnCount = 0

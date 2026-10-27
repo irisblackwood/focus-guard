@@ -179,25 +179,9 @@ function layer3Check(exec, warn, statePathOverride) {
     argsForAction = null
   }
   const isMutating = isMutatingInvocation(tool, argsForAction)
-  // 2026-10-18 补口：shell 重定向/写 cmdlet 与 Edit 是等效写操作，取证闸不能只认工具名。
-  // 实测绕过路径：`pwsh Add-Content -Path README.md`（A/B 会话对照 B 组第 2 条）。
-  // 参数读取必须防炸：DSH 允许 arguments 为惰性 getter，解析失败应降级而非中断整条判定链。
-  let shellTargets = []
-  let shellMutating = false
-  if (SHELL_TOOL.test(tool)) {
-    try {
-      const cmd = commandOf(exec)
-      shellTargets = shellWriteTargets(cmd)
-      // 2026-10-18 再补口：熔断/降权的判定此前也挂在"有写目标"上，于是
-      // `git commit`、`npm install` 这类**无重定向但会改文件**的命令在熔断期照样放行
-      //（本次实测：会话被判熔断后 write 被拒，Bash git commit 却提交成功）。
-      // 统一口径：变更型 shell 与写类工具同等对待，熔断期一律只读放行。
-      shellMutating = isMutatingBashCmd(String(cmd ?? ''))
-    } catch {
-      shellTargets = []
-      shellMutating = false
-    }
-  }
+  // 2026-10-18 补口：shell 重定向/写 cmdlet 与 Edit 是等效写操作，取证闸不能只认工具名；
+  // 变更型 shell（git commit / npm install）与写类工具同等对待，熔断期一律只读放行。
+  const { shellTargets, shellMutating } = shellMutationOf(exec)
   if (!isMutating && shellTargets.length === 0 && !shellMutating) return null
 
   const gs = readGuardStateExact(exec, statePathOverride)
@@ -214,66 +198,99 @@ function layer3Check(exec, warn, statePathOverride) {
     }
   }
 
-  if (state.randomFusePending) {
-    try {
-      saveState(gs.file, { ...state, randomFusePending: false })
-      if (String(process.env.FG_RANDOM_FUSE_BLOCK || '') === '1') {
-        return {
-          kind: 'deny',
-          trigger: 'random-fuse',
-          reason:
-            `focus-guard-native 反规避抽查B：随机检查点命中（第 ${Number(state.randomFuseAt) || 0} 次写操作），本次变更被拒一次；` +
-            '这不是报错，是防「攒批量绕过」的不可预测抽查，重试即放行。',
-        }
+  const fuse = randomFuseVerdict({ state, file: gs.file, warn })
+  if (fuse) return fuse
+
+  return evidenceTargetsVerdict({ exec, warn, tool, isMutating, shellTargets, state })
+}
+
+/**
+ * 反规避抽查B（2026-10-19 人类批示；2026-10-27 改：默认只留痕，不打断）。
+ * 状态清不掉就不拒（宁可不拦，也不做永久死锁）；`FG_RANDOM_FUSE_BLOCK=1` 恢复"拒一次"。
+ */
+function randomFuseVerdict({ state, file, warn }) {
+  if (!state.randomFusePending) return null
+  try {
+    saveState(file, { ...state, randomFusePending: false })
+    if (String(process.env.FG_RANDOM_FUSE_BLOCK || '') === '1') {
+      return {
+        kind: 'deny',
+        trigger: 'random-fuse',
+        reason:
+          `focus-guard-native 反规避抽查B：随机检查点命中（第 ${Number(state.randomFuseAt) || 0} 次写操作），本次变更被拒一次；` +
+          '这不是报错，是防「攒批量绕过」的不可预测抽查，重试即放行。',
       }
-    } catch (error) {
-      warn('反规避抽查B：检查点状态回写失败 → 本次放行（不做永久死锁）:', (error && error.message) || error)
+    }
+  } catch (error) {
+    warn('反规避抽查B：检查点状态回写失败 → 本次放行（不做永久死锁）:', (error && error.message) || error)
+  }
+  return null
+}
+
+/** shell 类工具的写目标与"变更型"判定；参数惰性 getter 抛错时降级为"无写目标、非变更型"。 */
+function shellMutationOf(exec) {
+  let shellTargets = []
+  let shellMutating = false
+  const tool = String((exec && exec.name) || '')
+  if (!SHELL_TOOL.test(tool)) return { shellTargets, shellMutating }
+  try {
+    const cmd = commandOf(exec)
+    shellTargets = shellWriteTargets(cmd)
+    shellMutating = isMutatingBashCmd(String(cmd ?? ''))
+  } catch {
+    shellTargets = []
+    shellMutating = false
+  }
+  return { shellTargets, shellMutating }
+}
+
+/**
+ * 取证闸：改动类工具 / shell 写目标必须在**本会话**读过。
+ *
+ * 2026-10-22 补口：改动类工具**解析不出路径**时（`plugin_manager`、`move_run`、`import_claude`、
+ * `mcp__x__build_project` 等），取证闸无法核验"是否先读过"——旧行为是直接放行，
+ * 等于这些工具天生免检。现改为默认要求授权（`fg_apply` 一次放行），可用
+ * `FG_MUTATION_UNMAPPED=allow` 退回旧行为。
+ */
+function evidenceTargetsVerdict({ exec, warn, tool, isMutating, shellTargets, state }) {
+  if (!EVIDENCE_GATE.effective) return null
+  // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
+  // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
+  // 2026-10-27：`plugin_manager` 的 `target` 是包名/条目 id，不是文件路径。旧实现把它
+  // 当路径 → 解析出一个不存在的"新文件" → 安装类调用反而绕过了"要求授权"分支。
+  const toolPath =
+    isMutating && /^plugin_manager$/i.test(tool)
+      ? null
+      : resolveToolPath(pathOfTool(exec && exec.arguments), exec)
+  if (isMutating && !toolPath) {
+    if (String(process.env.FG_MUTATION_UNMAPPED || '').toLowerCase() === 'allow') {
+      warn('改动类工具无路径（FG_MUTATION_UNMAPPED=allow）→ 放行：', `tool=${tool}`)
+    } else {
+      auditDeny(exec, `改动类工具无可解析路径：${tool}`, { trigger: 'mutation:unmapped' })
+      return {
+        kind: 'deny',
+        reason:
+          `focus-guard-native: 改动类工具「${tool}」未提供可解析的文件路径，取证闸无法核验"是否先读过"。` +
+          `请先用 fg_apply 申请一次授权（tool="${tool}"），或改用带 file_path 的工具。`,
+      }
     }
   }
-
-  if (EVIDENCE_GATE.effective) {
-    // 2026-10-19 修：真实调用传相对路径（`Add-Content -Path packages/core/README.md`），
-    // 未解析时 existsSync 按宿主 cwd 判 → 假阴性 → 取证闸放行（实测 session-002c143b 第 2 条直通）。
-    // 2026-10-27：`plugin_manager` 的 `target` 是包名/条目 id，不是文件路径。旧实现把它
-    // 当路径 → 解析出一个不存在的"新文件" → 安装类调用反而绕过了下面的"要求授权"分支。
-    const toolPath =
-      isMutating && /^plugin_manager$/i.test(tool)
-        ? null
-        : resolveToolPath(pathOfTool(exec && exec.arguments), exec)
-    // 2026-10-22 补口：改动类工具**解析不出路径**时（`plugin_manager`、`move_run`、`import_claude`、
-    // `mcp__x__build_project` 等），取证闸无法核验"是否先读过"——旧行为是直接放行，
-    // 等于这些工具天生免检。现改为默认要求授权（`fg_apply` 一次放行），可用
-    // `FG_MUTATION_UNMAPPED=allow` 退回旧行为。
-    if (isMutating && !toolPath) {
-      if (String(process.env.FG_MUTATION_UNMAPPED || '').toLowerCase() === 'allow') {
-        warn('改动类工具无路径（FG_MUTATION_UNMAPPED=allow）→ 放行：', `tool=${tool}`)
-      } else {
-        auditDeny(exec, `改动类工具无可解析路径：${tool}`, { trigger: 'mutation:unmapped' })
-        return {
-          kind: 'deny',
-          reason:
-            `focus-guard-native: 改动类工具「${tool}」未提供可解析的文件路径，取证闸无法核验"是否先读过"。` +
-            `请先用 fg_apply 申请一次授权（tool="${tool}"），或改用带 file_path 的工具。`,
-        }
-      }
-    }
-    const targets = isMutating
-      ? (toolPath ? [toolPath] : [])
-      : shellTargets.map((p) => resolveToolPath(p, exec)).filter(Boolean)
-    for (const fp of targets) {
-      const key = String(fp).replace(/\\/g, '/')
-      const sid = sessionIdOf(exec)
-      const known = isReadRecorded(state, sid, key, exec)
-      // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
-      // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
-      // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
-      // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
-      if (!known && existsSync(key) && !setOf(evidenceBlockedOnce, sid).has(key)) {
-        setOf(evidenceBlockedOnce, sid).add(key)
-        return {
-          kind: 'deny',
-          reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
-        }
+  const targets = isMutating
+    ? (toolPath ? [toolPath] : [])
+    : shellTargets.map((p) => resolveToolPath(p, exec)).filter(Boolean)
+  for (const fp of targets) {
+    const key = String(fp).replace(/\\/g, '/')
+    const sid = sessionIdOf(exec)
+    const known = isReadRecorded(state, sid, key, exec)
+    // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
+    // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
+    // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
+    // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
+    if (!known && existsSync(key) && !setOf(evidenceBlockedOnce, sid).has(key)) {
+      setOf(evidenceBlockedOnce, sid).add(key)
+      return {
+        kind: 'deny',
+        reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
       }
     }
   }
