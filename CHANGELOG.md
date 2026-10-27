@@ -212,25 +212,72 @@
 > 本版主题：**按需注入 + 策略可达性自检 + 结果准入**（成本侧三件）。
 > 发布状态：源码已推 GitHub `main`（`5f0e7e5`，2026-10-26）；npm 未发布（npm 最新 `3.0.7`）。
 
-- feat(prompt): **按需注入（Lazy Rules）**——常驻注入由 **425 字压到 222 字**（≈56 tok，省约 51 tok/步）：只保留"行为会因此改变"的硬线（取证、证据锚点、整读禁令、熔断、批示），完整条文原样存 `SESSION_RULES_FULL`（**不注入**），细则改由 deny 理由按需引用。`RULES.md` 第四部分逐字镜像与 `INSTALL.md` 验证判据同步更新。
-- feat(audit): **策略可达性自检（Policy Self-Audit）**——新增 `src/dsh/policy-audit.mjs`：启动时（`agent/created`）从判定源码抽出引用的参数键，与当前会话真实 `ctx.tools.schemas()` 求差，**不可达键即 warn**（只报不改）。把 2026-10-22 手工发现的"三条死闸"固化成自检能力；命令行侧 `npm run gate:audit` 覆盖同一判据。
-- feat(gate): **结果准入预算（Result Admission）**——体积闸只按硬阈值（默认 200KB）拦，但"每次都差一点"的多次中等体积整读同样撑爆上下文。新增会话级额度：超过 `FG_RESULT_ADMIT_BYTES`（默认 32KB）的整读每次 -1，默认 3 次（`FG_RESULT_ADMIT_BUDGET`，0=关闭），用尽即拒并指向分段读/检索；**压缩完成后额度自动恢复**。
-- test: 新增 `tests/policy-audit.test.mjs` 5 条、`tests/result-admit.test.mjs` 4 条；回归 419/419。
-- feat(hints): **检索后端探测与提示协调**（2026-10-25）——整读闸理由此前**无条件**写死 `xerj search/def`，没装 XERJ 的用户照做必然失败（与"死闸"同类的假提示）。新增 `src/dsh/search-hints.mjs`：探测 `xerj` / `rg` / `fd`，按**本机实际可用**的给换法（xerj→rg→fd→降级为 glob+分段读），三者全无时**每会话一次**提醒安装并说明可用 `FG_SEARCH_TOOL=<名字>` / `FG_SEARCH_BIN_DIR=<目录>` 与用户已装的其他检索插件协调。本机实测：`rg / fd` 可用、首选 rg（xerj 在 `E:\DSH\xerj.exe` 未入 PATH → 可 `FG_SEARCH_BIN_DIR=E:\DSH` 纳入）。新增 `tests/search-hints.test.mjs` 5 条；回归 424/424。
-- 关于**内置 XERJ**（评估结论，不实施）：单平台二进制 126.1 MB，三平台约 378 MB，另需守护进程/索引生命周期/许可证核查，而收益仅是省一步安装 → 不内置；需要时改用 `focusguard setup:search` 按需下载（未实现）。
-- refactor(layers): **进度/预算判定搬进母版（阶段 2 第一刀）**（2026-10-25）——新增 `src/core/progressPolicy.mjs`：`budgetVerdict`（达硬上限→fuse / 达当前预算→refill 且封顶）、`stallVerdict`（连续无效达阈值）、`invPoolOverLimit`（严格大于）。`src/dsh/postProgress.mjs` 的三处阈值比较改为调用母版，自己只保留"落状态 + 写审计 + 给提示"。边界语义锁定（`≥ cap` 即熔断、refill 不越过 cap、侦查池 `>` 才算超限）。新增 `tests/progress-policy.test.mjs` 4 条；回归 449/449。`hooks/guard.mjs` 对应三处留待阶段 2 第二刀（需同时验证 ZCode 打回语义）。
-- refactor(layers): **收尾判定搬进母版（阶段 1）**（2026-10-25，人类判据"母版是逻辑，适配只做翻译"）——`needsDowngrade` / `needsAccount` / `needsAnchorCheck` / `declaresFuse` / `hasAnchor` 此前在 `hooks/guard.mjs`（ZCode/Claude Code 缝）与 `src/dsh/stopGuard.mjs`（DSH 缝）各写一份条件语句（`stopBlocked`/`stopReentry`/锚点/降级标记四件套各判一次）。现统一到 `src/core/stopPolicy.mjs`（纯函数、零副作用），两个宿主缝只保留"取结果 → 打回/提示/写审计"。行为等价：`guard.mjs` 仍打回（`block()` + exit）、`stopGuard.mjs` 仍只审计+提示（DSH 无 stop 拦截口）。新增 `tests/stop-policy.test.mjs` 5 条；回归 445/445，`eval`（打 guard.mjs）PASS 证明 Claude Code / ZCode 路径未受影响。
-- test(core): **母版层 API 形态锁定 + 探针教训**（2026-10-25 模块普查）——`outputGate` 三个判定函数返回**三种形态**（`judgeReadGate` 字符串三态 / `judgeGrepGate` 对象 / `judgeCatGate` 字符串二态），`rotateAuditIfNeeded` 轮转时返回归档路径、否则 `null`。这不是 bug，但极易误用——我自己的探针就写错了三处（把 `turnCalls` 当 `turnCount`、把对象传给位置参数、把 `{bare}` 传给收字符串的函数）。现新增 `tests/core-api-shapes.test.mjs` 4 条把形态钉死。
-- 母版层实跑结论（不改代码）：`redlines` 12/12 用例符合（含 `DROP TABLE`、引号豁免边界）；`risk` 语义分类正确（`pwsh` + 危险命令才算 mutating）；`approvals` 一次性语义成立（二次消费 false、改命令即失效）；`state` 原子写无 `.tmp` 残片、损坏 JSON 回退默认值并 stderr 告警；`checkEligibility` 未取证改动 → `needApproval`（layer 3，trace 4 条）；`audit-writer` 轮转 24.5KB→5KB 阈值生效。
-- test(dsh): **L5 收尾打回在 DSH 侧补专用用例**（2026-10-25 模块普查）——`stopGuard.mjs` 259 行，但 DSH 侧此前没有专门用例；探测时我用错字段（`turnCalls` 而非 `turnCount`）差点得出"它不会拦"的错误结论。现以真实字段锁住：本回合调用 ≥5 且收尾无 `[文件:行号]` 锚点 → 写 `violation-no-anchor` 并提示；带锚点不触发。语义确认：DSH 无 stop 拦截口，故**只审计+提示、不阻断停止**（阻断会卡死人）。新增 `tests/stop-guard.test.mjs` 2 条。
-- 审计结论（不需改动）：`src/core/env.mjs` 3 处空 catch 均为环境探测降级（bash 缺失 / chcp 失败 / realpath 探测失败），不涉及数据丢失；`hooks/guard.mjs` 的 12 处保持封存层现状，不在普查批次内改动。
-- chore(slim): **瘦身与伪公开清理**（2026-10-25，标准=改动面×收益，不留无收益体积）——删除两个死模块 `adapters/dsh/fg-apply-tool.mjs` / `fg-appeal-tool.mjs`（早期 `defineTool` 版本，生产路径在 `src/dsh/tools.mjs`，全仓零 import）；把 **38 处"只在自身文件内使用"的 export 降为内部符号**（如 `DROP_DB`、`GIT_PUSH_FORCE`、`semanticOf`、`SESSION_RULES_FULL`、`HEARTBEAT_INTERVAL_MS`、`readEnvMap`、`buildApplyTool`）。死导出候选 84 → 44（余下多为测试专用或对外 API）。模块总行数 7325。回归 434/434。
-- 审计结论（同一批调查）：`src/core/audit.mjs` 的 3 处空 catch 属"工作区→临时目录→stderr"三级兜底，**不是静默丢数据**；`state.mjs::saveState` 失败已走 `noteFail`（stderr 告警），其余空 catch 为 `.tmp` 清理路径。`hooks/guard.mjs` 的 12 处留待封存层单独处理（不在本批改动）。
-- fix(status): **`status.mjs` 不显示 KPI/委托**（2026-10-25 模块普查）——KPI 可见化把 `kpi`/`delegate_budget` 写进 `status.json`，但 CLI 只渲染心跳与模块数，人类跑 `npm run status` 依旧看不到。现补读并在一行输出里追加 `KPI -640  委托 19`（字段缺失时兼容）。新增 `tests/status-cli.test.mjs` 2 条。
-- chore(modules): **给两个死重复模块加"未使用"横幅**（2026-10-25）——`adapters/dsh/fg-apply-tool.mjs` / `fg-appeal-tool.mjs` 是早期 `defineTool` 版本，生产路径在 `src/dsh/tools.mjs`，全仓无 import。加横幅标明"改了不影响线上行为"，避免后来人改错文件造成漂移。
-- feat(tools): **模块体检三件套**（2026-10-25）：`tools/module-audit.mjs`（行数/导出/TODO/空 catch/console）、`tools/log-audit.mjs`（动作分布、可疑 evidence、时间断层、近 24h 活跃度）、`tools/dead-export.mjs`（导出了但无人调用）。首跑结论：AUDIT.log 5535 行 **0 坏行 / 0 条可疑 evidence**；`blast-radius` 尚未触发（新功能需重启加载）。
-- feat(gate): **改动面闸（Blast-Radius Gate）**（2026-10-25，人类判据"改大量文件只换来一个小彩灯"）——新建 `src/`/`packages/` 下**不存在的**文件、或执行 `npm|pnpm|yarn|bun|pip|poetry|uv install/add` 时，第一次调用被拒并要求先回三行：**收益**（说不清就是小彩灯）/ **改动面**（预计文件数、是否跨层）/ **替代**（更小做法）。**只拒一次**，重试即放行；人类指令里已声明收益（≥10 字且含"收益/可测/减少/避免…"）时不介入；`FG_VALUE_GATE=0` 可关闭。判的是**改动面 × 收益量级**，不预测 token/金额数字（不可测的 ROI 一律不写）。新增 `tests/value-gate.test.mjs` 5 条；回归 429/429。
-- feat(report): **改动面收尾报告**（2026-10-25）——"小彩灯"要在收尾时暴露：`agent/turn-stopping` 统计本回合 FG 亲眼看过的写操作（`state.editedFiles`），≥`FG_BLAST_REPORT`（默认 6，0=关闭）时写 `blast-radius` 审计行并把 `blast:N` 事件挂到下一次徽标。位置必须在 KPI 零增量提前 return **之前**（否则无 KPI 增量的回合永远报不出来）。新增 `tests/blast-radius-report.test.mjs` 3 条；回归 432/432。
+- feat(prompt): **按需注入（Lazy Rules）**：常驻 425 → 222 字，省约 51 tok/步
+  - **做法**：只留"行为会因此改变"的硬线（取证 / 锚点 / 整读禁令 / 熔断 / 批示）；完整条文存 `SESSION_RULES_FULL`，不注入。
+  - **引用**：细则改由 deny 理由按需引用；`RULES.md` 第四部分镜像与 `INSTALL.md` 验证判据同步更新。
+- feat(audit): **策略可达性自检**：启动时抽参数键，与真实 schema 求差
+  - **新增**：`src/dsh/policy-audit.mjs`，挂 `agent/created`；不可达键只 warn 不改。
+  - **来历**：把 2026-10-22 手工发现的「三条死闸」固化成自检；`npm run gate:audit` 覆盖同一判据。
+- feat(gate): **结果准入预算**：中等体积整读不再靠单次阈值漏过
+  - **规则**：超过 `FG_RESULT_ADMIT_BYTES`（默认 32KB）的整读每次 -1，默认 3 次（`FG_RESULT_ADMIT_BUDGET`，0=关闭）。
+  - **用尽**：即拒并指向分段读/检索；**压缩完成后额度自动恢复**。
+- test: 新增 `tests/policy-audit.test.mjs` 5 条、`result-admit.test.mjs` 4 条；回归 419/419
+- feat(hints): **检索后端探测**：整读闸不再写死 `xerj`，按本机可用给换法
+  - **背景**：没装 XERJ 的用户照抄提示必然失败，与"死闸"同类。
+  - **实现**：`src/dsh/search-hints.mjs` 探测 `xerj`→`rg`→`fd`→降级 glob+分段读；全无时每会话提醒一次安装。
+  - **协调**：`FG_SEARCH_TOOL` / `FG_SEARCH_BIN_DIR` 可指定；本机 rg/fd 可用，xerj 未入 PATH。
+  - **测试**：`tests/search-hints.test.mjs` 5 条；回归 424/424。
+- 结论（不实施）：**不内置 XERJ**，按需下载方案保留
+  - **代价**：单平台二进制 126.1 MB、三平台约 378 MB，另需守护进程 / 索引生命周期 / 许可证核查。
+  - **收益**：仅省一步安装 → 不值；需要时改 `focusguard setup:search` 按需下载（未实现）。
+- refactor(layers): **进度/预算判定搬进母版（阶段 2 第一刀）**
+  - **新增**：`src/core/progressPolicy.mjs`——`budgetVerdict`（达硬上限→fuse；达预算→refill 且封顶）、`stallVerdict`、`invPoolOverLimit`。
+  - **缝只保留**：落状态 + 写审计 + 给提示；边界 `≥ cap` 即熔断、refill 不越 cap、侦查池 `>` 才算超限。
+  - **测试**：`progress-policy.test.mjs` 4 条；回归 449/449。`hooks/guard.mjs` 三处留待阶段 2 第二刀。
+- refactor(layers): **收尾判定搬进母版（阶段 1）**
+  - **判据**：人类原话"母版是逻辑，适配只做翻译"。
+  - **原状**：`needsDowngrade` / `needsAccount` / `needsAnchorCheck` / `declaresFuse` / `hasAnchor` 在两个宿主缝各写一份。
+  - **现**：统一到 `src/core/stopPolicy.mjs`（纯函数），缝只保留"取结果 → 打回/提示/写审计"。
+  - **等价**：`guard.mjs` 仍打回、`stopGuard.mjs` 仍只审计（DSH 无 stop 拦截口）；5 条用例，回归 445/445。
+- test(core): **母版层 API 形态锁定 + 探针教训**
+  - **形态**：`judgeReadGate` 字符串三态 / `judgeGrepGate` 对象 / `judgeCatGate` 字符串二态；轮转返回路径或 `null`。
+  - **教训**：探针写错三处（`turnCalls` 当 `turnCount`、对象传给位置参数、`{bare}` 传给收字符串的函数）。
+  - **锁定**：`core-api-shapes.test.mjs` 4 条。
+- 实跑结论（不改代码）：母版六模块逐项核对通过
+  - `redlines` 12/12；`risk` 分类正确（`pwsh` + 危险命令才算 mutating）。
+  - `approvals` 一次性语义成立（二次消费 false、改命令即失效）。
+  - `state` 原子写无 `.tmp` 残片、坏 JSON 回退并 stderr 告警。
+  - **结论**：`checkEligibility` 未取证改动 → `needApproval`（layer 3）；`audit-writer` 轮转 24.5KB→5KB 生效。
+- test(dsh): **L5 收尾打回补 DSH 专用用例**
+  - **缺口**：`stopGuard.mjs` 259 行但 DSH 无专用用例；探测用错字段（`turnCalls`）差点误判"不会拦"。
+  - **锁定**：本回合调用 ≥5 且收尾无 `[文件:行号]` 锚点 → 写 `violation-no-anchor` 并提示；带锚点不触发。
+  - **语义**：DSH 无 stop 拦截口，只审计+提示、不阻断停止（阻断会卡死人）；`stop-guard.test.mjs` 2 条。
+- 审计结论（不改）：`env.mjs` 3 处空 catch 均为环境探测降级
+  - 分别对应 bash 缺失 / chcp 失败 / realpath 探测失败，不涉及数据丢失；`hooks/guard.mjs` 12 处保持现状。
+- chore(slim): **瘦身与伪公开清理**：删 2 个死模块 + 38 处伪公开 export
+  - **删除**：`fg-apply-tool.mjs` / `fg-appeal-tool.mjs`（早期 `defineTool` 版，生产路径在 `src/dsh/tools.mjs`，零 import）。
+  - **降级**：38 处只在自身文件内使用的 export 降为内部符号（`DROP_DB`、`semanticOf`、`readEnvMap` 等）。
+  - **结果**：死导出候选 84 → 44；模块总行数 7325；回归 434/434。
+- 审计结论（不改）：`audit.mjs` 3 处空 catch 是三级兜底
+  - **性质**：工作区→临时目录→stderr，不是静默丢数据；`saveState` 失败走 `noteFail`，其余为 `.tmp` 清理。
+  - **未动**：`hooks/guard.mjs` 12 处留待封存层单独处理。
+- fix(status): **`status.mjs` 不显示 KPI/委托**：补读并追加到一行输出
+  - **原状**：`kpi` / `delegate_budget` 已写进 `status.json`，CLI 只渲染心跳与模块数。
+  - **现**：追加 `KPI -640  委托 19`（字段缺失兼容）；`status-cli.test.mjs` 2 条。
+- chore(modules): **给两个死重复模块加"未使用"横幅**
+  - 两个 `defineTool` 早期版本全仓无 import；横幅标明"改了不影响线上行为"，避免改错文件造成漂移。
+- feat(tools): **模块体检三件套**：行数 / 导出 / TODO / 空 catch / 审计分布
+  - **三件**：`module-audit.mjs`（行数/导出/TODO/空 catch/console）、`log-audit.mjs`（动作分布/可疑 evidence/时间断层/近 24h）、`dead-export.mjs`。
+  - **首跑**：AUDIT.log 5535 行 0 坏行 / 0 条可疑 evidence；`blast-radius` 未触发（需重启加载）。
+- feat(gate): **改动面闸（Blast-Radius Gate）**：新建敏感文件 / 加依赖先回三行
+  - **触发**：`src/`、`packages/` 下不存在的文件，或 `npm|pnpm|yarn|bun|pip|poetry|uv install/add`。
+  - **要求**：收益（说不清就是小彩灯）/ 改动面（文件数、是否跨层）/ 替代（更小做法）；只拒一次。
+  - **豁免**：人类指令已声明收益（≥10 字且含"收益/可测/减少/避免"）；`FG_VALUE_GATE=0` 可关。
+  - **口径**：判改动面 × 收益量级，不预测 token/金额（不可测的 ROI 一律不写）；5 条用例，回归 429/429。
+- feat(report): **改动面收尾报告**：回合末把"小彩灯"暴露出来
+  - **统计**：`agent/turn-stopping` 读 `state.editedFiles`，≥`FG_BLAST_REPORT`（默认 6，0=关）写 `blast-radius` 审计行。
+  - **挂徽标**：下次徽标带 `blast:N`；位置必须在 KPI 零增量提前 return **之前**，否则报不出来。
+  - **测试**：`blast-radius-report.test.mjs` 3 条；回归 432/432。
 
 ## 3.0.10 · 2026-10-22
 
