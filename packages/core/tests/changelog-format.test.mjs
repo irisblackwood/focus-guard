@@ -6,9 +6,11 @@
  *
  * 两个设计取舍：
  *
- * 1. **只对最新版本段严格**。历史段（3.1.0 及更早）已有 100+ 条超长条目，
- *    重排历史段的收益是零（读者很少回看），风险是改错信息。存量用棘轮兜住，
- *    只许降不许升——一次性清到零不现实，而永远红的闸门等于没有闸门。
+ * 1. **所有版本段都严格**（2026-10-27 起）。此前只审最新段、历史段靠棘轮兜住，理由是
+ *    "重排历史段收益低"；实测发现更糟的问题：3.0.6 及更早的 16 个段标题没有日期，
+ *    旧正则 `## x.y.z · YYYY-MM-DD` 把它们**从未解析**——"零违规"与棘轮对它们一直空转。
+ *    现改为日期可选，全部 21 段纳入审计；全段已重排，棘轮 753 → 120。
+ *    新增长条目的闸门仍在：条目 >120 即红。
  *
  * 2. **有标签的子项放宽到 150 字**。第一版按「子项 ≤ 80」写，实测 117 条子项里
  *    60 条超限，而它们大多带 `**原因**：` 这类标签，读者靠标签跳读，不需要短。
@@ -31,23 +33,29 @@ const LIMITS = {
 };
 
 /**
- * 全文件存量棘轮：当前最长条目 753 字（3.0.6 段）。
+ * 全文件存量棘轮：当前最长条目 120 字（3.0.9 段），与 LIMITS.item 同值。
  * **只许降不许升**——降下来就改这个数字，别让它涨回去。
+ * 2026-10-27：全段重排后从 753 降到 120。
  */
-const RATCHET = { longestItem: 753 };
+const RATCHET = { longestItem: 120 };
 
 /** 结构标记：粗体标签或圈号 */
 const MARK = /^(\*\*[^*]+\*\*|[①②③④⑤⑥⑦⑧⑨])/;
 
 /**
  * 按 `## x.y.z` 切段。返回顺序与文件一致（最新在前）。
- * @returns {{version: string, date: string, lines: string[]}[]}
+ *
+ * 2026-10-27：日期改为可选。旧正则要求 `## x.y.z · YYYY-MM-DD`，而 3.0.6 及更早的
+ * 16 个段标题是 `## x.y.z · 标题文字`（无日期）——它们**从未被解析**，于是"全文件棘轮"
+ * 与"零违规"对它们一直是空转通过（重排时才发现：脚本打印 done、findings 恒 0）。
+ * 现在所有 `## x.y.z` 段都纳入审计；date 缺失时跳过"重复日期"那一项检查。
+ * @returns {{version: string, date: string|undefined, lines: string[]}[]}
  */
 export function splitVersions(text) {
   const out = [];
   let cur = null;
   for (const line of text.split("\n")) {
-    const m = line.match(/^## (\d+\.\d+\.\d+) · (\d{4}-\d{2}-\d{2})/);
+    const m = line.match(/^## (\d+\.\d+\.\d+)(?: · (\d{4}-\d{2}-\d{2}))?/);
     if (m) {
       cur = { version: m[1], date: m[2], lines: [] };
       out.push(cur);
@@ -130,7 +138,12 @@ const LATEST = SECTIONS[0];
 describe("CHANGELOG 排版", () => {
   // 没有这条，下面的「零违规」可以靠解析失败通过——本仓栽过「锚点缺失静默返回空」
   test("结构锚点：解析必须真看见版本段与条目", () => {
-    assert.ok(SECTIONS.length >= 5, `只解析到 ${SECTIONS.length} 个版本段，解析规则可能失配`);
+    assert.ok(SECTIONS.length >= 20, `只解析到 ${SECTIONS.length} 个版本段，解析规则可能失配`);
+    // 无日期标题（3.0.6 及更早）必须被解析到，否则"全段合规"又会退化成只审最新段。
+    assert.ok(
+      SECTIONS.some((s) => !s.date),
+      "没有解析到任何无日期段——日期可选的正则失效了，16 个历史段会重新逃出审计",
+    );
     assert.equal(LATEST.version, "3.2.0", `最新段应为 3.2.0，实际 ${LATEST.version}`);
     const items = LATEST.lines.filter((l) => /^- /.test(l));
     assert.ok(items.length >= 15, `最新段只解析到 ${items.length} 个条目，解析规则可能失配`);
@@ -138,8 +151,11 @@ describe("CHANGELOG 排版", () => {
     assert.ok(subs.length >= 40, `最新段只解析到 ${subs.length} 个子项——重排后本该有上百条`);
   });
 
-  test("最新版本段：条目、子项、嵌套全部合规", () => {
-    const findings = auditSection(LATEST.lines, LATEST.version, LATEST.date);
+  test("所有版本段：条目、子项、嵌套全部合规", () => {
+    const findings = [];
+    for (const sec of SECTIONS) {
+      for (const f of auditSection(sec.lines, sec.version, sec.date)) findings.push(f);
+    }
     assert.deepEqual(
       findings,
       [],
