@@ -46,9 +46,9 @@ Shipped in the code, not yet reflected in the version number (still `3.0.6`):
 - **Heartbeat and liveness** — `src/dsh/heartbeat.mjs:85`, `src/dsh/status.mjs:73`: every 10s the plugin atomically rewrites `.focus-guard/status.json`; `node src/dsh/status.mjs` reports `ALIVE` / `STALE` and exits `0` all-green, `2` module missing, `3` stale, `4` no file.
 - **Module self-check** — `heartbeat.mjs:45`: the ten enforcement seams plus the heartbeat each report at startup; anything missing lands in `degraded`, is warned to the host log, and is injected to the model as `focus-guard-degraded`.
 - **L4 cross-session record** — `src/dsh/workspace.mjs:38` (hash) / `:125` (turn record) / `src/dsh/index.js:71` (injection): state is keyed by `sha256(realpath(cwd))`; a hash mismatch injects nothing, so a renamed folder cannot inherit old state.
-- **Whole-file read gate** — `src/dsh/pipeline.mjs:421` / `:645`: a target above 300 lines read without `offset`/`limit` is denied and pointed at XERJ (`xerj search` / `xerj def`). Configurable via `FG_WHOLE_FILE_MAX_LINES`.
-- **Superpowers writing gate** — `src/dsh/pipeline.mjs:398`: a vague development request (dev verb + vague marker + no acceptance criteria) gets one denial before the first edit/write/destructive shell, requiring `brainstorming` or `writing-plans`; a retry or a loaded skill passes.
-- **Graded destructive heuristic** — `src/dsh/pipeline.mjs:159`: `Remove-Item` / `fs.rmSync` weight by target — system path or recursive `0.9` (blocked), TEMP `0.2`, other `0.4`; redirection `0.15`.
+- **Whole-file read gate** — `src/dsh/guard/wholeFile.mjs:26` / `:70`: a target above 300 lines read without `offset`/`limit` is denied and pointed at XERJ (`xerj search` / `xerj def`). Configurable via `FG_WHOLE_FILE_MAX_LINES`.
+- **Superpowers writing gate** — `src/dsh/guard/superpowers.mjs:34`: a vague development request (dev verb + vague marker + no acceptance criteria) gets one denial before the first edit/write/destructive shell, requiring `brainstorming` or `writing-plans`; a retry or a loaded skill passes.
+- **Graded destructive heuristic** — `src/dsh/guard/risk.mjs:37`: `Remove-Item` / `fs.rmSync` weight by target — system path or recursive `0.9` (blocked), TEMP `0.2`, other `0.4`; redirection `0.15`.
 - **Compaction watch** — `src/dsh/compactionWatch.mjs:239` / `:364`: observes `compaction/start|end|prune` and request-error collisions, records them, and never writes surface or cancels a turn.
 - **Denial reasons in the audit** — `src/dsh/audit.mjs:120`: `auditDeny(exec, cmd, {trigger, level})` records the real rule (`redline:<name>`, `env-substitute`, `gate:fg_apply`, `evidence-gate`, `whole-file:lines`, `risk:<category>`) instead of a constant `high-risk-rm`.
 - **Executor detection** — `src/core/env.mjs:18` + `src/dsh/index.js:31`: the master layer honours an explicit `FG_SHELL`; the DSH adapter declares `powershell`, ending the three-way mismatch between record, fingerprint and actual executor.
@@ -79,7 +79,8 @@ npm run eval                # threat evaluation (high-risk detection rate + beni
 ```
 src/core/           master layer: zero-dependency, host-agnostic judging logic
 src/adapters/dsh/   adapter layer: wires the master into DSH (fg_apply / fg_appeal + eligibility gate)
-src/dsh/pipeline.mjs host hooks: pre-execute / system-prompt / post-execute
+src/dsh/pipeline.mjs host hooks: pre-execute / system-prompt / post-execute (orchestration)
+src/dsh/guard/       per-layer gate implementations (10 modules, split 2026-10-27)
 hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not follow the main release)
 ```
 

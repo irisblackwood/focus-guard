@@ -65,7 +65,7 @@ AI 智能体最常见的三种失控：
 |---|---|---|
 | **母版层** | `packages/core/src/core/` | 零依赖、宿主无关的判定逻辑：六层资格审核 / 模型画像 / 绝对红线与上下文豁免 / 申辩 / 卷宗状态 / 审计写入器。**不得反向依赖适配层**（有验收用例锁定） |
 | **适配层** | `packages/core/src/adapters/dsh/` | 把母版接进 DSH：`fg_apply` / `fg_appeal` 工具注册 + 资格闸。**只许向下依赖母版** |
-| **宿主缝** | `packages/core/src/dsh/pipeline.mjs` | DSH 原生插件的三条缝：pre-execute / system-prompt / post-execute。作为**组装根**允许调用适配层 |
+| **宿主缝** | `packages/core/src/dsh/pipeline.mjs` | DSH 原生插件的三条缝：pre-execute / system-prompt / post-execute。作为**组装根**允许调用适配层；各层判定在 `src/dsh/guard/`（10 个模块，2026-10-27 拆） |
 | **ZCode 执行壳** | `packages/core/hooks/guard.mjs` | 六事件钩子入口（`hooks.json` 协议接口保持不变）。**已封存**——ZCode 兼容层，版本号独立、不随主版本更新，改动须谨慎 |
 
 依赖方向由 `packages/core/tests/layering.test.mjs` 锁定：`core → adapter → seam` 单向，另禁止 `zcode → 适配层/宿主缝`。自检脚本 `packages/core/tools/selftest.mjs` 属工具层，不在生产源码目录。
@@ -234,9 +234,9 @@ npm install focus-guard
 | 心跳与存活确认 | `packages/core/src/dsh/heartbeat.mjs:85`、`status.mjs:73` | 每 10s 原子覆写 `.focus-guard/status.json`；外部 `node status.mjs` 判活，exit `0` 全绿 / `2` 缺模块 / `3` STALE / `4` 文件缺失 |
 | 模块启动自检 | `heartbeat.mjs:45`（`markModule`） | 10 条执法缝 + 心跳各自报到；缺谁写进 `degraded`，宿主日志告警，模型侧收到 `focus-guard-degraded` 段 |
 | L4 跨会话卷宗 | `workspace.mjs:38`（hash）、`:125`（回合落账）、`index.js:71`（注入段） | `workspace_hash = sha256(realpath(cwd))` 前 16 位；hash 不符零注入（改文件夹名即彻底屏蔽） |
-| 整文件读取闸 | `pipeline.mjs:421`（口径）、`:645`（闸本体） | 目标 > 300 行且无 offset/limit → deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调 |
-| Superpowers 动笔闸 | `pipeline.mjs:398` | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载 `brainstorming`/`writing-plans`；同条重试与已加载均放行 |
-| 风险启发式分级 | `pipeline.mjs:159`（`destructiveApiWeight`） | 破坏性 API 按目标给权：系统路径/递归 0.9（必拦）、TEMP 0.2、其他 0.4；重定向 0.15 |
+| 整文件读取闸 | `guard/wholeFile.mjs:26`（口径）、`:70`（闸本体） | 目标 > 300 行且无 offset/limit → deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调 |
+| Superpowers 动笔闸 | `guard/superpowers.mjs:34`（判据 `:21`） | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载 `brainstorming`/`writing-plans`；同条重试与已加载均放行 |
+| 风险启发式分级 | `guard/risk.mjs:37`（`destructiveApiWeight`） | 破坏性 API 按目标给权：系统路径/递归 0.9（必拦）、TEMP 0.2、其他 0.4；重定向 0.15 |
 | 压缩监察 | `packages/core/src/dsh/compactionWatch.mjs:239`、`:364` | 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），**不写 surface、不 cancel 回合**——压缩归 DSH 内置栈 |
 | 审计拦截理由 | `packages/core/src/dsh/audit.mjs:120` | `auditDeny(exec, cmd, {trigger, level})`：`redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `risk:<category>` 等，不再是清一色 `high-risk-rm` |
 | 执行体判定 | `packages/core/src/core/env.mjs:18`、`index.js:31` | 母版认 `FG_SHELL` 显式覆盖；DSH 适配层声明执行体为 `powershell`，与卷宗【一】/指纹不再互相矛盾 |
@@ -276,11 +276,12 @@ Stop               → 回合边界 + 证据锚点检查 + 授权识别核验 + 
 
 拦截协议：PreToolUse 以**退出码 2** 拒绝工具调用（原因走 stderr，原文透传给模型）；Stop / PostToolUse 返回 `{"decision":"block","reason":...}` 打回重写。所有打回路径都有一次性保护（`stopBlocked` + 宿主的 `stop_hook_active`），不会因强制续跑变成死循环。
 
-DSH 原生插件（`src/dsh/pipeline.mjs`）在**同一条 PreToolUse 缝**上按序叠加（各段独立 fail-open，异常一律放行或原样透传）：
+DSH 原生插件（`src/dsh/pipeline.mjs` 编排，各层实现在 `src/dsh/guard/`）在**同一条 PreToolUse 缝**上按序叠加（各段独立 fail-open，异常一律放行或原样透传）：
 
 ```
-申辩入口(fg_appeal) → 第3层状态/取证校验 → 绝对红线(+上下文豁免/申辩凭据) → 第1.5层命令硬校验
-→ 资格审核闸(fg_apply) → 第2层语义预判(哨兵) → next
+申辩入口(fg_appeal) → 第3层状态/取证校验 → 绝对红线(+上下文豁免/申辩凭据) → 第1.3层动笔闸
+→ 第1.4层整读闸 → 第1.5层命令硬校验 → 资格审核闸(fg_apply) → 改动面闸
+→ 体积刺客三闸(Read/Grep/cat) → 污染核实闸 → 第2层语义预判(哨兵) → next
 ```
 
 - **第 3 层取证校验**只对**已存在文件**的修改要求先读；**新建文件**无目标可读，直接放行（否则死锁）；
