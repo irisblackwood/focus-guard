@@ -13,8 +13,10 @@
 const MAX_TRACK = 200
 import { detectSearchBackends, retrievalHint } from './search-hints.mjs'
 const counts = new Map()
-// 会话级被拦总数：≥5 次时给一句"先停手"的提示（实测被拦后越试越乱）。
+// 会话级被拦总数：≥5 次时给**一次**"先停手"提示（实测被拦后越试越乱）。
+// 2026-10-28：原实现随每次 deny 重复追加，等于每拒一次多付一段提示；改为每会话只一次。
 const sessionDenies = new Map()
+const sessionHinted = new Set()
 const SESSION_HINT_AT = 5
 
 function sidOf(exec) {
@@ -79,9 +81,10 @@ export function augmentDeny(exec, decision, warn) {
       out = { ...decision, repeat: n }
     }
   }
-  // 会话级：拦得多说明方向错了，给一句"先停手"（只加提示，不改变判定）。
-  if (total >= SESSION_HINT_AT && !String(out.reason || '').includes('[本回合被拦')) {
-    const reason = `${String(out.reason || '')}\n[本回合已被拦 ${total} 次] 先停手：用一段话总结现状（已确认的事实 / 卡在哪 / 下一步），再继续；不要靠连续试错推进。`
+  // 会话级：拦得多说明方向错了，给一句"先停手"（只加提示，不改变判定；每会话一次）。
+  if (total >= SESSION_HINT_AT && !sessionHinted.has(sid)) {
+    sessionHinted.add(sid)
+    const reason = `${String(out.reason || '')}\n[本会话已被拦 ${total} 次] 先停手：用一段话总结现状（已确认的事实 / 卡在哪 / 下一步），再继续；不要靠连续试错推进。`
     out = { ...out, reason }
   }
   return out
@@ -90,4 +93,6 @@ export function augmentDeny(exec, decision, warn) {
 /** 测试用：清空计数。 */
 export function resetRepeatCounts() {
   counts.clear()
+  sessionDenies.clear()
+  sessionHinted.clear()
 }

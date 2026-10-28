@@ -158,6 +158,12 @@ function saveResetState({ file, state, turn, promptText, chain, flags }) {
     turnCount: 0,
     fused: isNewTurn ? flags.stopOrdered : state.fused,
     stopBlocked: false,
+    // 2026-10-28 修（熔断太容易）：`effectiveCalls`/`invCalls` 是**回合级**计数
+    // （预算与硬上限都按"本回合有效调用"判），原实现跨回合累计且从不归零——
+    // 一旦会话累计到 BUDGET_CAP，之后每个有效调用都重新置 fused，换回合也解不开。
+    effectiveCalls: isNewTurn ? 0 : state.effectiveCalls,
+    invCalls: isNewTurn ? 0 : state.invCalls,
+    invWarned: isNewTurn ? false : state.invWarned,
     randomFusePending: false, // 反规避抽查B：检查点属回合内状态，换回合作废（写操作计数 fuseOps 保留）
     mercy: flags.mercy,
     goalPush: flags.goalPush,

@@ -117,14 +117,14 @@ describe("动态预算", () => {
 });
 
 describe("进度检测", () => {
-  test("连续 3 次无效调用（第 4 次相同调用）→ 停滞熔断", () => {
+  test("连续 5 次无效调用 → 停滞熔断（STALL_FUSE=5）", () => {
     const run = makeRunner("stall");
     run("reset", { prompt: "看看情况" });
     const same = { tool_name: "Read", tool_input: { file_path: "same.txt", limit: 5 }, tool_response: { content: "一成不变" } };
     assert.equal(run("post", same).out, "");            // 基线
-    assert.equal(run("post", same).out, "");            // 无效 1
-    assert.ok(run("post", same).out.includes("停滞预警")); // 无效 2 → 预警
-    assert.ok(run("post", same).out.includes("真失控"));   // 无效 3 → 熔断
+    for (let i = 1; i <= 3; i++) assert.equal(run("post", same).out, ""); // 无效 1-3
+    assert.ok(run("post", same).out.includes("停滞预警")); // 无效 4 → 预警
+    assert.ok(run("post", same).out.includes("真失控"));   // 无效 5 → 熔断
     assert.equal(stateOf("stall").fused, true);
   });
 
@@ -150,10 +150,10 @@ describe("进度检测", () => {
     assert.equal(stateOf("postfail-x").ineffCalls, 1);
     run("postfail", fail);
     assert.equal(stateOf("postfail-x").stalledStreak, 2);
-    run("postfail", fail);
+    for (let i = 3; i <= 5; i++) run("postfail", fail);
     const s = stateOf("postfail-x");
-    assert.equal(s.stalledStreak, 3);
-    assert.equal(s.fused, true, "连续 3 次失败应判真失控熔断");
+    assert.equal(s.stalledStreak, 5);
+    assert.equal(s.fused, true, "连续 5 次失败应判真失控熔断");
   });
 });
 
@@ -170,7 +170,7 @@ describe("履职纪律", () => {
     const run = makeRunner("fused-ro");
     run("reset", { prompt: "看看情况" });
     const same = { tool_name: "Read", tool_input: { file_path: "same.txt", limit: 5 }, tool_response: { content: "一成不变" } };
-    run("post", same); run("post", same); run("post", same); run("post", same);
+    for (let i = 0; i < 6; i++) run("post", same);
     assert.equal(stateOf("fused-ro").fused, true);
     assert.equal(run("pre", { tool_name: "Read", tool_input: { file_path: "x.txt", limit: 5 } }).rc, 0);
     assert.equal(run("pre", { tool_name: "Bash", tool_input: { command: "ls" } }).rc, 0);

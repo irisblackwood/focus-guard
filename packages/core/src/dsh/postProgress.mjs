@@ -196,7 +196,11 @@ function detectProgress({ tool, ti, isFail, state, respText }) {
 }
 
 function judgeBudgetPools(ctx) {
-  const { sid, tool, ti, isFail, state, inv, respText } = ctx
+  const { sid, tool, ti, isFail, state, inv, respText, guardDeny } = ctx
+  // 2026-10-28（熔断太容易）：闸门拒绝不是"模型空转"——它是**判定生效**。
+  // 原实现把 deny 当失败 → 无 progress → stalledStreak+1，连改 3 个被拦文件就熔断。
+  // 被拒调用对进度与停滞都记中性（不 += 也不清零），由 repeatGuard 的换法提示负责纠偏。
+  if (guardDeny) return null
   const progress = detectProgress({ tool, ti, isFail, state, respText })
 
   let reason = null
@@ -464,6 +468,8 @@ export function postProgressListener({ warn } = {}) {
       const tool = String((exec && exec.name) || '')
       const ti = (exec && exec.arguments) || {}
       const isFail = !!(result && (result.error || result.isError))
+      // FG 的 deny 也走 error 形状；必须与"真失败"分开，否则闸门越严越容易熔断。
+      const guardDeny = isFail && /focus-guard-native/.test(String((result && (result.error || result.message)) || ''))
       const file = guardStateFile(sid)
       const state = loadState(file)
       auditChainInit(state)
@@ -480,7 +486,7 @@ export function postProgressListener({ warn } = {}) {
       // 执行池被只读调用提前耗尽（2026-10-10 由批 5 的用例连带抓出本批缺陷）。
       const inv = isInvestigation(zcodeToolName(tool), ti)
 
-      const ctx = { exec, sid, tool, ti, isFail, state, respText, respProbe, inv }
+      const ctx = { exec, sid, tool, ti, isFail, guardDeny, state, respText, respProbe, inv }
 
       settleForcedInvestigate(ctx)
       trackReadSet(ctx)
