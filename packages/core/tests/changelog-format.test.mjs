@@ -144,11 +144,14 @@ describe("CHANGELOG 排版", () => {
       SECTIONS.some((s) => !s.date),
       "没有解析到任何无日期段——日期可选的正则失效了，16 个历史段会重新逃出审计",
     );
-    assert.equal(LATEST.version, "3.2.0", `最新段应为 3.2.0，实际 ${LATEST.version}`);
-    const items = LATEST.lines.filter((l) => /^- /.test(l));
-    assert.ok(items.length >= 15, `最新段只解析到 ${items.length} 个条目，解析规则可能失配`);
-    const subs = LATEST.lines.filter((l) => /^ {2}- /.test(l));
-    assert.ok(subs.length >= 40, `最新段只解析到 ${subs.length} 个子项——重排后本该有上百条`);
+    // 最新段随发版变化（3.2.0 → 3.2.1 …），只校验形态；条目密度锚点改用 3.2.0 这个"分组的重排样板段"。
+    assert.match(LATEST.version, /^\d+\.\d+\.\d+$/, `最新段版本号形态异常：${LATEST.version}`);
+    const sample = SECTIONS.find((s) => s.version === "3.2.0");
+    assert.ok(sample, "没有解析到 3.2.0 段——排版样板段缺失，解析规则可能失配");
+    const items = sample.lines.filter((l) => /^- /.test(l));
+    assert.ok(items.length >= 15, `3.2.0 只解析到 ${items.length} 个条目，解析规则可能失配`);
+    const subs = sample.lines.filter((l) => /^ {2}- /.test(l));
+    assert.ok(subs.length >= 40, `3.2.0 只解析到 ${subs.length} 个子项——重排后本该有上百条`);
   });
 
   test("所有版本段：条目、子项、嵌套全部合规", () => {

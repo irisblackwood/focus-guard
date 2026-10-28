@@ -6,6 +6,36 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
+## 3.2.1 · 2026-10-28
+
+> 版本策略：3.2.0 之后 fix/feat 累计 **1 条** → 未满 10，走补丁号。
+> 本版主题：**插件工具只读口修复 + 结构债清理 + 文档排版归一**。
+> 发布状态：**未推送**（GitHub `main` 停在 `3.2.0`，2026-10-27）；npm 未发布、未打 tag。
+> 影响面：`plugin_manager` 只读调用被拦是 **3.2.0 已发布**的行为；其余两条是内部结构与文档，不改判定。
+
+### 闸门行为
+
+- fix(gate): **`plugin_manager` 只读动作不再被当成"改动类无路径"**
+  - **病根**：`list_plugins` 没有 `file_path`，被取证闸按"改动类无可解析路径"挡死；`install_bundle` 的 `target`（包名）被当文件路径，反而放行。
+  - **改法**：母版加动作级只读注册（`registerReadOnlyActions` / `isReadOnlyCall`），适配层登记三个 `list_*`；取证链改用 `isMutatingInvocation(tool, args)`。
+  - **测试**：`mutation-classify` +2 条；selftest 抓回一处 fail-open 回归（`exec.arguments` 是抛错 getter 时异常逃出判定链）。
+
+### 结构
+
+- refactor(dsh): **结构异味 27 → 8，健康分 79 → 93**〔开发期〕
+  - **拆分**：`seams` 498 → 137 行（拆 4 个模块）、`preGuard`/`stopGuard` 分段 helper、`volume`/`runtime`/`evidence`/`postProgress`/`compactionWatch` 抽函数。
+  - **工具**：`source-text` 拆 `scanQuoted`/`scanRegex`/`blankSpan`；`library-build` 拆 `buildTable`/`renderIndex`。
+  - **棘轮**：`smells` 28 → 8、`health` 79 → 93，只许降不许升。
+  - **验证**：`npm run check` exit 0、524/524；`health`/`smells`/`lint` 的 `--strict` 均 exit 0。
+
+### 文档
+
+- docs(changelog): **全 21 段重排，并修掉 16 段从未被审计的盲区**〔开发期〕
+  - **改前**：235 条里 134 条 >120 字，条目均 275、最长 529；段内把背景/原因/改动/测试揉成一段。
+  - **改后**：一条结论 + `**标签**：` 子项；235 条全部 ≤120，最长 120；子项 117 → 约 500。
+  - **盲区**：`splitVersions` 要求标题带日期，而 3.0.6 及更早的 16 段没有日期 → 从未被解析，"零违规/棘轮"一直空转；改为日期可选后 21 段全审，棘轮 753 → 120。
+- docs: 三处失效的 `../CHANGELOG.md` 相对链接改为 `../../../CHANGELOG.md`；README / ARCH-MAP 的锚点随拆分归一。
+
 ## 3.2.0 · 2026-10-27
 
 > 版本策略：3.1.0 之后累计 **17 条** fix/feat → 远超阈值，升次版本。

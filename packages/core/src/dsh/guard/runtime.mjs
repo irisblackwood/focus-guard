@@ -11,7 +11,7 @@ import { appendCostRow } from '../audit.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../../peak-cost.mjs'
 
 /** 每次改动流水线递增；用于磁盘/内存版本一致性提示 */
-const PIPELINE_VERSION = '3.1.0-m1'
+const PIPELINE_VERSION = '3.2.1-m1'
 
 // 比对对象仍是 src/dsh/pipeline.mjs 的 mtime（本模块位于 src/dsh/guard/ 下）。
 const PIPELINE_FILE = fileURLToPath(new URL('../pipeline.mjs', import.meta.url))
