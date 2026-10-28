@@ -11,6 +11,7 @@ const {
   checkVersionFace,
   checkStatusHeaders,
   checkIndexCoverage,
+  checkReadmeMetrics,
 } = await import("../tools/lib/docs-core.mjs");
 
 function fixture() {
@@ -108,4 +109,21 @@ test("INDEX 覆盖：权威文档没被 docs/INDEX.md 链接到必须报", () =>
   assert.equal(checkIndexCoverage(r2, []).length, 1);
   rmSync(root, { recursive: true, force: true });
   rmSync(r2, { recursive: true, force: true });
+});
+
+test("README 硬指标：超行数/超标题/三位数正文必须报（版本号与日期豁免）", () => {
+  const { root, put } = fixture();
+  const long = ["# R", "", "> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28", ""];
+  for (let i = 0; i < 170; i += 1) long.push(`正文第 ${i} 行`);
+  put("README.md", long.join("\n"));
+  const bad = checkReadmeMetrics(root);
+  assert.ok(bad.some((f) => f.rule === "readme-lines"), JSON.stringify(bad));
+
+  put("README.md", "# R\n\n> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28\n\n这里有 425 个字符。\n");
+  const nums = checkReadmeMetrics(root);
+  assert.ok(nums.some((f) => f.rule === "readme-big-number"), JSON.stringify(nums));
+
+  put("README.md", "# R\n\n> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28\n\n只有版本 3.2.1 与日期 2026-10-28。\n");
+  assert.deepEqual(checkReadmeMetrics(root), []);
+  rmSync(root, { recursive: true, force: true });
 });

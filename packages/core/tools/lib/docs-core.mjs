@@ -29,6 +29,7 @@ export const VERSION_FILES = [
  */
 export const AUTHORITATIVE_DOCS = [
   'README.md',
+  'docs/ARCHITECTURE.md',
   'INSTALL.md',
   'CHANGELOG.md',
   'packages/core/docs/RULES.md',
@@ -153,5 +154,38 @@ export function checkIndexCoverage(root, docs = AUTHORITATIVE_DOCS) {
       findings.push({ rule: 'index-missing', file: rel, line: 1, detail: '权威文档未出现在 docs/INDEX.md 的链接里' })
     }
   }
+  return findings
+}
+
+/** D1：README 硬指标（行数 / 标题数 / 表格行数 / 三位数只留版本号）。 */
+export const README_LIMITS = { lines: 160, headings: 10, tableRows: 30 }
+
+export function checkReadmeMetrics(root) {
+  const file = join(root, 'README.md')
+  const lines = readFileSync(file, 'utf8').split(/\r?\n/)
+  const findings = []
+  if (lines.length > README_LIMITS.lines) {
+    findings.push({ rule: 'readme-lines', file: 'README.md', line: 1, detail: `${lines.length} 行（上限 ${README_LIMITS.lines}）` })
+  }
+  const headings = lines.filter((l) => /^#{1,6}\s/.test(l)).length
+  if (headings > README_LIMITS.headings) {
+    findings.push({ rule: 'readme-headings', file: 'README.md', line: 1, detail: `${headings} 个标题（上限 ${README_LIMITS.headings}）` })
+  }
+  const tableRows = lines.filter((l) => /^\|/.test(l) && !/^\|[\s:|-]+\|$/.test(l)).length
+  if (tableRows > README_LIMITS.tableRows) {
+    findings.push({ rule: 'readme-table-rows', file: 'README.md', line: 1, detail: `${tableRows} 行表格（上限 ${README_LIMITS.tableRows}）` })
+  }
+  lines.forEach((line, i) => {
+    // 抹掉 URL / 链接目标 / 行内代码 / ISO 日期：版本号、badge、状态头日期都不算"正文数字"。
+    const prose = line
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\]\([^)]*\)/g, ' ')
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/\d{4}-\d{2}-\d{2}/g, ' ')
+    const m = prose.match(/(?<!\d)\d{3,}(?!\d)/)
+    if (m) {
+      findings.push({ rule: 'readme-big-number', file: 'README.md', line: i + 1, detail: `正文三位数 ${m[0]}（只允许版本号）` })
+    }
+  })
   return findings
 }

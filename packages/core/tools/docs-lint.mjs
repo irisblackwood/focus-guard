@@ -17,6 +17,7 @@ import {
   checkRelativeLinks,
   checkStatusHeaders,
   checkIndexCoverage,
+  checkReadmeMetrics,
 } from './lib/docs-core.mjs'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
@@ -32,6 +33,7 @@ const findings = [
   ...checkRelativeLinks(ROOT, files),
   ...checkStatusHeaders(ROOT),
   ...checkIndexCoverage(ROOT),
+  ...checkReadmeMetrics(ROOT),
 ]
 const byRule = {}
 for (const f of findings) byRule[f.rule] = (byRule[f.rule] || 0) + 1
