@@ -1,5 +1,7 @@
 # 真实调用夹具（自动生成，禁止手改）
 
+> **状态**：参考 · 适用版本 3.2.1 · 最后核对 2026-10-28
+
 由 `node packages/core/tools/capture-fixtures.mjs` 从**真实会话**导出：
 每条 = 一次真实 `tool/call` 的参数形状 + 宿主返回的 `tool/result` 判定。
 

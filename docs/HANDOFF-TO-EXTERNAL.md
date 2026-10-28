@@ -1,5 +1,7 @@
 # FocusGuard 交接报告（给外部接手模型）
 
+> **状态**：归档 · 适用版本 — · 最后核对 2026-10-28
+
 > 交接时间：2026-10-09 · 项目版本 **3.0.6** · 交接方：DSH `deepseek-flash` 会话
 > 本文是**唯一**的现状依据。`HANDOFF.md` 是内部备忘（已 gitignore），`packages/core/docs/RULES.md` 是法条正本（91 条→87 条）。
 >

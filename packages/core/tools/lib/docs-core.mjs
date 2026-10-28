@@ -1,11 +1,13 @@
 /**
- * 文档口径内核（3.3 D5）：版本面 + 相对链接可达性。纯函数，零依赖。
+ * 文档口径内核（3.3 D5 / D2）：版本面 + 相对链接 + 状态头 + INDEX 覆盖。纯函数，零依赖。
  *
- * 只做两件事，因为这两件能机械判定：
+ * 机械判定的四件事：
  *  1) **版本面**：七处清单 + `ENGINE_VERSION` 必须等于 CHANGELOG 最新版本段；
- *  2) **相对链接**：仓库内 `.md` 的 `[text](path)` 目标文件必须存在（http/mailto/锚点跳过）。
+ *  2) **相对链接**：仓库内 `.md` 的 `[text](path)` 目标文件必须存在（http/mailto/锚点跳过）；
+ *  3) **状态头**（D2）：权威文档正文必须带 `> **状态**：权威 · 适用版本 … · 最后核对 …`；
+ *  4) **INDEX 覆盖**（D2）：权威文档必须能从 `docs/INDEX.md` 的链接到达。
  *
- * 不做的（各自有理由）：README 硬指标属于 3.4 D1 的验收、数字单点属于 D4、状态头属于 D2。
+ * 不做的（各自有理由）：README 硬指标属于 3.4 D1、数字单点属于 D4、排版属于 `changelog-format`。
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -19,6 +21,23 @@ export const VERSION_FILES = [
   '.claude-plugin/marketplace.json',
   'packages/core/package.json',
   'packages/extended/package.json',
+]
+
+/**
+ * 权威文档（D2）。新增权威文档必须同时：① 正文带状态头 ② 进 `docs/INDEX.md`。
+ * `docs/INDEX.md` 自己是索引，不要求在索引里自我链接。
+ */
+export const AUTHORITATIVE_DOCS = [
+  'README.md',
+  'INSTALL.md',
+  'CHANGELOG.md',
+  'packages/core/docs/RULES.md',
+  'packages/core/docs/ARCH-MAP.md',
+  'packages/core/docs/VERSION-PLAN.md',
+  'packages/core/docs/RELEASE-POLICY.md',
+  'packages/core/docs/WRITING-STYLE.md',
+  'packages/core/docs/BENCH.md',
+  'packages/core/docs/PROFILE-TUNING.md',
 ]
 
 const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', 'self-improvement', 'archived', 'backup'])
@@ -99,6 +118,40 @@ export function checkRelativeLinks(root, files = listMarkdownFiles(root)) {
         }
       }
     })
+  }
+  return findings
+}
+
+/** D2：权威文档正文必须带状态头（`> **状态**：权威 · 适用版本 … · 最后核对 …`）。 */
+export function checkStatusHeaders(root, docs = AUTHORITATIVE_DOCS) {
+  const findings = []
+  for (const rel of docs) {
+    const text = readFileSync(join(root, rel), 'utf8')
+    if (!/^> \*\*状态\*\*：权威[^\n]*适用版本[^\n]*最后核对/m.test(text)) {
+      findings.push({ rule: 'missing-status-header', file: rel, line: 1, detail: '缺「> **状态**：权威 · 适用版本 … · 最后核对 …」' })
+    }
+  }
+  return findings
+}
+
+/** D2：`docs/INDEX.md` 必须能到达每一份权威文档（链接解析后按绝对路径比对）。 */
+export function checkIndexCoverage(root, docs = AUTHORITATIVE_DOCS) {
+  const findings = []
+  const indexPath = join(root, 'docs/INDEX.md')
+  if (!existsSync(indexPath)) {
+    return [{ rule: 'missing-index', file: 'docs/INDEX.md', line: 1, detail: '索引文件不存在' }]
+  }
+  const text = readFileSync(indexPath, 'utf8')
+  const reached = new Set()
+  for (const m of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const raw = String(m[1] || '').trim()
+    if (!raw || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(raw)) continue
+    reached.add(resolve(dirname(indexPath), raw.split('#')[0]))
+  }
+  for (const rel of docs) {
+    if (!reached.has(resolve(root, rel))) {
+      findings.push({ rule: 'index-missing', file: rel, line: 1, detail: '权威文档未出现在 docs/INDEX.md 的链接里' })
+    }
   }
   return findings
 }

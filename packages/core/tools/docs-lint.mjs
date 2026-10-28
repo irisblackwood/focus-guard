@@ -11,7 +11,13 @@
  * 这是 3.5「文档重置完成」的前置尺子（D5）；README 硬指标、数字单点、状态头分别归 D1/D4/D2。
  */
 import { fileURLToPath } from 'node:url'
-import { listMarkdownFiles, checkVersionFace, checkRelativeLinks } from './lib/docs-core.mjs'
+import {
+  listMarkdownFiles,
+  checkVersionFace,
+  checkRelativeLinks,
+  checkStatusHeaders,
+  checkIndexCoverage,
+} from './lib/docs-core.mjs'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const argv = process.argv.slice(2)
@@ -21,7 +27,12 @@ const STRICT = argv.includes('--strict')
 const BUDGET = 0
 
 const files = listMarkdownFiles(ROOT)
-const findings = [...checkVersionFace(ROOT), ...checkRelativeLinks(ROOT, files)]
+const findings = [
+  ...checkVersionFace(ROOT),
+  ...checkRelativeLinks(ROOT, files),
+  ...checkStatusHeaders(ROOT),
+  ...checkIndexCoverage(ROOT),
+]
 const byRule = {}
 for (const f of findings) byRule[f.rule] = (byRule[f.rule] || 0) + 1
 

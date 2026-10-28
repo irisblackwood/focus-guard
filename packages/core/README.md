@@ -1,5 +1,7 @@
 # FocusGuard
 
+> **状态**：参考 · 适用版本 3.2.1 · 最后核对 2026-10-28
+
 [Chinese](README.zh-CN.md) · English
 
 Guardrails for AI coding agents, enforced at the hook layer. Four behaviours that make agents dangerous stop being prompt advice and become mechanically blocked events: **editing without reading first**, **conclusions without `[file:line]` evidence**, **whole-file reads that burn context**, and **asserting findings that were never verified**. A hit escalates through L1 push-back → L2 forced evidence → L3 fuse → L4 record → L5 downgrade → L6 report.

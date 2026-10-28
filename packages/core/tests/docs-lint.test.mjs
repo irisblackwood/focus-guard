@@ -4,10 +4,14 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-// 3.3 D5：docs:lint 的两类判据必须**真的能红**。活仓库零问题不等于检查有效。
-const { listMarkdownFiles, checkRelativeLinks, checkVersionFace } = await import(
-  "../tools/lib/docs-core.mjs"
-);
+// 3.3 D5/D2：docs:lint 的四类判据必须**真的能红**。活仓库零问题不等于检查有效。
+const {
+  listMarkdownFiles,
+  checkRelativeLinks,
+  checkVersionFace,
+  checkStatusHeaders,
+  checkIndexCoverage,
+} = await import("../tools/lib/docs-core.mjs");
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "fg-docs-"));
@@ -77,4 +81,31 @@ test("扫描范围：运行产物与归档目录不进清单", () => {
   assert.equal(files.length, 1, files.join(","));
   assert.match(files[0], /README\.md$/);
   rmSync(root, { recursive: true, force: true });
+});
+
+test("状态头：权威文档缺 `> **状态**：权威 …` 必须报", () => {
+  const { root, put } = fixture();
+  put("a.md", "# A\n\n正文\n");
+  put("b.md", "# B\n\n> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28\n");
+  const bad = checkStatusHeaders(root, ["a.md", "b.md"]);
+  assert.equal(bad.length, 1, JSON.stringify(bad));
+  assert.equal(bad[0].rule, "missing-status-header");
+  assert.match(bad[0].file, /a\.md$/);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("INDEX 覆盖：权威文档没被 docs/INDEX.md 链接到必须报", () => {
+  const { root, put } = fixture();
+  put("docs/INDEX.md", "# 索引\n\n[覆盖的](../a.md)\n");
+  put("a.md", "# A\n");
+  put("b.md", "# B\n");
+  const bad = checkIndexCoverage(root, ["a.md", "b.md"]);
+  assert.equal(bad.length, 1, JSON.stringify(bad));
+  assert.equal(bad[0].rule, "index-missing");
+  assert.match(bad[0].file, /b\.md$/);
+  // 索引文件本身缺失时也要报，不能静默通过
+  const { root: r2 } = fixture();
+  assert.equal(checkIndexCoverage(r2, []).length, 1);
+  rmSync(root, { recursive: true, force: true });
+  rmSync(r2, { recursive: true, force: true });
 });

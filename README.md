@@ -1,5 +1,7 @@
 # FocusGuard 聚焦护栏
 
+> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28
+
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)

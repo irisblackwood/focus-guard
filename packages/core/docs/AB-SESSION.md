@@ -1,5 +1,7 @@
 # 会话级 A/B：FG 关（`clean-a`） vs FG 开（`web`）
 
+> **状态**：台账 · 适用版本 — · 最后核对 2026-10-28
+
 ## 为什么需要它
 
 `tests/task-control.mjs` 的纯净 A 组是**进程内**对照（零 FG 导入，但不跑真 agent 会话、不计 token）。
