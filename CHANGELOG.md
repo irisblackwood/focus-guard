@@ -10,10 +10,10 @@
 
 ## 3.2.1 · 2026-10-28
 
-> 版本策略：3.2.0 之后 fix/feat 累计 **1 条** → 未满 10，走补丁号。
-> 本版主题：**插件工具只读口修复 + 结构债清理 + 文档排版归一**。
+> 版本策略：3.2.0 之后 fix/feat 累计 **2 条** → 未满 10，走补丁号。
+> 本版主题：**插件工具只读口 + 熔断预算 + 结构债 + 文档重置第一批**。
 > 发布状态：**未推送**（GitHub `main` 停在 `3.2.0`，2026-10-27）；npm 未发布、未打 tag。
-> 影响面：`plugin_manager` 只读调用被拦是 **3.2.0 已发布**的行为；其余两条是内部结构与文档，不改判定。
+> 影响面：两条 fix 都修 **3.2.0 已发布**的行为（只读工具被拦 / 熔断过易）；其余为内部结构与文档，不改判定。
 
 ### 闸门行为
 
@@ -21,6 +21,11 @@
   - **病根**：`list_plugins` 没有 `file_path`，被取证闸按"改动类无可解析路径"挡死；`install_bundle` 的 `target`（包名）被当文件路径，反而放行。
   - **改法**：母版加动作级只读注册（`registerReadOnlyActions` / `isReadOnlyCall`），适配层登记三个 `list_*`；取证链改用 `isMutatingInvocation(tool, args)`。
   - **测试**：`mutation-classify` +2 条；selftest 抓回一处 fail-open 回归（`exec.arguments` 是抛错 getter 时异常逃出判定链）。
+- fix(gate): **熔断太容易：回合级计数从不归零 + 闸门拒绝被当空转**
+  - **根因①**：`effectiveCalls` / `invCalls` 跨回合累计且从不归零；到硬上限后每个有效调用都重新置 `fused`，换回合也解不开（实测状态文件 `effectiveCalls=201`）。
+  - **根因②**：闸门 deny 被当失败 → 无 progress → `stalledStreak+1`，连改 3 个被拦文件就熔断。
+  - **改法**：换回合清零两个计数与 `invWarned`；识别 `focus-guard-native` 的 deny 并跳过停滞累加；`STALL_FUSE` 3 → 5。
+  - **测试**：新增 `fuse-budget.test.mjs` 4 条；`repeatGuard` 的"先停手"改为每会话一次。
 
 ### 结构
 
@@ -37,6 +42,13 @@
   - **改后**：一条结论 + `**标签**：` 子项；235 条全部 ≤120，最长 120；子项 117 → 约 500。
   - **盲区**：`splitVersions` 要求标题带日期，而 3.0.6 及更早的 16 段没有日期 → 从未被解析，"零违规/棘轮"一直空转；改为日期可选后 21 段全审，棘轮 753 → 120。
 - docs: 三处失效的 `../CHANGELOG.md` 相对链接改为 `../../../CHANGELOG.md`；README / ARCH-MAP 的锚点随拆分归一。
+- docs(readme): **README 413 → 81 行，机制正文迁入 ARCHITECTURE**〔开发期〕
+  - **拆法**：入口页只留状态头 / 30 秒速览 / 为什么 + 四层表 / 快速开始 / 文档地图 / 版本 / License；机制正文迁 `docs/ARCHITECTURE.md`（266 行，权威）。
+  - **清过期**：删与 AGPL 头矛盾的 PolyForm 段、"3.0.8 尚未发版"、"版本号仍记 3.0.6"、写死的用例数。
+  - **闸门**：`docs:lint` 增加 README 硬指标（≤160 行 / ≤10 标题 / ≤30 表格行 / 正文禁三位数，版本号与 ISO 日期豁免）。
+- docs(lint): **`docs:lint` 进 `check`，五类判据一次上锁**〔开发期〕
+  - **判据**：版本面（七处清单 + 两常量 + CHANGELOG 最新段）、相对链接可达、权威文档状态头、`docs/INDEX.md` 覆盖权威文档、README 硬指标。
+  - **口径**：`--strict` 棘轮 `BUDGET=0`，新增问题即红；测试 7 条含 4 条"必须能红"夹具。
 
 ## 3.2.0 · 2026-10-27
 
