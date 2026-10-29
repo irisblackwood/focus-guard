@@ -13,10 +13,14 @@
  * 用法：node packages/core/tools/prefix-drift.mjs [--sid <片段>] [--json] [--top 3]
  *       --strict           工具表 / 首条 user 段出现多版本即 exit 1（这两段 FG 完全可控、实测恒定）
  *       --fail-on-system   连 system 段多版本也算红（默认只报不拦：熔断告知、换会话交接都会合法地变一次）
+ *       --ab               不读会话落盘，改跑 A/B 重放：同一串输入（30 回合 + 并发会话改写快照）
+ *                          分别喂给"每回合重渲染"与"首步冻结"两套规则，报版本数 / 断点 / 稳定率
  */
 
-import { basename, dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { decodeSession, firstDiff, textOfMessage, walkSessionFiles } from './lib/sessionDump.mjs'
 
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
@@ -27,9 +31,78 @@ const AS_JSON = argv.includes('--json')
 const TOP = Number(arg('--top', 3)) || 3
 const STRICT = argv.includes('--strict')
 const FAIL_ON_SYSTEM = argv.includes('--fail-on-system')
+const AB = argv.includes('--ab')
 
-const h = (s) => createHash('sha256').update(s).digest('hex').slice(0, 10)
-const textOf = textOfMessage
+/**
+ * A/B 重放（`--ab`）：不依赖会话落盘，可复现。
+ *
+ * 输入是"同一工作区 30 回合、期间另一个并发会话每 3 回合改写一次快照"——
+ * 这不是编的场景：`workspace.json` 每工作区一份，并发会话本来就互相覆盖，
+ * 实测两个真实会话的卷宗段都是 2 个版本，分歧点就在「上次会话」那一行。
+ */
+async function runAB() {
+  const TMP = mkdtempSync(join(tmpdir(), 'fg-prefix-ab-'))
+  const savedWs = process.env.FG_WORKSPACE_FILE
+  const savedAudit = process.env.FG_AUDIT_FILE
+  process.env.FG_WORKSPACE_FILE = join(TMP, 'workspace.json')
+  process.env.FG_AUDIT_FILE = join(TMP, 'AUDIT.log')
+  const url = new URL('../src/dsh/workspace.mjs', import.meta.url).href
+  const ws = await import(url)
+  const WORK = join(TMP, 'work')
+  const SID_A = 'sess-A'
+  const OTHER = 'sess-B'
+  const TURNS = 30
+  // 预置上一场留下的卷宗（真实场景里会话开始前文件就在了）
+  ws.mergeWorkspace(WORK, {
+    decisions: ['上一场留下的决策'],
+    constraints: ['npm publish'],
+    snapshot: { at: '2026-10-29T09:00:00.000Z', sid: 'sess-prev', toolCalls: 40, denies: 2, kpi: -9, delegateBudget: 12 },
+  })
+  const seqA = []
+  const seqB = []
+  ws.resetWorkspaceSectionCache()
+  for (let t = 1; t <= TURNS; t += 1) {
+    const rec = ws.readWorkspace(WORK)
+    seqA.push(String(ws.renderWorkspaceSection(rec, { sid: SID_A }) || ''))
+    seqB.push(String(ws.renderWorkspaceSectionOnce(rec, { sid: SID_A }) || ''))
+    ws.mergeWorkspace(WORK, {
+      decisions: [`第 ${t} 回合的人类指令`],
+      snapshot: { at: `2026-10-29T10:${String(t).padStart(2, '0')}:00.000Z`, sid: SID_A, toolCalls: t, denies: 0, kpi: 0, delegateBudget: 20 },
+    })
+    if (t % 3 === 0) {
+      ws.mergeWorkspace(WORK, {
+        snapshot: { at: `2026-10-29T10:${String(t).padStart(2, '0')}:30.000Z`, sid: OTHER, toolCalls: 7, denies: 1, kpi: -3, delegateBudget: 9 },
+      })
+    }
+  }
+  const stat = (seq) => {
+    const breaks = []
+    for (let i = 1; i < seq.length; i += 1) if (seq[i] !== seq[i - 1]) breaks.push(i + 1)
+    return { versions: new Set(seq).size, breaks, rate: ((seq.length - breaks.length) / seq.length) * 100 }
+  }
+  const a = stat(seqA)
+  const b = stat(seqB)
+  if (savedWs === undefined) delete process.env.FG_WORKSPACE_FILE
+  else process.env.FG_WORKSPACE_FILE = savedWs
+  if (savedAudit === undefined) delete process.env.FG_AUDIT_FILE
+  else process.env.FG_AUDIT_FILE = savedAudit
+  rmSync(TMP, { recursive: true, force: true })
+  return { turns: TURNS, before: a, after: b }
+}
+
+if (AB) {
+  const r = await runAB()
+  if (AS_JSON) {
+    console.log(JSON.stringify(r, null, 2))
+    process.exit(0)
+  }
+  console.log(`输入：${r.turns} 回合 · 同一工作区 · 并发会话每 3 回合改写快照\n`)
+  console.log(`改前（每回合重渲染）  版本 ${r.before.versions} · 断点 ${r.before.breaks.length} 次 · 稳定率 ${r.before.rate.toFixed(1)}%`)
+  console.log(`  断点回合：${r.before.breaks.join(',')}`)
+  console.log(`改后（首步冻结）      版本 ${r.after.versions} · 断点 ${r.after.breaks.length} 次 · 稳定率 ${r.after.rate.toFixed(1)}%`)
+  console.log(`  断点回合：${r.after.breaks.join(',') || '无'}`)
+  process.exit(0)
+}
 
 const h = (s) => createHash('sha256').update(s).digest('hex').slice(0, 10)
 // 只取消息本体：`data` 外层还挂着 `{turn, step}` 元数据，那是**记账编号**不是提示内容，

@@ -65,6 +65,48 @@ test("新会话渲染：含「上次会话」行与三类事实", () => {
   assert.match(section, /决策：/);
 });
 
+test("会话首步冻结：并发会话改写快照，本会话的注入字节不变（2026-10-29）", () => {
+  // 病根：workspace.json 每工作区一份，并发会话互相覆盖快照，于是 A 的系统提示里
+  // 忽而是 B 的快照、忽而是自己的——实测两个真实会话的卷宗段都是 2 个版本，
+  // 分歧点就在「上次会话」这一行。冻结后本会话首步渲染什么，整场就是什么。
+  ws.resetWorkspaceSectionCache();
+  ws.mergeWorkspace(WORK, {
+    decisions: ["冻结用例的决策"],
+    constraints: ["npm publish"],
+    snapshot: { at: "2026-10-29T09:00:00.000Z", sid: "sess-prev", toolCalls: 40, denies: 2, kpi: -9, delegateBudget: 12 },
+  });
+  const first = String(ws.renderWorkspaceSectionOnce(ws.readWorkspace(WORK), { sid: "sess-freeze" }));
+  assert.ok(first.length > 10, "夹具要真的渲染出内容");
+  // 另一个会话在同一工作区写了快照（真实场景：并发会话回合结束落盘）
+  ws.mergeWorkspace(WORK, {
+    snapshot: { at: "2026-10-29T09:30:00.000Z", sid: "sess-other", toolCalls: 7, denies: 1, kpi: -3, delegateBudget: 9 },
+  });
+  const again = String(ws.renderWorkspaceSectionOnce(ws.readWorkspace(WORK), { sid: "sess-freeze" }));
+  assert.equal(again, first, "同会话内必须逐字节不变，否则前缀缓存全废");
+  // 不冻结的旧口径会变——这条同时证明夹具是有效的
+  assert.notEqual(
+    String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "sess-freeze" })),
+    first,
+    "不冻结就会变，说明上面的相等不是因为夹具没差别",
+  );
+  // 换会话是另一份（交接信息仍然在）
+  const other = String(ws.renderWorkspaceSectionOnce(ws.readWorkspace(WORK), { sid: "sess-new" }));
+  assert.match(other, /上次会话：sess-other/, "新会话应看到最新的上一场快照");
+  // 进程重启（清缓存）等价于重新取一次
+  ws.resetWorkspaceSectionCache();
+  assert.match(String(ws.renderWorkspaceSectionOnce(ws.readWorkspace(WORK), { sid: "sess-freeze" })), /sess-other/);
+});
+
+test("冻结只冻非空：新工作区首步没内容时，后面有内容仍能注入", () => {
+  ws.resetWorkspaceSectionCache();
+  const empty = ws.renderWorkspaceSectionOnce(null, { sid: "sess-late" });
+  assert.equal(empty, null, "没有卷宗就不注入");
+  ws.mergeWorkspace(WORK, { decisions: ["后来的决策"] });
+  const rec = ws.readWorkspace(WORK);
+  const later = ws.renderWorkspaceSectionOnce(rec, { sid: "sess-late" });
+  assert.ok(later, "空渲染不该被冻结，否则整场都拿不到卷宗");
+});
+
 test("快照是覆盖式：第二次写入不累积旧快照", () => {
   ws.mergeWorkspace(WORK, { snapshot: { at: "2026-10-22T23:00:00.000Z", sid: "session-ccc", toolCalls: 1, denies: 0, kpi: 0, delegateBudget: 20 } });
   const rec = ws.readWorkspace(WORK);

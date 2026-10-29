@@ -159,6 +159,40 @@ export function renderWorkspaceSection(record, opts = {}) {
 }
 
 /**
+ * 会话首步冻结（2026-10-29）
+ *
+ * 为什么必须冻结：`workspace.json` 是**每工作区一份**，而同一工作区常有多个并发会话。
+ * 每个会话在回合结束都会写自己的快照，于是 A 会话的系统提示里会忽而出现 B 的快照、
+ * 忽而变回自己的——实测两个真实会话的卷宗段都是 2 个版本，分歧点就在「上次会话」这一行。
+ * 前缀一变，后面整段会话历史都要按未缓存价重付。
+ *
+ * 冻结的语义：**本会话首步渲染出什么，整场会话就是什么**。换会话自然是新的一份（交接信息还在）。
+ * 代价如实说：本会话内新增的约束不会出现在提示里——但约束由闸门实时执行，
+ * 提示里那份只是提示，不是执法依据。
+ *
+ * 只冻结**非空**渲染：首步还没有卷宗（新工作区）时不缓存，等第一次真的有内容再冻。
+ */
+const onceCache = new Map()
+const ONCE_MAX = 64
+
+export function renderWorkspaceSectionOnce(record, opts = {}) {
+  const sid = opts && opts.sid
+  const key = sid ? `${(record && record.workspace_hash) || '-'}|${sid}` : null
+  if (key && onceCache.has(key)) return onceCache.get(key)
+  const text = renderWorkspaceSection(record, opts)
+  if (key && text) {
+    if (onceCache.size >= ONCE_MAX) onceCache.delete(onceCache.keys().next().value)
+    onceCache.set(key, text)
+  }
+  return text
+}
+
+/** 测试/诊断用：清空冻结缓存（进程重启等价于此）。 */
+export function resetWorkspaceSectionCache() {
+  onceCache.clear()
+}
+
+/**
  * 快速交接：新会话是否需要注入"上次会话快照"。
  * 判据只有两条：① 存在快照；② 快照来自**别的**会话（本会话已开始就不重复注入）。
  * @param {object|null} record 卷宗记录

@@ -18,7 +18,7 @@ import { preGuardListener } from './preGuard.mjs'
 import { announceWatchReady, compactionEventListener, contextOverflowListener } from './compactionWatch.mjs'
 // 2026-10-27：两行 import 同一模块（ESLint no-duplicate-imports 命中），已合并。
 import { startHeartbeat, degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
-import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSection } from './workspace.mjs'
+import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSectionOnce } from './workspace.mjs'
 import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
 import { setProjectDirProvider } from '../core/audit.mjs'
@@ -147,7 +147,7 @@ export function apply(ctx) {
             context && context.agent && context.agent.session ? context.agent.session.header : null
           const cwd = header ? header.cwd : null
           const sid = header ? header.id : null
-          const section = renderWorkspaceSection(readWorkspace(cwd), { sid })
+          const section = renderWorkspaceSectionOnce(readWorkspace(cwd), { sid })
           if (section) extra.push({ name: 'focus-guard-workspace', text: section })
           // 熔断告知（2026-10-27）：熔断此前只写 warn（日志），模型完全看不见——
           // 实测 turn 128 熔断后仍白走 16 步只读探索。这里在熔断期间追加固定文案，
