@@ -21,7 +21,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { statePath, loadState, saveState } from '../core/state.mjs'
-import { appendAudit } from './audit.mjs'
+import { appendAudit, buildAuditRow } from './audit.mjs'
 import { needsDowngrade, needsAccount, needsAnchorCheck } from '../core/stopPolicy.mjs'
 import {
   AUTH_SEMANTICS_RE,
@@ -47,17 +47,7 @@ function projDirOf(agent) {
   return (agent && agent.session && agent.session.header && agent.session.header.cwd) || process.cwd()
 }
 
-const audit = (sid, action, opts = {}) =>
-  appendAudit({
-    ts: new Date().toISOString(),
-    session: sid,
-    seq: Date.now().toString(36) + '.' + Math.floor(performance.now()),
-    action,
-    trigger: opts.trigger || action,
-    level: opts.level ?? null,
-    evidence: String(opts.evidence || '').slice(0, 200),
-    pardon: !!opts.pardon,
-  })
+const audit = (sid, action, opts = {}) => appendAudit(buildAuditRow(sid, action, opts))
 
 /** 尽力从 agent 取本回合的收尾文本；取不到返回 undefined（触发降级）。 */
 function finalTextOf(agent) {

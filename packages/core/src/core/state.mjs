@@ -110,7 +110,17 @@ export function normalize(p) {
 
 // ============ 2.0 环境检测（总纲三：会话级一次，全程复用） ============
 
+/**
+ * 卷宗路径。
+ *
+ * 2026-10-29：补上 `FG_CASE_FILE` 覆盖。此前只有成本台账那一节（`dsh/audit.mjs`）认这个变量，
+ * 而【一】环境声明 /【三】侦查记录 /【四】额度台账全走本函数 → **测试想重定向也重定向不了**。
+ * 实测：`npm run test:all` 会把一行额度台账写进真实 `.ai/CASE_FILE.md`
+ *（审计隔离守卫只看 AUDIT.log，所以它一直报零增长 PASS）。
+ * 与 `auditFilePath()` / `approvalDir()` 同一口径：默认落工作区，环境变量可重定向。
+ */
 export function casePath(projDir) {
+  if (process.env.FG_CASE_FILE) return process.env.FG_CASE_FILE;
   return join(projDir, ".ai", "CASE_FILE.md");
 }
 

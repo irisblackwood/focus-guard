@@ -10,6 +10,7 @@ import { judgeReadGate, judgeGrepGate, judgeCatGate } from '../../core/outputGat
 import { statePath as guardStateFile, loadState, saveState } from '../../core/state.mjs'
 import { auditDeny, auditRedlineExempt } from '../audit.mjs'
 import { isDirPath, pathOfTool, resolveToolPath, sessionIdOf } from './tooling.mjs'
+import { gateThreshold } from '../testRuntime.mjs'
 
 /**
  * 结果准入预算（2026-10-24，新功能③）：体积闸只按硬阈值拦；但"每次只差一点"的多次
@@ -18,7 +19,8 @@ import { isDirPath, pathOfTool, resolveToolPath, sessionIdOf } from './tooling.m
  */
 function admitBudgetGate({ exec, warn, target, kb, verdict, st, stateFile }) {
   const admitBytes = Number(process.env.FG_RESULT_ADMIT_BYTES) || 32768
-  const admitBudgetDefault = Number(process.env.FG_RESULT_ADMIT_BUDGET ?? 3)
+  // 0 = 关闭该闸：生产环境由 gateThreshold 兜到下限 1，关不掉（2026-10-29 立法）。
+  const admitBudgetDefault = gateThreshold('FG_RESULT_ADMIT_BUDGET', 3)
   const sizeBytes = kb * 1024
   if (verdict === 'deny' || admitBudgetDefault <= 0 || sizeBytes <= admitBytes || !st) return null
   const left = Number.isFinite(st.resultAdmitLeft) ? st.resultAdmitLeft : admitBudgetDefault

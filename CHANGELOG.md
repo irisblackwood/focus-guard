@@ -26,6 +26,34 @@
   - **根因②**：闸门 deny 被当失败 → 无 progress → `stalledStreak+1`，连改 3 个被拦文件就熔断。
   - **改法**：换回合清零两个计数与 `invWarned`；识别 `focus-guard-native` 的 deny 并跳过停滞累加；`STALL_FUSE` 3 → 5。
   - **测试**：新增 `fuse-budget.test.mjs` 4 条；`repeatGuard` 的"先停手"改为每会话一次。
+- fix(gate): **MCP 写工具以动词结尾时漏判为改动类**〔开发期〕
+  - **病根**：兜底正则要求动词后紧跟下划线（`__write_`），`mcp__hindsight__hindsight_write` 这类「工具名+动词结尾」全落成 `other`，写库工具绕过取证闸。
+  - **改法**：分隔符放宽为 `_{1,2}`、收尾为 `(?:_|$)`；方向有意偏严——误判只多要一次取证，漏判会让写工具天生免检。
+  - **测试**：新增 `tool-kind-coverage.test.mjs` 16 条，含 `overwrite`/`rewrite` 不得误判的反例。
+- feat(gate): **启动自检报出未登记语义类别的 MCP 工具**〔开发期〕
+  - **为什么**：`other` 不是"不管"——熔断期落 deny 分支（`preGuard.mjs:223`），且算执行池而非侦查池（`progressPolicy.mjs:62`）。
+  - **做法**：`agent/created` 扫 `ctx.tools.schemas()`，只报 `mcp__` 前缀，只 warn 不改判定。
+  - **存量**：同时登记 `cities2-mcp` 的 7 个只读工具（`analyze`/`get_*`/`list_*`/`query_*`/`status`），否则自检上线即报 7 条。
+  - **基线**：`schema:verify` 的「缺 tools_map」属存量缺陷，**不回写基线**——254 里有 170 个 `mcp__rea__*` 只是暂未加载，等它挂回后一次 `--update` 自会补齐。
+- feat(tooling): **`schema:verify` 把「插件没连上」和「schema 漂移」分开报**〔开发期〕
+  - **病根**：原判定只有「hash 相等 = PASS」「不等 = 漂移」两档，170 个 `mcp__rea__*` 因服务器没连上而消失时也报「漂移」，红得没有信息量。
+  - **改法**：判定抽到 `core/schemaDrift.mjs`（纯函数），五档结局：match / suspect-plugin-gone / unknown-baseline / environment-switch / drift。
+  - **粗判**：基线缺 `tools_map` 时按数量比（<60%）判「疑似未加载」，输出里注明「只能粗判」，不假装精确。
+  - **测试**：`schema-drift.test.mjs` 19 条；实测当前环境报「疑似插件未加载」exit 0。
+- fix(gate): **检索后端探测每步扫 PATH，判定延迟 p95 18.35 → 3.18ms**〔开发期〕
+  - **病根**：`wholeFileStage` 每步调 `detectSearchBackends()`，它遍历 73 个 PATH 目录 × 3 后端 × 4 扩展名 = 876 次 `accessSync`，单次 13.72ms；模块头写着"每会话探测一次并缓存"，实现里没缓存。
+  - **改法**：加 60 秒 TTL 缓存，键含 `PATH`/`FG_SEARCH_TOOL`/`FG_SEARCH_BIN_DIR`——缓存不能比它的输入活得久。
+  - **测试**：`search-hints` +4 条（命中缓存 / 环境变即失效 / PATH 变即失效 / reset）。
+- fix(gate): **改动面闸把裸 `npm install` 当新增依赖，任务基准误伤 2 → 0**〔开发期〕
+  - **病根**：`shouldGate` 对任何 `install|add` 返回 true，T40（裸 install）与 T41（`--save-dev`）双双被拦，B 组合规掉到 55/57。
+  - **改法**：按本闸立意（"新增依赖 = 维护负担"）收窄——裸 `install`/`ci`/`--production` 放行、`-D` 放行、只有带包名的生产依赖才拦；`pip install -r` 的文件参数靠 flag 表跳过。
+  - **测试**：`value-gate` +3 条；B 组回到 57/57、误伤 0，热路径 p50 +21.59 → +5.29ms。
+- feat(gate): **关闭型开关改为「仅测试生效」，生产环境四道闸关不掉**〔开发期〕
+  - **起因**：立法「不允许关闭任何功能」与四个 `=0` 关闭口冲突；而 DSH 插件机制只提供整插件级禁用，并无闸门级开关要求——这些关闭口是自选的。
+  - **改法**：新增 `src/dsh/testRuntime.mjs`，`gateSwitch` / `gateThreshold` 在生产环境恒返「开」——不是设了无效，是代码里没有那个分支。
+  - **判据**：`NODE_TEST_CONTEXT`（`node --test` 自动注入，用户伪造不了）或显式 `FG_TEST_MODE=1`；**不用 `NODE_ENV=test`**——本仓测试跑法实测为 `undefined`，用它等于把关闭权交给谁都能设的变量。
+  - **范围**：只收 4 个关闭型（取证 / 改动面 / 抽查B / 结果准入）；旁路型 3 个（`FG_MUTATION_UNMAPPED`、`FG_PTC_ALLOW_RM_RF`、`FG_BLAST_REPORT`）未动。
+  - **测试**：`production-gates.test.mjs` 8 条（生产设任何值都无效 / 测试仍能关 / 阈值下限 1）；全量 608/608，`random-fuse` 与 `result-admit` 的关闭用例零改动即通过。
 
 ### 顺序
 
@@ -52,6 +80,87 @@
   - **工具**：`source-text` 拆 `scanQuoted`/`scanRegex`/`blankSpan`；`library-build` 拆 `buildTable`/`renderIndex`。
   - **棘轮**：`smells` 28 → 8、`health` 79 → 93，只许降不许升。
   - **验证**：`npm run check` exit 0、524/524；`health`/`smells`/`lint` 的 `--strict` 均 exit 0。
+- refactor(core): **会话级内存态归一，三个裸 Map/Set 收进 `sessionScratch`**〔开发期〕
+  - **病根**：`nativeReadSet` / `evidenceBlockedOnce` / `remindedNoBackend` 各在各模块 `new`，无生命周期——测试无法重置、长驻进程只增不减、变异测试锁不住记账分支。
+  - **改法**：新增 `src/core/sessionScratch.mjs`，`sessionSet(name)` 给每会话一个 `Set<T>`、`sessionFlag(name)` 给「已做过」标记；`clearSession(sid)` 一次清掉该会话在所有表的痕迹。
+  - **上限**：每表最多 200 个会话，超出按插入序删最旧——不引入 TTL（时钟会让测试变成有时序的测试）。
+  - **顺带**：基准现在能固定会话（`clearSession` + 每轮重置），准确率保持 100%；此前固定会话会掉到 94%。
+  - **未解**：p95 的 7–8ms 是**真实开销**不是构造伪影。固定会话后仍 7.5ms、去掉 `rename` 仍 8.0ms、`statSync` 只有 0.02ms。
+  - **撤回**：早先写的「真实热路径 1.16ms」是在 9 个用例串味（准确率 94%）时测的，已删。慢的 5 个用例全是 Read/Grep，下一步查 `volume.mjs` 三闸。
+  - **测试**：`session-scratch.test.mjs` 10 条；全量 618/618。
+
+- feat(smells): **新增重复块检测，首测 41 处存量**〔开发期〕
+  - **起因**：审计行构造曾散在 5 处，字段集各不相同，那 5 份复制体穿过了 lint / smells / quality / schema 四道门禁一次没被看见。**漏报比误报隐蔽。**
+  - **改法**：滑动窗口（连续 8 行、窗口字符数 ≥120）+ 前后扩展取极大块；同一位置只报最长的一条；同文件两段不许重叠。
+  - **口径**：混合重复（src ↔ test）归测试口径，不占源文件预算；`DUP_BUDGET = 41` 独立棘轮，只许降不许升。
+  - **存量**：最大一坨是 `walk()`——同一个 49 行目录遍历函数在 6 个 tools 文件里各有一份。
+  - **测试**：`toolchain-tools.test.mjs` +6 条（该报的报、不该报的不报、短于窗口不报、纯符号不报、混合归测试、超限 exit 1）。
+
+### 基准
+
+- fix(bench): **判定基准的相对回归改看 p50，p95 只留绝对上限**〔开发期〕
+  - **病根**：`p95` 的抖动来自基准构造——每用例每轮换 `sessionId`，每次调用都在首次访问一个新建的状态文件。同一份代码连跑三次 13.88 / 8.16 / 5.83ms。
+  - **对照**：`sessionId` 固定成每用例一个，p95 落到 1.03ms，p50 几乎不变——抖的是构造不是判定。
+  - **改法**：相对回归判 `p50 > 基线 ×2`；p95 只保留 100ms 绝对上限兜底；`--update` 显式写入 `_latencyNote`（原来整体覆盖会把手写归因抹掉）。
+  - **归因修正**：旧注释说 8ms 来自 `statSync`——实测 0.017–0.026ms。逐阶段计时：总 903ms 里 `risk`（哨兵冷启）530、`superpowers`（状态文件首次访问）289、`wholeFile` 仅 27。
+  - **基线**：p50 0.36 → 0.46ms；旧 p95 2.37ms 与 byCase 的 7.3ms 自相矛盾（整体 p95 不可能低于所有用例 p50），一并作废。
+  - **顺带修**：会话名加 `process.pid` 前缀并在结束时清理本进程状态文件。原来同一天第二次跑起 `evidence-new-session-allow` 会被上次留下的空状态文件带偏（准确率 93.33%），而 tmpdir 已累积 11,570 个残留。
+  - **深查未采**：固定会话 + 每轮重置能把 p95 压到 1.16–1.76ms，但 `nativeReadSet` 等模块级会话态跨轮串味、9 个用例准确率掉到 94%。（该 1.16ms 已撤回，见「结构」段）
+
+### 性能
+
+- fix(startup): **会话启动 231ms → 24ms，去掉无人消费的 shell 版本探测**〔开发期〕
+  - **病根**：`detectEnv` 无条件 spawn 一次 powershell 取版本号，实测 202.6ms，占其总耗时 228.2ms 的 89%；版本串只进 `env.shell`，全仓 0 处消费。
+  - **改法**：版本探测改为 `opts.probeVersion` 显式索取，默认不跑；`cmd /c chcp`（18.9ms，产出 `encoding`，有 1 处消费）保留。
+  - **顺带**：`detectEnvInto` 补回 MASTER-PLAN §三 的「`envCache` 非空即已检测」判断——此前每次 SessionStart 都重算，文档写了没做。
+  - **为什么重要**：`agent/created` 对同一会话反复触发（审计 82 次调用 / 21 会话，单会话最多 33 次），每次白付一遍。
+  - **失效判据**：缓存 key 含 `os` + `shellIdKey`，对不上就重算——缓存不能比它的输入活得久。
+  - **实测**：新会话 p50 231.2 → 23.8ms；同会话重复触发 → 4.4ms（只余卷宗载入与落卷）。
+  - **测试**：`env-cache-reuse.test.mjs` 5 条；全量 623/623；`check` exit 0。
+
+### 审计
+
+- refactor(audit): **审计行构造从 5 处收敛到 1 处，seq 不再撞号**〔开发期〕
+  - **起因**：拿真实 `AUDIT.log`（7875 行）做体检，记录本身暴露出三个缺陷——不是猜的。
+  - **病根①**：造行代码在 5 处各写一遍（`shared.mjs::auditRow`、`postProgress`/`preGuard`/`stopGuard` 的 `audit()`、`compactionWatch::row()`），字段集各不相同。
+  - **病根②**：4 处拿 `performance.now()` 取整当 seq 尾数，同毫秒连写即撞号——7227 条带 seq 的记录里 **17 组重复**；`audit-chain` 按 seq 建索引，撞号即丢边。
+  - **病根③**：`fuse-waste`(11) / `grant`(5) / `grants-swept`(8) / `audit-purge`(1) 缺 `trigger`/`level`/`pardon`——契约写在 `ARCHITECTURE.md:63`，但没有代码强制。
+  - **改法**：`core/audit-writer.mjs` 新增 `buildAuditRow()`（唯一构造点）+ `nextSeq()`（时间戳·计数·pid 三段，跨进程也不撞）；`appendAudit()` 落盘前 `normalizeRow()` 兜底补七字段与事件号。
+  - **优先级**：`session`/`action` 由位置参数定，附加字段改不动（否则一条 `deny` 能被改成别的动作）；其余字段 `opts` > `extra` > 缺省。
+  - **顺带**：母版 `core/audit.mjs::audit()` 补上体积轮转——此前只有 DSH 侧轮转，两条路写同一文件，只有 DSH 在跑时母版日志无界增长。
+  - **可观测**：`tools/log-audit.mjs` 增「行契约体检」段（缺字段 / seq 撞号 / 行形态分布），把这次临时写的探针固化进工具。
+  - **测试**：`audit-row-contract.test.mjs` 12 条；全量 635/635；`check` exit 0；真实日志零增长（Δ0）。
+  - **存量**：历史 51 行残行与 17 组撞号**不回写**——审计记录是执法档案，只修正未来，不改过去。
+
+### 记录面
+
+- fix(test): **三个测试文件改写真实记录，隔离守卫从「只看 AUDIT.log」扩到整个记录面**〔开发期〕
+  - **起因**：拿"跑测试前后比哈希"普查 7 个记录文件，发现 `npm run test:all` 会改写真实 `.focus-guard/approvals/pending_request.json` 与 `.ai/CASE_FILE.md` 的【四】额度台账。
+  - **为什么一直没发现**：`audit-isolation` 守卫只盯 `AUDIT.log` 行数，换一个文件就看不见——它每次都报「零增长 PASS」，那是**假绿**。
+  - **定位**：逐个跑 65 个测试文件、每跑一个比一次哈希 → `eligibility` / `integration` / `acceptance` 写审批、`seams` 写卷宗。
+  - **第二轮**：守卫扩面后当场又抓到 `npm run eval` 与 `npm run selftest`——它们不是 `.test.mjs`，逐个跑覆盖不到；`selftest.mjs:216` 的样本正是那条待批记录的来源。
+  - **根因**：`state.casePath()` 不认 `FG_CASE_FILE`（只有成本台账那一节认），所以卷宗**根本没有可重定向的开关**；审批目录有开关但四个文件没设。
+  - **改法**：`casePath()` 补 `FG_CASE_FILE` 覆盖，与 `auditFilePath()` / `approvalDir()` 同口径；四个测试各设自己的沙箱；`seams` 的 `mkAgent` 原来把 cwd 指向真实仓库根，改为沙箱工作区。
+  - **守卫**：`audit-isolation` 增加记录面哈希快照——审批 / 面板记录**硬红**（宿主只在拦截时写），卷宗 / 工作区快照**只报不拦**（宿主自己也写，硬红会变成假阳性，假阳性会训练人加绕过开关）。
+  - **顺带**：`seams.test.mjs` 与 `state-ownership.test.mjs` 里两条「真实工作区未被本次测试触碰」的断言原来是 `readFileSync(p).length >= 0`——**恒真**，名字说没碰、实际什么都没验。改成与文件头指纹比对。
+  - **清理**：审批目录里两件测试残留（10-25 的 `probe` 批准、10-29 的 `it-d6` 待批）移入 `.focus-guard/archive/approvals-test-residue/`，不删——执法记录只归档不销毁。
+
+### 审批与台账
+
+- fix(approval): **一条批准从"全局一次性"收窄为「一次 × 一个会话 × 30 分钟」**〔开发期〕
+  - **病根**：`approvalId` 只绑工具+命令；`consumeApproval` 既不看会话也不看时间。`approvals.mjs:61` 那句「换会话要刷新」只在**写** pending 时生效，消费端没这层校验——注释承诺的防线不存在。
+  - **风险**：会话 A 批了 `rm -rf /data` 而模型没重试；几小时后会话 B 跑同一条命令，直接消费掉。
+  - **改法**：`consumeApproval(tool, command, session)` 校验 `record.session`；两侧都认得出身份且不一致 → 拒绝并**保留**批准文件（本会话自己还能用）。
+  - **宽松档**：`dsh-native` / `unknown` / 空值是"我不知道你是谁"，不算身份——放行并标 `loose`，避免误杀合法批准；这条残余口子会落进返回值，可观测。
+  - **时效**：`approvedAt` 起 30 分钟（`FG_APPROVAL_TTL_MS` 可调），过期当场清掉；时间戳不可解析判过期（fail closed）。
+  - **留痕**：新增 `approval-expired` / `approval-session-mismatch` 两类审计——"有批准却没放行"必须能查到原因。
+  - **测试**：`approvals-scope.test.mjs` 7 条（含闸级：跨会话仍被拦、原会话仍可消费）。
+- fix(cost): **台账暂停时在卷宗里写明「暂停中」，空表不再假装没事**〔开发期〕
+  - **病根**：`usageLooksReal` 守卫拒绝假账后，卷宗【五】只剩一张空表，而章节标题仍写"自动追加"。读的人分不清"这阵子没用量"和"采集早就断了"——空表自己不会说话。
+  - **改法**：`setCostStatus()` 原地维护一行状态：退化 usage 写「暂停中」并注明原因与恢复条件，记账成功自动换回「记录中」。
+  - **判等**：按**状态名**判等而非整行（细节里的时间每次都变），状态不变就不动卷宗，不刷 mtime。
+  - **边界**：卷宗没有【五】就不擅自开节；路径守卫照旧（非默认卷宗且无 `FG_CASE_FILE` 一律拒写）。
+  - **测试**：`cost-ledger-status.test.mjs` 5 条，子进程跑——`warnedDegenerate` 每进程只触发一次，进程内测幂等等于什么都没测。
 
 ### 文档
 
@@ -67,6 +176,18 @@
 - docs(lint): **`docs:lint` 进 `check`，五类判据一次上锁**〔开发期〕
   - **判据**：版本面（七处清单 + 两常量 + CHANGELOG 最新段）、相对链接可达、权威文档状态头、`docs/INDEX.md` 覆盖权威文档、README 硬指标。
   - **口径**：`--strict` 棘轮 `BUDGET=0`，新增问题即红；测试 7 条含 4 条"必须能红"夹具。
+- docs(tuning): **画像回流台账重算到 10-29，补 T6/T7 两条新发现**〔开发期〕
+  - **数据**：deny 182→360、会话 53→129、审计 3,575→7,875 行；`fuse-waste` 从 0 行变成 4 会话（浪费 38/17/3/1 步）。
+  - **T3 转判**：`stalledFuse` 样本已到，判读为「保持 3/4」——浪费指向"模型不知道已熔断"，10-27 的 `focus-guard-fuse` 段待验证。
+  - **T6 新增**：判定延迟 p95 18.35ms 超报警阈值 12.11ms，定位 `wholeFileStage` 独占 14ms；`ee580e0` 对照同为 14.5ms，非本批引入。
+  - **T7 新增**：任务基准 57/57 → 55/57，T40/T41 的 `npm install` 被改动面闸拦，属设计冲突待裁决。
+  - **口径修**：§六 复算命令去掉写死的 `2026-10-1[89]`，否则复算新快照必然漏行。
+- docs(config): **33 个 `FG_*` 变量首次成表，补录 8 个零文档开关**〔开发期〕
+  - **起因**：33 个环境变量散在 20 多个文件里，其中 16 个在正式文档中零提及——开关存在但没人知道，等于没做。
+  - **分类**：用户该知道 19（8 开关 / 4 阈值 / 3 环境适配 / 4 PTC）、仅测试注入 6（路径覆盖）、内部 8（性能与探针）。
+  - **落点**：`docs/ARCHITECTURE.md`「配置」章节新增「环境变量」小节，锚点精确到 `文件:行号`。
+  - **纪律**：新增 `FG_*` 必须同步改该表；未登记 = 用户不知道它存在。
+  - **顺带**：`FG_PYTHON`、`FG_STATUS_FILE` 补上「测试必须覆盖」的注释，与另四个路径变量对齐。
 
 ## 3.2.0 · 2026-10-27
 

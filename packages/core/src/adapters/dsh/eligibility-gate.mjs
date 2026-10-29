@@ -13,7 +13,7 @@ import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVE
 import { redlineExempt, isMutatingBashCmd } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
-import { appendAudit } from '../../core/audit-writer.mjs'
+import { appendAudit, buildAuditRow } from '../../core/audit-writer.mjs'
 import { createApprovalRequest, consumeApproval } from '../../core/approvals.mjs'
 
 /** 需要人工批准的不可逆类别（默认只严抓 rm-rf；strictAll 时扩到全部）。 */
@@ -182,11 +182,16 @@ export function sweepGrants(session, kind) {
 }
 
 /**
- * 资格审核审计（规格 §七 字段口径）。统一走 `appendAudit`——由它负责体积轮转，
- * 并与 auditDeny / auditRedlineExempt 共用同一写入口径（2026-10-09 污染事故的教训）。写失败只 warn。
+ * 资格审核审计（规格 §七 字段口径）。统一走 `buildAuditRow` + `appendAudit`——
+ * 前者补齐七字段与事件号，后者负责体积轮转；与 auditDeny / auditRedlineExempt 同一口径。
+ * 写失败只 warn（appendAudit 内部处理）。
+ *
+ * 2026-10-29：此前这里只做 `{ts, ...row}` 透传，于是 `grants-swept`(8 行) 缺 level/pardon
+ * 直接落进了日志——写入点不校验，调用点就得各自记着补，实测记不住。
  */
 export function auditEligibility(row) {
-  return appendAudit({ ts: new Date().toISOString(), ...row })
+  const { ts, session, action, ...rest } = row || {}
+  return appendAudit(buildAuditRow(session, action, { ...rest, ts }))
 }
 
 // ── 原生侧批量审批（主图 L3 FGA「合并出示 / 静默秒批」）──
@@ -293,8 +298,8 @@ async function applyOneEligibility({
   // FGA-PTC 人工闸门（B 方案，默认开）：不可逆类别不得自证自批。
   const selfGateId = gatedReasonOf(tool, command) || ptcReasonOf(tool, command)
   if (selfGateId && !preGranted) {
-    // 人类已在终端批准过这条（同命令哈希）？消费后直接放行一次。
-    const consumed = consumeApproval(tool, command)
+    // 人类已在终端批准过这条（同命令哈希 + 同会话 + 未过期）？消费后直接放行一次。
+    const consumed = consumeApproval(tool, command, session)
     if (consumed.consumed) {
       grants.grant(tool, { ttl, reason: `人工批准（approvals ${consumed.id}）`, layer: '6' })
       auditEligibility({
@@ -313,6 +318,21 @@ async function applyOneEligibility({
         modelSignal: null,
         trace: [{ layer: 6, decision: 'allow', reason: `approval-consumed ${consumed.id}` }],
       }
+    }
+    // 批准在，但已过期 / 属别的会话：都是"有批准却没放行"的反常，必须留痕，
+    // 否则下次只看到一条重新申请，看不出为什么没生效。
+    if (consumed.expired || consumed.wrongSession) {
+      auditEligibility({
+        session,
+        action: consumed.expired ? 'approval-expired' : 'approval-session-mismatch',
+        tool,
+        command: String(command ?? '').slice(0, 120),
+        layer: 'gate',
+        decision: 'needApproval',
+        evidence: consumed.expired
+          ? `${consumed.id} | 已过 ${Math.round(consumed.ageMs / 1000)}s（上限 ${Math.round(consumed.limitMs / 1000)}s）`
+          : `${consumed.id} | 非本会话批准`,
+      })
     }
   }
   if (strictGateHit(selfGateId) && !preGranted && result.decision === 'allow') {
@@ -395,8 +415,8 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
   }
   const grants = grantsFor(session)
   if (grants.has(tool)) return { kind: 'pass', granted: true }
-  // B 方案人工闸门：人类已在终端批准过这条命令 → 消费批准并放行一次。
-  const consumedHere = consumeApproval(tool, command)
+  // B 方案人工闸门：人类已在终端批准过这条命令（同命令哈希 + 同会话 + 未过期）→ 消费批准并放行一次。
+  const consumedHere = consumeApproval(tool, command, session)
   if (consumedHere.consumed) {
     grants.grant(tool, { ttl: 'turn', reason: `人工批准（approvals ${consumedHere.id}）`, layer: '6' })
     auditEligibility({
@@ -409,6 +429,28 @@ export function gateToolCall({ session, tool, command = '', filePath = '', state
       evidence: consumedHere.id,
     })
     return { kind: 'pass', granted: true }
+  }
+  // 批准失效（过期 / 别的会话批的）要说清原因，否则人类只看到"又拦了一次"。
+  if (consumedHere.expired) {
+    auditEligibility({
+      session,
+      action: 'approval-expired',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'deny',
+      evidence: `${consumedHere.id} | 已过 ${Math.round(consumedHere.ageMs / 1000)}s（上限 ${Math.round(consumedHere.limitMs / 1000)}s）`,
+    })
+  } else if (consumedHere.wrongSession) {
+    auditEligibility({
+      session,
+      action: 'approval-session-mismatch',
+      tool,
+      command: String(command ?? '').slice(0, 120),
+      layer: 'gate',
+      decision: 'deny',
+      evidence: `${consumedHere.id} | 非本会话批准`,
+    })
   }
   // 2026-10-18 原生侧批量审批（主图 L3 FGA「静默秒批/合并出示」的原生实现）：
   // 每次拦截都进待批队列，后续拦截的理由里带上"另有 N 条待批"，让模型可以一次 fg_apply 批量申请，

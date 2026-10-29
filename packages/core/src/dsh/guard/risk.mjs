@@ -71,6 +71,7 @@ export function buildAsk(cmd, risk, category, extra) {
 // ── 第 2 层·真哨兵接线（观察模式）──
 const SENTINEL_PY = fileURLToPath(new URL('../sentinel.py', import.meta.url))
 const SENTINEL_TIMEOUT_MS = 1500 // 实测 Needle 冷启 0.30s / 单次 0.13-0.42s → 取 ~5x 余量
+// `FG_PYTHON` 仅环境适配：宿主 python 不在 PATH 或需指定版本时用，测试也可借此指向假哨兵。
 const SENTINEL_PYTHON = process.env.FG_PYTHON || 'python'
 const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
 

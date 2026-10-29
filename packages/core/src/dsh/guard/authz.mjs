@@ -10,6 +10,7 @@ import { statePath as guardStateFile, loadState, saveState } from '../../core/st
 import { shouldGate, gateReason, promptDeclaresBenefit } from '../value-gate.mjs'
 import { auditDeny } from '../audit.mjs'
 import { modelIdOf, pathOfTool, resolveToolPath, sessionIdOf } from './tooling.mjs'
+import { gateSwitch } from '../testRuntime.mjs'
 
 /**
  * 资格审核闸 —— 高危工具须先调 fg_apply 取得授权。
@@ -66,7 +67,7 @@ export async function eligibilityStage(ctx) {
 export async function valueGateStage(ctx) {
   const { exec, warn, cmd } = ctx
   try {
-    if (String(process.env.FG_VALUE_GATE || '1') !== '0') {
+    if (gateSwitch('FG_VALUE_GATE')) {
       const fPath = resolveToolPath(pathOfTool((exec && exec.arguments) || {}), exec)
       const sid5 = sessionIdOf(exec)
       const sf = guardStateFile(sid5)

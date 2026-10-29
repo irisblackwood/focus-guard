@@ -25,6 +25,10 @@ const ROOT = join(tmpdir(), `fg-ownership-${process.pid}-${Date.now()}`);
 // 与 integration.test.mjs 的 after() 同源问题：纪律写在注释里，不等于执行了。
 const AUDIT_TMP = join(tmpdir(), `fg-ownership-audit-${process.pid}-${Date.now()}.log`);
 process.env.FG_AUDIT_FILE = AUDIT_TMP;
+// 真实工作区指纹：模块加载时拍一次，末尾用例比对（原来那条断言是恒真的，见文末）
+const fpOf = (p) => (existsSync(p) ? `${readFileSync(p, "utf8").length}:${readFileSync(p, "utf8").slice(-64)}` : "-");
+const REAL_AUDIT_SNAP = fpOf(join(process.cwd(), ".focus-guard", "AUDIT.log"));
+const REAL_CASE_SNAP = fpOf(join(process.cwd(), ".ai", "CASE_FILE.md"));
 const TARGET = join(ROOT, "target.txt");
 mkdirSync(ROOT, { recursive: true }); // 先建目录：writeFileSync 不会自动创建父目录
 writeFileSync(TARGET, "content");
@@ -139,12 +143,11 @@ describe("3.0.8 · 状态所有权（DSH 侧自持 + 精确按会话定位）", 
   });
 
   test("真实工作区未被本次测试触碰", () => {
-    const realAudit = join(process.cwd(), ".focus-guard", "AUDIT.log");
-    const realCase = join(process.cwd(), ".ai", "CASE_FILE.md");
-    // 只断言"能读"，不断言内容——避免把真实文件的现状写死进测试
-    const readable = (p) => !existsSync(p) || readFileSync(p, "utf8").length >= 0;
-    assert.ok(readable(realAudit));
-    assert.ok(readable(realCase));
+    // 2026-10-29：原断言 `!existsSync(p) || readFileSync(p).length >= 0` —— **恒真**。
+    // 名字说"未被触碰"，实际只证明"文件能读"。改成与文件头指纹比对。
+    const now = (p) => (existsSync(p) ? `${readFileSync(p, "utf8").length}:${readFileSync(p, "utf8").slice(-64)}` : "-");
+    assert.equal(now(join(process.cwd(), ".focus-guard", "AUDIT.log")), REAL_AUDIT_SNAP, "真实 AUDIT.log 被本文件改写了");
+    assert.equal(now(join(process.cwd(), ".ai", "CASE_FILE.md")), REAL_CASE_SNAP, "真实卷宗被本文件改写了");
     console.log("真实工作区未被写入（本文件所有写操作均指向 tmpdir）");
   });
 });

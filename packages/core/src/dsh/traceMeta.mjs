@@ -20,7 +20,7 @@
  *
  * 落盘：回合结束时由 `recordFuseWaste()` 写一行 `action:"fuse-waste"`（**只在真熔断过的回合**写，不是每步一行）。
  */
-import { appendAudit, setTraceMetaProvider } from '../core/audit-writer.mjs'
+import { appendAudit, buildAuditRow, setTraceMetaProvider } from '../core/audit-writer.mjs'
 
 /** sid → { turn, step, fuseTurn, fuseStep } */
 const sessions = new Map()
@@ -98,16 +98,14 @@ export function recordFuseWaste(agentOrSession) {
   pos.fuseTurn = null
   pos.fuseStep = null
   try {
-    appendAudit({
-      ts: new Date().toISOString(),
-      session: key,
-      action: 'fuse-waste',
-      turn: report.turn,
-      step: report.fuseStep,
-      wasted: report.wastedSteps,
-      evidence: `熔断后步数=${report.wastedSteps}（熔断 step ${report.fuseStep} → 回合末 step ${report.lastStep}）`,
-      pardon: false,
-    })
+    // 2026-10-29：改走 buildAuditRow——此前这里手写行，漏了 trigger/level，
+    // 真实日志里 11 条 fuse-waste 因此成为唯一一批"没有触发条件"的记录。
+    appendAudit(
+      buildAuditRow(key, 'fuse-waste', {
+        evidence: `熔断后步数=${report.wastedSteps}（熔断 step ${report.fuseStep} → 回合末 step ${report.lastStep}）`,
+        extra: { turn: report.turn, step: report.fuseStep, wasted: report.wastedSteps },
+      }),
+    )
   } catch {
     /* fail-open：结算是可观测性，不阻断回合 */
   }

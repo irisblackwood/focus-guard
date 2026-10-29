@@ -79,6 +79,11 @@
 - **预授权隔离**：任务指令里的「最后上传 github」只是目标预授权（goal），不解锁任何执行；执行级授权只认人类当下对审批单的短批示；
 - **严禁脚本包装**：被拒后写 `push.sh` 再执行 = 对抗审查（从重记档）；高危脚本的**写入本身**也要走审批单；
 - **不设卡**：普通单文件 rm、构建、测试、本地 commit、常规 `curl` GET——零打断。放松日常 + 刚性高危。
+- **文件审批的作用域**（2026-10-29）：`.focus-guard/approvals/` 那条链上，一条批准 = **一次 × 一个会话 × 30 分钟**。
+  id 是 `sha256(工具+命令)` 前 12 位（改一个字符即失效）；消费端校验 `record.session`，**两侧都认得出身份且不一致即拒绝**
+  （`dsh-native` / `unknown` / 空值是"我不知道你是谁"，不算身份，放行并在返回值里标 `loose`）；
+  `approvedAt` 超过 `FG_APPROVAL_TTL_MS`（默认 30 分钟）作废，时间戳不可解析按过期处理（fail closed）。
+  批准是对**这一次意图**的授权，不是对这条命令的长期豁免——只写 `pending` 时的"换会话刷新"不构成防线。
 
 ### 事前资格审核与司法救济（3.0.5 / 3.0.6 / 2026-10-18 增量）
 
@@ -163,6 +168,84 @@
 | `TTL_FIRST/RECENT/WEEK/STABLE` | 4h / 2h / 24h / 7天 | 卷宗自适应 TTL 四级 |
 | `ENGINE_VERSION` | 3.2.1 | 42条部署版本核验基准。**版本面 = 七处清单 + 两个常量 + CHANGELOG 最新段**（七处：根 `package.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json`；两个常量：本项与 `PIPELINE_VERSION`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在" |
 
+### 环境变量（34 个）
+
+`FG_*` 共 34 个，分三类：**19 个用户该知道**（开关与阈值）、**7 个仅测试注入**（路径与运行时标记）、**8 个内部**（性能与探针）。下文未列出的 `FG_*` 不存在。锚点相对 `packages/core/src/`。
+
+**闸门开关（8 个）** —— 「生产可关」一列写明这道闸能不能被关掉：
+
+| 变量 | 默认 | 设为 | 效果 | 生产可关 | 锚点 |
+|---|---|---|---|---|---|
+| `FG_EVIDENCE_GATE` | 开 | `0` | 关取证闸：改文件不再要求先读 | **否** | `dsh/guard/evidence.mjs:34` |
+| `FG_VALUE_GATE` | 开 | `0` | 关改动面闸：新建敏感文件/加生产依赖不再要求回三行 | **否** | `dsh/guard/authz.mjs:70` |
+| `FG_RANDOM_FUSE` | 开 | `0` | 关反规避抽查B（随机间隔 2–5 次写操作） | **否** | `dsh/postProgress.mjs:82` |
+| `FG_RESULT_ADMIT_BUDGET` | 3 | `0` | 关结果准入闸：大结果整读不再限额 | **否** | `dsh/guard/volume.mjs:23` |
+| `FG_MUTATION_UNMAPPED` | 拒 | `allow` | 放行「无可解析路径的改动类工具」（默认拒，防绕道） | 是（旁路） | `dsh/guard/evidence.mjs:269` |
+| `FG_RANDOM_FUSE_EVERY` | 随机 | `N` | 抽查B 固定间隔 N 次（优先级高于随机） | 是（调参） | `dsh/postProgress.mjs:83` |
+| `FG_RANDOM_FUSE_BLOCK` | 留痕 | `1` | 抽查B 命中即阻断（默认只留痕不拦） | 是（加严） | `dsh/guard/evidence.mjs:218` |
+| `FG_BLAST_REPORT` | 6 | `0` | 关改动面收尾报告（单轮改动 ≥N 个文件时记账） | 是（关报告） | `dsh/seams.mjs:77` |
+
+> **「生产可关=否」的实现**（2026-10-29 立法：不允许关闭任何功能）：这四个走 `src/dsh/testRuntime.mjs` 的 `gateSwitch` / `gateThreshold`，
+> 只在测试运行时读变量，生产环境恒返「开」——不是设了无效，是代码里没有那个分支。
+> 判据是 `NODE_TEST_CONTEXT`（`node --test` 自动注入，用户伪造不了）或显式 `FG_TEST_MODE=1`，
+> **不用 `NODE_ENV=test`**：本仓测试跑法不设它（实测 `undefined`），用它等于把关闭权交给谁都能设的普通变量。
+> 测试仍能关（`random-fuse` / `result-admit` / `production-gates` 三处依赖这一点），立法与可测性两边都不用让步。
+
+**阈值（4 个）**：
+
+| 变量 | 默认 | 说明 | 锚点 |
+|---|---|---|---|
+| `FG_AUDIT_MAX_BYTES` | 5 MB | AUDIT.log 体积上限，超出滚动归档（≈2 万条记录） | `core/audit-writer.mjs:26` |
+| `FG_AUDIT_ARCHIVE_KEEP` | 10 | 归档保留份数，超出删最旧 | `core/audit-writer.mjs:29` |
+| `FG_RESULT_ADMIT_BYTES` | 32 KB | 「大结果」起算线，超此值的整读每次扣 1 点额度 | `dsh/guard/volume.mjs:21` |
+| `FG_WHOLE_FILE_MAX_LINES` | 300 | 整读闸行数阈值，超此值且无 offset/limit 即拒 | `dsh/guard/wholeFile.mjs:19` |
+
+**环境适配（3 个）**：
+
+| 变量 | 默认 | 说明 | 锚点 |
+|---|---|---|---|
+| `FG_SHELL` | 自动探测 | 显式指定执行体（`powershell` / `bash`），母版层用 | `core/env.mjs:17` |
+| `FG_SEARCH_TOOL` | 自动探测 | 强制指定检索后端，跳过 PATH 探测 | `dsh/search-hints.mjs:90` |
+| `FG_SEARCH_BIN_DIR` | — | 检索工具额外搜索目录（PATH 之外） | `dsh/search-hints.mjs:39` |
+
+**PTC 模式（4 个）** —— 语义见上文「事前资格审核与司法救济」：
+
+| 变量 | 默认 | 设为 | 效果 | 锚点 |
+|---|---|---|---|---|
+| `FG_PTC_READONLY` | 关 | `1` | 默认只读：写类工具与变更型 shell 一律先申请 | `adapters/dsh/eligibility-gate.mjs:47` |
+| `FG_PTC_AUTO_GRANT` | 关 | `1` | 可逆类别静默秒批，不可逆类别仍走人工 | `adapters/dsh/eligibility-gate.mjs:51` |
+| `FG_PTC_ALLOW_RM_RF` | 关 | `1` | 允许 `rm -rf` 自证自批（应急用，审计留痕） | `adapters/dsh/eligibility-gate.mjs:65` |
+| `FG_PTC_STRICT_ALL` | 关 | `1` | 全部不可逆类别纳入人工闸（默认只抓 rm-rf） | `adapters/dsh/eligibility-gate.mjs:68` |
+
+**仅测试注入（7 个）** —— 生产环境设了会改变落盘位置（等于把留痕写丢），或改变运行时判定：
+
+| 变量 | 用途 |
+|---|---|
+| `FG_TEST_MODE` | `1` = 声明「测试运行时」，给不走 `node --test` 的夹具用；生产设了会重新打开四个关闭型开关 |
+| `FG_APPROVAL_DIR` | 覆盖审批单目录（默认 `.focus-guard/approvals`） |
+| `FG_APPROVAL_TTL_MS` | 批准有效期（毫秒，默认 `1800000` = 30 分钟）；过期批准消费时作废并清掉 |
+| `FG_AUDIT_FILE` | 覆盖 AUDIT.log 路径 |
+| `FG_CASE_FILE` | 覆盖卷宗【三】/【四】路径（默认 `.ai/CASE_FILE.md`） |
+| `FG_STATUS_FILE` | 覆盖会话状态文件（默认 %TEMP%） |
+| `FG_WORKSPACE_FILE` | 覆盖 workspace 声明文件 |
+| `FG_PYTHON` | 哨兵调用的 Python 可执行文件（默认 `python`） |
+
+**内部（8 个）** —— 性能与探针，正常使用不需要动：
+
+| 变量 | 默认 | 用途 |
+|---|---|---|
+| `FG_APPROVAL_SEAM` | — | 仅 `cli` 值生效：命令行审批接缝 |
+| `FG_PROJECT_DIR` | 宿主 cwd | 项目目录提供者 |
+| `FG_RUN_ID` | — | 审计行的 `run` 字段 |
+| `FG_MODEL_ID` | 宿主声明 | 模型标识（工具清单判定用） |
+| `FG_HEARTBEAT_INTERVAL_MS` | 10 s | 心跳写盘间隔 |
+| `FG_STALE_AFTER_MS` | 30 s | 心跳陈旧判定线 |
+| `FG_SENTINEL_CACHE` | 开 | `0` 关哨兵缓存 |
+| `FG_SENTINEL_CACHE_SIZE` | 500 | 哨兵缓存条目上限 |
+
+> **登记纪律**：新增 `FG_*` 必须同时改本节。未登记 = 用户不知道它存在 = 这个开关等于没做。
+> 2026-10-29 盘点补录 8 个此前零文档的开关：`FG_EVIDENCE_GATE`、`FG_VALUE_GATE`、`FG_MUTATION_UNMAPPED`、`FG_AUDIT_MAX_BYTES`、`FG_AUDIT_ARCHIVE_KEEP`、`FG_BLAST_REPORT`、`FG_RESULT_ADMIT_BUDGET`、`FG_RESULT_ADMIT_BYTES`。
+
 ## 工作原理
 
 ```
@@ -189,7 +272,17 @@ DSH 原生插件（`src/dsh/pipeline.mjs` 编排，各层实现在 `src/dsh/guar
 
 留痕协议：AUDIT.log（JSONL）每条带 `seq`（事件唯一号）/ `chain`（任务链，委派派生 `/dN` 子链）/ `ref`（父事件）三字段——流水账可随时重组为因果树：`node packages/core/tools/audit-chain.mjs <AUDIT.log> [--mermaid]`。
 
+**行构造只有一处**：`core/audit-writer.mjs::buildAuditRow()`。七字段（时间/会话/动作/触发条件/级别/证据/是否特赦）与因果链三字段由它统一生成，`seq` 用进程内单调计数（不用 `performance.now()`——同毫秒连写会撞号）；`appendAudit()` 落盘前还有一道 `normalizeRow()` 兜底，绕开构造点直传裸行也会补齐七字段。**别在调用点再手写行对象**：2026-10-29 之前有 5 处各写一份，字段集各不相同，实测日志里漂出三种形态、17 组 seq 重复。体检命令 `node packages/core/tools/log-audit.mjs` 末尾的「行契约体检」段会报缺字段与撞号。
+
 落盘全图（写入面共 9 处）：AUDIT.log、卷宗【一】环境声明、【三】侦查记录、【四】额度台账（同 CASE_FILE.md）、会话状态（%TEMP%）、改动前备份（.ai/backup/）、PATTERNS.md 经验库、TEMP 陈旧清扫、派生积木与索引（仅 library-build 写到 .ai/output/library/）。
+
+**内存态（不落盘）**：`packages/core/src/core/sessionScratch.mjs` 统一托管「按会话分表的进程内临时数据」——
+`nativeReadSet` / `evidenceBlockedOnce`（本会话读过的路径、已拒过一次的路径）、`remindedNoBackend`（已提醒过没装检索工具）。
+两种形态：`sessionSet(name)` 给每会话一个 `Set<T>`，`sessionFlag(name)` 给一个「已做过」标记。
+三件事必须做到：**按会话隔离**（DSH 单进程多会话，共享会让 A 读过的文件被判成 B 也读过）、
+**能一键清空**（`clearSession(sid)` —— 测试与基准靠它把状态摆回已知起点）、
+**有上限**（每表最多 200 个会话，超出按插入序删最旧，长驻进程不无限涨）。
+新增会话级内存态一律走这里，不要再各模块 `new Map()`——那样等于又造一个清不掉、测不了的表。
 
 ### 常驻注入的体量
 

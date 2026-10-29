@@ -32,7 +32,8 @@ import { auditChainInit } from '../core/audit.mjs'
 import { collectStrings, callHash, isInvestigation } from '../core/risk.mjs'
 import { zcodeToolName } from './toolName.mjs'
 import { isDangerousCmd, SCRIPT_FILE_RE } from '../core/redlines.mjs'
-import { appendAudit } from './audit.mjs'
+import { appendAudit, buildAuditRow } from './audit.mjs'
+import { gateSwitch } from './testRuntime.mjs'
 import { budgetVerdict, stallVerdict, invPoolOverLimit, judgeProgress, poolOf } from '../core/progressPolicy.mjs'
 import {
   BLOCKS_RE,
@@ -57,17 +58,7 @@ import {
  *（测试亦然，会重演此前修过的测试污染）。DSH 侧必须统一经 `appendAudit`：它尊重 `FG_AUDIT_FILE`
  * 且带体积轮转。
  */
-const audit = (sid, action, opts = {}) =>
-  appendAudit({
-    ts: new Date().toISOString(),
-    session: sid,
-    seq: Date.now().toString(36) + '.' + Math.floor(performance.now()),
-    action,
-    trigger: action,
-    level: opts.level ?? null,
-    evidence: String(opts.evidence || '').slice(0, 200),
-    pardon: !!opts.pardon,
-  })
+const audit = (sid, action, opts = {}) => appendAudit(buildAuditRow(sid, action, opts))
 
 /**
  * 反规避抽查B 的间隔解析（2026-10-19 人类批示：独立参数，勿与抽查A 耦合）。
@@ -78,7 +69,7 @@ const audit = (sid, action, opts = {}) =>
  * - 返回 null = 关闭；否则给 `pick()` 与 `kind`，便于测试断言区间
  */
 export function randomFuseInterval() {
-  if (process.env.FG_RANDOM_FUSE === '0') return null
+  if (!gateSwitch('FG_RANDOM_FUSE')) return null
   const fixed = Number(process.env.FG_RANDOM_FUSE_EVERY)
   if (Number.isInteger(fixed) && fixed > 0) return { kind: 'fixed', n: fixed, pick: () => fixed }
   const span = RANDOM_FUSE_MAX - RANDOM_FUSE_MIN + 1

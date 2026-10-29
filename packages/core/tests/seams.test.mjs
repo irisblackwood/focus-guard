@@ -16,12 +16,26 @@ import { tmpdir } from "node:os";
 const AUDIT_TMP = join(tmpdir(), `fg-seams-audit-${process.pid}-${Date.now()}.log`);
 process.env.FG_AUDIT_FILE = AUDIT_TMP;
 
+// 真实工作区记录文件的指纹（长度 + 尾 64 字符），模块加载时拍一次；末尾用例比对。
+const fpOf = (p) => (existsSync(p) ? `${readFileSync(p, "utf8").length}:${readFileSync(p, "utf8").slice(-64)}` : "-");
+const REAL_AUDIT_SNAP = fpOf(join(process.cwd(), ".focus-guard", "AUDIT.log"));
+const REAL_CASE_SNAP = fpOf(join(process.cwd(), ".ai", "CASE_FILE.md"));
+
+// 卷宗沙箱（2026-10-29）：`turnStoppingListener()({})` 这类空入参用例里 `projDirOf()` 会
+// 退到 `process.cwd()`（= 真实仓库根），把额度台账写进真实卷宗【四】。`state.casePath()`
+// 现在认 FG_CASE_FILE，这里指到 tmp 就能整体挡住——不必逐条改用例。
+process.env.FG_CASE_FILE = join(tmpdir(), `fg-seams-case-${process.pid}-${Date.now()}.md`);
+
 const { sessionStartListener, preStepListener, turnStoppingListener } = await import("../src/dsh/seams.mjs");
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
 
 const noop = () => {};
-// 与官方桥同源：会话 id 取自 agent.session.header.id（不是 agent.session.id）
-const mkAgent = (sid) => ({ session: { header: { id: sid, cwd: process.cwd() } } });
+// 2026-10-29：cwd 原来直接指向 `process.cwd()`（= 真实仓库根），于是
+// `agent/turn-stopping` 的 `saveLedger(projDirOf(agent), …)` 会把额度台账写进真实
+// `.ai/CASE_FILE.md`——实测确认（逐个文件跑，只有本文件改了它）。改成沙箱工作区。
+const WS = join(tmpdir(), `fg-seams-ws-${process.pid}-${Date.now()}`);
+mkdirSync(WS, { recursive: true });
+const mkAgent = (sid) => ({ session: { header: { id: sid, cwd: WS } } });
 const auditLines = () =>
   existsSync(AUDIT_TMP)
     ? readFileSync(AUDIT_TMP, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
@@ -144,11 +158,17 @@ describe("3.0.8 · 补充宿主缝（agent/created · agent/pre-step · agent/tu
     console.log("空入参未抛出；warn 次数:", warns.length);
   });
 
-  test("真实工作区未被本次测试触碰（审计只写 FG_AUDIT_FILE 沙箱）", () => {
-    const realAudit = join(process.cwd(), ".focus-guard", "AUDIT.log");
-    assert.ok(!existsSync(AUDIT_TMP) || readFileSync(AUDIT_TMP, "utf8").length >= 0);
-    assert.ok(!existsSync(realAudit) || readFileSync(realAudit, "utf8").length >= 0);
-    console.log("沙箱审计:", AUDIT_TMP.replace(tmpdir(), "<tmp>"));
+  test("真实工作区未被本次测试触碰（审计与卷宗都只写沙箱）", () => {
+    // 2026-10-29：原断言是 `readFileSync(realAudit).length >= 0`——**恒真**，
+    // 名字说"未被触碰"，实际什么都没验。改成与文件头快照比对：真被写过就会红。
+    for (const [label, p, snap] of [
+      ["AUDIT.log", join(process.cwd(), ".focus-guard", "AUDIT.log"), REAL_AUDIT_SNAP],
+      ["CASE_FILE.md", join(process.cwd(), ".ai", "CASE_FILE.md"), REAL_CASE_SNAP],
+    ]) {
+      const now = existsSync(p) ? `${readFileSync(p, "utf8").length}:${readFileSync(p, "utf8").slice(-64)}` : "-";
+      assert.equal(now, snap, `真实 ${label} 被本文件改写了：${p}`);
+    }
+    console.log("沙箱审计:", AUDIT_TMP.replace(tmpdir(), "<tmp>"), "| 沙箱工作区:", WS.replace(tmpdir(), "<tmp>"));
   });
 });
 

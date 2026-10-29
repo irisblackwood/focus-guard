@@ -23,6 +23,10 @@ import { readFileSync, rmSync, existsSync, writeFileSync, mkdtempSync } from "no
 // —— 审计沙箱：必须在任何 applyEligibility 调用之前生效 ——
 const AUDIT_TMP = join(tmpdir(), `fg-integration-audit-${process.pid}-${Date.now()}.log`);
 process.env.FG_AUDIT_FILE = AUDIT_TMP;
+// 2026-10-29：审批目录同样要沙箱。此前本文件触发 strictGateHit 的用例会把
+// `pending_request.json` 写进真实 `.focus-guard/approvals/`（实测确认）。见 eligibility.test.mjs 同处注释。
+const APPROVAL_TMP = join(tmpdir(), `fg-integration-approvals-${process.pid}-${Date.now()}`);
+process.env.FG_APPROVAL_DIR = APPROVAL_TMP;
 
 import { loadProfile } from "../src/core/profileLoader.mjs";
 import { checkEligibility, profileScope } from "../src/core/checkEligibility.mjs";
@@ -37,6 +41,8 @@ after(() => {
   // FG_AUDIT_FILE 的 seams/postProgress 为 0）。与 eligibility.test.mjs 的写法保持一致。
   process.env.FG_AUDIT_FILE = AUDIT_TMP;
   rmSync(AUDIT_TMP, { force: true });
+  process.env.FG_APPROVAL_DIR = APPROVAL_TMP;
+  rmSync(APPROVAL_TMP, { recursive: true, force: true });
 });
 
 // —— 危险字面量：拆分构造 ——

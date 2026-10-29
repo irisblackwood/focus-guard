@@ -39,13 +39,14 @@
  * 记录一并带出（prunes_so_far / pruned_tokens），既不丢信息也不淹没有效记录。
  */
 
-import { appendAudit } from './audit.mjs'
+import { appendAudit, buildAuditRow } from './audit.mjs'
 import { livenessBadge, noteLivenessEvent } from './heartbeat.mjs'
 import { statePath, loadState, saveState } from '../core/state.mjs'
 // 2026-10-27：启动自证拆到 compactionWatch/announce.mjs（本文件超 400 行）。
 // 对外 API 不变：index.js 与测试仍从本模块取 announceWatchReady / _resetWatchAnnounce / WATCH_SEAMS。
 export { WATCH_SEAMS, announceWatchReady, _resetWatchAnnounce } from './compactionWatch/announce.mjs'
 import { clampText } from './compactionWatch/announce.mjs'
+import { gateThreshold } from './testRuntime.mjs'
 
 const EV_START = 'compaction/start'
 const EV_END = 'compaction/end'
@@ -97,16 +98,14 @@ export function _compactionWatchState(session) {
 }
 
 function row(state, action, trigger, extra = {}) {
-  return {
-    ts: new Date().toISOString(),
-    session: state.sessionId,
-    action,
+  // 2026-10-29：行构造收敛到 buildAuditRow（此前这是第 5 份复制体）。
+  // `basis` 是本模块特有的来源标注，走 extra 带进去；`pardon` 由构造点统一为 false。
+  const { basis, level, ...rest } = extra
+  return buildAuditRow(state.sessionId, action, {
     trigger,
-    level: null,
-    basis: 'builtin:compaction-basic',
-    ...extra,
-    pardon: false,
-  }
+    level,
+    extra: { basis: basis === undefined ? 'builtin:compaction-basic' : basis, ...rest },
+  })
 }
 
 /** 压缩落定留痕。 */
@@ -130,7 +129,8 @@ function auditCompaction(state, { failed, durationMs, open, summary, error }) {
         const file = statePath(sid)
         const st = loadState(file)
         if (st) {
-          const def = Number(process.env.FG_RESULT_ADMIT_BUDGET ?? 3)
+          // 与 volume.mjs 同口径：0=关闭在测试里可用，生产被 gateThreshold 兜到 1。
+          const def = gateThreshold('FG_RESULT_ADMIT_BUDGET', 3)
           saveState(file, { ...st, resultAdmitLeft: Number.isFinite(def) ? def : 3 })
         }
       }

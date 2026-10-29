@@ -73,4 +73,51 @@ test("promptDeclaresBenefit 判定", () => {
   assert.equal(vg.promptDeclaresBenefit("收益：减少误拦，用户可见"), true);
 });
 
+// ===== 新增依赖的收窄（2026-10-29，台账 T7）=====
+// 病根：`shouldGate` 对任何 `npm install` 返回 true，于是任务基准 T40（裸 install）
+// 与 T41（`--save-dev`）双双被拦，误伤 2/57，B 组合规掉到 55/57。
+// 本闸的立意是「**新增**依赖 = 长期维护负担」，所以按立意收窄，而不是放宽阈值。
+
+test("isNewDependency：新增生产依赖 → true", () => {
+  for (const cmd of [
+    "npm install left-pad",
+    "npm i left-pad",
+    "yarn add lodash",
+    "pnpm add typescript",
+    "npm install -g @scope/cli",
+    "pip install requests",
+  ]) {
+    assert.equal(vg.isNewDependency(cmd), true, `${cmd} 应判为新增依赖`);
+  }
+});
+
+test("isNewDependency：裸安装 / 开发依赖 / 约束文件 → false", () => {
+  for (const cmd of [
+    "npm install",                      // 装 package.json 已声明的，不新增任何东西
+    "npm ci",
+    "npm install --production",
+    "npm install -D vitest",            // 开发依赖不进产物
+    "npm install --save-dev vitest",
+    "npm i -D vitest",
+    "pnpm add -D typescript",
+    "pip install -r requirements.txt",  // -r 带的是文件不是包名
+    "pip install -e .",
+    "ls -la",                            // 不是依赖命令
+    "",
+  ]) {
+    assert.equal(vg.isNewDependency(cmd), false, `${cmd} 不该判为新增依赖`);
+  }
+});
+
+test("端到端：裸 install 与开发依赖不再被改动面闸拦，生产依赖仍拦", async () => {
+  const bare = await call(seed(), "pwsh", { command: "npm install" });
+  assert.ok(!isValueGate(bare), "裸 npm install 不该被改动面闸拦");
+
+  const dev = await call(seed(), "pwsh", { command: "npm install --save-dev vitest" });
+  assert.ok(!isValueGate(dev), "开发依赖不该被改动面闸拦");
+
+  const prod = await call(seed(), "pwsh", { command: "npm install lodash" });
+  assert.ok(isValueGate(prod), "新增生产依赖仍要拦");
+});
+
 test.after(() => rmSync(DIR, { recursive: true, force: true }));

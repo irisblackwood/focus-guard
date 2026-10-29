@@ -62,3 +62,47 @@ test("describeBackends 可读输出", () => {
     assert.match(sh.describeBackends(), /首选=rg/);
   });
 });
+
+// ===== 探测缓存（2026-10-29）=====
+// 病根：`wholeFileStage` 每步都调 `detectSearchBackends()`，而它遍历整个 PATH
+// （本机 73 目录 × 3 后端 × 4 扩展名 = 876 次 accessSync，单次 13.72ms）。
+// 模块头注释写着"每会话探测一次并缓存"，实现里却没有缓存 —— 判定延迟 p95 因此从 2.37 涨到 18.35ms。
+
+test("缓存：连续调用返回同一对象（不再扫 PATH）", () => {
+  withEnv({ FG_SEARCH_TOOL: "rg" }, () => {
+    sh.resetSearchBackendsCache();
+    const first = sh.detectSearchBackends();
+    const again = sh.detectSearchBackends();
+    assert.equal(again, first, "第二次必须命中缓存（引用相等），否则等于每步重扫 PATH");
+  });
+});
+
+test("缓存失效：环境变量一变就必须重探（否则测试与真实换环境都会拿到旧结果）", () => {
+  sh.resetSearchBackendsCache();
+  const rg = withEnv({ FG_SEARCH_TOOL: "rg" }, () => sh.detectSearchBackends());
+  const fd = withEnv({ FG_SEARCH_TOOL: "fd" }, () => sh.detectSearchBackends());
+  assert.equal(rg.preferred, "rg");
+  assert.equal(fd.preferred, "fd", "改 FG_SEARCH_TOOL 后必须重探，不能沿用旧缓存");
+});
+
+test("缓存失效：PATH 变了也要重探", () => {
+  sh.resetSearchBackendsCache();
+  const withPath = withEnv({ FG_SEARCH_TOOL: undefined, PATH: process.env.PATH, FG_SEARCH_BIN_DIR: "" }, () =>
+    sh.detectSearchBackends(),
+  );
+  const noPath = withEnv({ FG_SEARCH_TOOL: undefined, PATH: "", FG_SEARCH_BIN_DIR: "" }, () =>
+    sh.detectSearchBackends(),
+  );
+  assert.equal(noPath.preferred, null, "PATH 清空后必须重探出「无后端」");
+  assert.notEqual(withPath, noPath);
+});
+
+test("resetSearchBackendsCache：清掉后产生新对象", () => {
+  withEnv({ FG_SEARCH_TOOL: "rg" }, () => {
+    const a = sh.detectSearchBackends();
+    sh.resetSearchBackendsCache();
+    const b = sh.detectSearchBackends();
+    assert.notEqual(a, b, "reset 后不该复用旧对象");
+    assert.deepEqual(a, b, "同一台机器上内容应一致");
+  });
+});

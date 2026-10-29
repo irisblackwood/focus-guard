@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const GUARD = fileURLToPath(new URL("../hooks/guard.mjs", import.meta.url));
+// 2026-10-29：审批目录也要沙箱。本文件用 spawnSync 跑 guard.mjs，子进程继承 process.env，
+// 于是触发 rm-rf 闸的用例会把 `pending_request.json` 写进真实 `.focus-guard/approvals/`。
+// 实测：逐个文件跑 65 个测试，本文件与 eligibility / integration 是仅有的三个泄漏源。
+process.env.FG_APPROVAL_DIR = join(tmpdir(), `fg-acceptance-approvals-${process.pid}-${Date.now()}`);
 // 母版层模块（v3.0.5 拆分）：常量表与红线表的唯一真相源，工程自检须读这里而非 guard.mjs
 const CONSTANTS = fileURLToPath(new URL("../src/core/constants.mjs", import.meta.url));
 // 2026-10-27：原先三处用正则从 `constants.mjs` 的**源码文本**里抠值（`ENGINE_VERSION`、

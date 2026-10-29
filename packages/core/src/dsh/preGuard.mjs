@@ -26,7 +26,7 @@ import { isDangerousCmd } from '../core/redlines.mjs'
 import { isInvestigation, isMutating, penalize } from '../core/risk.mjs'
 import '../adapters/dsh/tool-kinds.mjs' // 分层纪律：宿主工具名在适配层注册成语义类别
 import { zcodeToolName } from './toolName.mjs'
-import { appendAudit } from './audit.mjs'
+import { appendAudit, buildAuditRow } from './audit.mjs'
 import { BLOCKS_RE, DELEGATE_DEFAULT, DOWNGRADE_MSG, LIBRARY_RE } from '../core/constants.mjs'
 
 const RE_WRITE = /^(?:write|edit|multiedit)$/i
@@ -54,19 +54,7 @@ function projDirOf(exec) {
 }
 const normalize = (p) => String(p || '').replace(/\\/g, '/')
 
-const audit = (sid, action, opts = {}) =>
-  appendAudit({
-    ts: new Date().toISOString(),
-    session: sid,
-    seq: Date.now().toString(36) + '.' + Math.floor(performance.now()),
-    action,
-    trigger: opts.trigger || action,
-    chain: opts.chain || null,
-    ref: opts.ref || null,
-    level: opts.level ?? null,
-    evidence: String(opts.evidence || '').slice(0, 200),
-    pardon: !!opts.pardon,
-  })
+const audit = (sid, action, opts = {}) => appendAudit(buildAuditRow(sid, action, opts))
 
 /** 处罚阶梯说明（原 approval.mjs 的 ladderNote：与审批单无关，是"降级阶梯"提示）。 */
 function ladderNote(level) {

@@ -37,23 +37,32 @@ export function quickShellId() {
 
 /**
  * @param {string} [projDir]
- * @param {{ shell?: string }} [opts] 显式执行体（适配层传入，母版不猜 harness）。
+ * @param {{ shell?: string, probeVersion?: boolean }} [opts] 显式执行体（适配层传入，母版不猜 harness）。
  *   2026-10-18：DSH 适配层此前靠写 process.env.FG_SHELL 传递，结果宿主设的变量
  *   被子进程（含 npm test）继承，直接污染了 4 条环境检测用例。改为参数传递。
+ *   2026-10-29：`probeVersion` 新增且**默认关闭**——见下方版本探测处的注释。
  */
 export function detectEnv(projDir, opts = {}) {
   const osName = process.platform;
   const forced = String((opts && opts.shell) || "").trim().toLowerCase();
   const shellIdKey = forced || quickShellId();
+  // 2026-10-29：版本探测改为显式索取（opts.probeVersion），默认不跑。
+  // 它是无条件 spawn 一个 powershell / pwsh 子进程，实测 **202.6ms/次**，
+  // 占 detectEnv 总耗时（228.2ms）的 89%——而它唯一的产出是 env.shell 里的版本串，
+  // 全仓 **0 处消费**：卷宗【一】环境声明行写的是 `shellIdKey`，preGuard 的平台规则
+  // 用的是 `os + shellIdKey`。会话启动（冷启敏感）不该为一行没人读的版本号付两百毫秒。
+  // 需要版本的调用方显式传 { probeVersion: true }。
   let shellVersion = "";
-  try {
-    if (shellIdKey === "powershell")
-      shellVersion = execFileSync("powershell", ["-NoProfile", "-c", "$PSVersionTable.PSVersion.ToString()"], { encoding: "utf8", timeout: 6000 }).trim();
-    else if (shellIdKey === "zsh")
-      shellVersion = (execFileSync("zsh", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/(\S+)\s*$/) || [])[1] || "";
-    else if (shellIdKey === "bash")
-      shellVersion = (execFileSync("bash", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/version\s+(\S+)/) || [])[1] || "";
-  } catch {}
+  if (opts && opts.probeVersion) {
+    try {
+      if (shellIdKey === "powershell")
+        shellVersion = execFileSync("powershell", ["-NoProfile", "-c", "$PSVersionTable.PSVersion.ToString()"], { encoding: "utf8", timeout: 6000 }).trim();
+      else if (shellIdKey === "zsh")
+        shellVersion = (execFileSync("zsh", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/(\S+)\s*$/) || [])[1] || "";
+      else if (shellIdKey === "bash")
+        shellVersion = (execFileSync("bash", ["--version"], { encoding: "utf8", timeout: 6000 }).match(/version\s+(\S+)/) || [])[1] || "";
+    } catch {}
+  }
   let encoding = "UTF-8";
   if (osName === "win32") {
     try {

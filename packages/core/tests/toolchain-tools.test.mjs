@@ -245,6 +245,120 @@ test("smells 已知局限：匿名回调不计函数长度（如实锁住，别�
   }
 });
 
+// ───────────────────────── smells：重复块（2026-10-29）─────────────────────────
+
+/**
+ * 一段 9 行的"有内容"代码：字符总数 200+，能过 `dupMinContent`。
+ * 为什么用真实感的长行而不是 `x` 重复 8 次：短行会被内容下限挡掉，
+ * 那样测的就不是"重复检测"而是"内容过滤"，两件事得分开测（见下面第 5 条）。
+ */
+const DUP_BODY = [
+  "const a1 = readFileSync(p, 'utf8')",
+  "const a2 = a1.split('\\n')",
+  "const a3 = a2.filter((x) => x.length > 0)",
+  "const a4 = a3.map((x) => x.trim())",
+  "const a5 = a4.join('\\n')",
+  "const a6 = a5.length + a1.length",
+  "const a7 = a6 > 0 ? a6 : 0",
+  "const a8 = a7 * 2 + 1",
+  "const a9 = a8 - 3 + a7",
+].join("\n");
+
+test("smells：同一段代码出现在两个文件里必须报 duplicate-block", () => {
+  const f = fixture({
+    "src/core/one.mjs": `${DUP_BODY}\nexport const tail1 = 1\n`,
+    "src/core/two.mjs": `${DUP_BODY}\nexport const tail2 = 2\n`,
+  });
+  try {
+    const j = JSON.parse(f.run("smells.mjs", ["--json"]).out);
+    const dups = j.duplicates.src;
+    assert.equal(dups.length, 2, `两侧各报一条，实际 ${JSON.stringify(dups)}`);
+    for (const d of dups) {
+      assert.equal(d.kind, "duplicate-block");
+      assert.ok(d.value >= 9, `重复长度应 ≥9 行，实际 ${d.value}`);
+      assert.match(d.detail, /重复 \d+ 行/);
+    }
+    assert.deepEqual(
+      dups.map((d) => d.file).sort(),
+      ["packages/core/src/core/one.mjs", "packages/core/src/core/two.mjs"],
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("smells：内容不同的两个文件不许报重复", () => {
+  // 注意：只改一行不够——8 行窗口意味着**任意连续 8 行相同**就算重复，
+  // 改第 9 行仍留着前 8 行相同。要构造"完全不同"就得整段换掉。
+  const other = Array.from({ length: 9 }, (_, i) => `const q${i} = compute(${i}) + total`).join("\n");
+  const f = fixture({
+    "src/core/left.mjs": `${DUP_BODY}\n`,
+    "src/core/right.mjs": `${other}\n`,
+  });
+  try {
+    const j = JSON.parse(f.run("smells.mjs", ["--json"]).out);
+    assert.equal(j.duplicates.src.length, 0, `不该报：${JSON.stringify(j.duplicates.src)}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("smells：短于窗口的相同片段不许报（5 行 < 8 行窗口）", () => {
+  const short = DUP_BODY.split("\n").slice(0, 5).join("\n");
+  const f = fixture({
+    "src/core/s1.mjs": `${short}\nexport const z1 = 1\n`,
+    "src/core/s2.mjs": `${short}\nexport const z2 = 2\n`,
+  });
+  try {
+    const j = JSON.parse(f.run("smells.mjs", ["--json"]).out);
+    assert.equal(j.duplicates.src.length, 0, "5 行相同不该算重复块");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("smells：8 行相同但内容太短（纯符号）不许报——内容下限挡住结构性噪音", () => {
+  const tiny = Array.from({ length: 9 }, () => "x").join("\n");
+  const f = fixture({
+    "src/core/t1.mjs": `${tiny}\n`,
+    "src/core/t2.mjs": `${tiny}\n`,
+  });
+  try {
+    const j = JSON.parse(f.run("smells.mjs", ["--json"]).out);
+    assert.equal(j.duplicates.src.length, 0, "字符总数不足 120 不该计入");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("smells：src 抄 test 归测试口径，不占源文件预算", () => {
+  const f = fixture({
+    "src/core/impl.mjs": `${DUP_BODY}\n`,
+    "tests/copy.test.mjs": `${DUP_BODY}\n`,
+  });
+  try {
+    const j = JSON.parse(f.run("smells.mjs", ["--json"]).out);
+    assert.equal(j.duplicates.src.length, 0, "混合重复不该占源文件预算");
+    assert.ok(j.duplicates.test.length >= 2, "混合重复应归到测试口径");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("smells --strict：重复块超上限要 exit 1（棘轮真的在挡）", () => {
+  // 43 个文件各含同一段 → 43 处重复 > DUP_BUDGET(41)
+  const files = {};
+  for (let i = 0; i < 43; i += 1) files[`src/core/copy${i}.mjs`] = `${DUP_BODY}\nexport const n${i} = ${i}\n`;
+  const f = fixture(files);
+  try {
+    const r = f.run("smells.mjs", ["--strict", "--brief"]);
+    assert.equal(r.code, 1, `43 处重复应阻断，实际 exit ${r.code}：${r.out}`);
+    assert.match(r.out, /重复块 源 43 条（❌/);
+  } finally {
+    f.cleanup();
+  }
+});
+
 // ───────────────────────── health-core：纯逻辑 ─────────────────────────
 
 test("splitLintByLayer：四层分流，未知路径归 tools（不丢）", () => {

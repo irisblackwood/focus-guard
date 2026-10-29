@@ -30,6 +30,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +38,61 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..', '..', '..')
 const realAudit = join(repoRoot, '.focus-guard', 'AUDIT.log')
+
+/**
+ * 记录面隔离（2026-10-29 补第五个缺口）。
+ *
+ * 病根：守卫此前只盯 `AUDIT.log`，于是"测试写真实记录文件"只要换了文件就看不见——
+ * 实测 `npm run test:all` 会改写 `.focus-guard/approvals/pending_request.json`（md5 变化）
+ * 和 `.ai/CASE_FILE.md` 的【四】额度台账，而守卫照样报「零增长 PASS」。
+ * **只包住一个文件等于没包住记录面。**
+ *
+ * 分两档（为什么不一律硬红）：
+ *   · `hard`：宿主只在拦截时才写审批、只有工具才写面板记录 → 变了必是测试漏重定向，硬红。
+ *   · `soft`：卷宗与工作区快照**宿主自己也在写**（回合结束写【四】、记决策写 workspace.json）。
+ *     硬红会变成假阳性，而假阳性会训练人加绕过开关——那比不检查更糟。故只报不拦，
+ *     同时由 `seams.test.mjs` / `state-ownership.test.mjs` 里那两条"真实工作区未被触碰"用例硬兜。
+ */
+const RECORD_HARD = ['.focus-guard/approvals', 'panel-runs.json']
+const RECORD_SOFT = ['.ai/CASE_FILE.md', '.focus-guard/workspace.json']
+
+/** 递归收集文件 → md5。目录不存在时返回空。 */
+function hashTree(rel) {
+  const out = new Map()
+  const walk = (abs, key) => {
+    let st
+    try {
+      st = statSync(abs)
+    } catch {
+      return
+    }
+    if (st.isDirectory()) {
+      for (const e of readdirSync(abs)) walk(join(abs, e), `${key}/${e}`)
+      return
+    }
+    try {
+      out.set(key, createHash('md5').update(readFileSync(abs)).digest('hex'))
+    } catch {
+      out.set(key, 'ERR')
+    }
+  }
+  walk(join(repoRoot, rel), rel)
+  return out
+}
+
+function hashAll(list) {
+  const m = new Map()
+  for (const rel of list) for (const [k, v] of hashTree(rel)) m.set(k, v)
+  return m
+}
+
+/** 对比两次快照，返回被改写/新增/消失的相对路径。 */
+function diffHash(before, after) {
+  const changed = []
+  for (const [k, v] of after) if (before.get(k) !== v) changed.push(before.has(k) ? `改写 ${k}` : `新增 ${k}`)
+  for (const k of before.keys()) if (!after.has(k)) changed.push(`消失 ${k}`)
+  return changed
+}
 
 /** 本次运行批次号：注入子进程环境，只有带它的审计行才算"测试链写的" */
 const runId = `iso-${process.pid}-${Date.now().toString(36)}`
@@ -57,6 +113,8 @@ function linesAfter(file, beforeLines) {
 }
 
 const before = snapshot(realAudit)
+const beforeHard = hashAll(RECORD_HARD)
+const beforeSoft = hashAll(RECORD_SOFT)
 
 const wrapIdx = process.argv.indexOf('--wrap')
 const wrapped = wrapIdx >= 0 ? process.argv[wrapIdx + 1] : null
@@ -88,6 +146,8 @@ const after = snapshot(realAudit)
 const added = linesAfter(realAudit, before.lines)
 const mine = added.filter((l) => l.includes(`"run":"${runId}"`))
 const foreign = added.length - mine.length
+const hardChanged = diffHash(beforeHard, hashAll(RECORD_HARD))
+const softChanged = diffHash(beforeSoft, hashAll(RECORD_SOFT))
 
 console.log(
   `[audit-isolation] 运行后：${after.lines} 行 / ${after.bytes} 字节（Δ 行 ${after.lines - before.lines} / Δ 字节 ${after.bytes - before.bytes}；其中本批次 ${mine.length} 条）`,
@@ -96,6 +156,15 @@ if (foreign > 0)
   console.log(
     `[audit-isolation] 另有 ${foreign} 条来自宿主进程并发写入（批次号不匹配），不计入隔离结论`,
   )
+if (hardChanged.length)
+  console.error(`[audit-isolation] 记录面被改写（${hardChanged.length} 处）：`)
+for (const c of hardChanged.slice(0, 6)) console.error(`[audit-isolation]   ${c}`)
+if (softChanged.length)
+  console.warn(
+    `[audit-isolation] 另有 ${softChanged.length} 处软记录变化（宿主也可能写，仅供参考）：${softChanged.slice(0, 4).join('、')}`,
+  )
+else if (!hardChanged.length)
+  console.log(`[audit-isolation] 记录面（审批 / 面板 / 卷宗 / 工作区快照）零变化`)
 
 if (run.error) {
   console.error('[audit-isolation] 测试进程启动失败：', run.error.message)
@@ -103,6 +172,14 @@ if (run.error) {
 }
 if (run.status !== 0) {
   console.error(`[audit-isolation] 测试本身失败（exit ${run.status}）；隔离结论仍取实测增量`)
+}
+
+if (hardChanged.length) {
+  console.error(
+    `[audit-isolation] FAIL：测试链改写了真实记录文件 —— 说明某条路径漏了 FG_APPROVAL_DIR / FG_CASE_FILE 重定向。`,
+  )
+  for (const c of hardChanged.slice(0, 6)) console.error(`[audit-isolation]   ${c}`)
+  process.exit(1)
 }
 
 if (mine.length === 0) {

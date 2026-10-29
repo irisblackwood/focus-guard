@@ -19,11 +19,13 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSy
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { zstdDecompressSync } from 'node:zlib'
+import { judgeDrift } from '../src/core/schemaDrift.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
-const BASELINE = join(CORE, 'docs', 'TOOL-SCHEMA.json')
+// 基线路径可注入（`FG_SCHEMA_BASELINE`）：测试要用临时基线跑各档结局，不能碰仓库里那份。
+const BASELINE = process.env.FG_SCHEMA_BASELINE || join(CORE, 'docs', 'TOOL-SCHEMA.json')
 const LIMIT = Number(process.env.FG_SCHEMA_SESSIONS || 20)
 
 const argv = process.argv.slice(2)
@@ -145,46 +147,73 @@ if (!existsSync(BASELINE)) {
 }
 
 const base = JSON.parse(readFileSync(BASELINE, 'utf8'))
-if (base.hash === hash) {
+const curNames = canonical.map(([n]) => n)
+const v = judgeDrift({
+  baseHash: base.hash,
+  baseTools: base.tools,
+  baseNames: Object.keys(base.tools_map || {}),
+  curHash: hash,
+  curNames,
+})
+
+const baseLine = `  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`
+const curLine = `  当前 hash=${hash} tools=${schema.size} sessions=${used}`
+const pct = Math.round(v.ratio * 100)
+const serverLine = v.servers.length ? v.servers.map(([s, n]) => `${s}=${n}`).join(' ') : '（无）'
+
+if (v.kind === 'match') {
   console.log(`[schema-fingerprint] PASS hash=${hash} tools=${schema.size} sessions=${used}`)
   process.exit(0)
 }
 
-const baseNames = Object.keys(base.tools_map || {})
+// 2026-10-29：整批同源消失 ≠ 漂移。实测：基线 254 个工具里有 170 个来自 `mcp__rea__`，
+// 那个 MCP 服务器没连上，工具数就掉到 86。原先一律 FAIL，红得没有信息量。
+if (v.kind === 'suspect-plugin-gone') {
+  console.error('[schema-fingerprint] 疑似插件未加载，不是 schema 漂移')
+  console.error(baseLine)
+  console.error(curLine)
+  if (v.server) {
+    console.error(
+      `  消失 ${v.removed.length} 个工具，其中 ${v.serverCount} 个来自 mcp__${v.server}__（占 ${Math.round(v.share * 100)}%）`,
+    )
+  } else {
+    console.error(`  当前工具数只有基线的 ${pct}%（${schema.size}/${base.tools}）；基线缺 tools_map，只能按数量比粗判`)
+  }
+  console.error(`  当前 MCP 服务器：${serverLine}`)
+  console.error(
+    v.server
+      ? '  判定：那个 MCP 服务器没连上或没装。确认它确实不用了再 --update；否则基线不动，等它回来。'
+      : '  判定：不是 schema 漂移。确认那些工具确实不用了再 --update；否则基线不动，等插件回来。',
+  )
+  process.exit(0)
+}
 
 // 2026-10-27：存量基线没有 tools_map（见 --update 处的说明），此时**无法判断**是漂移还是换环境，
 // 也不该假装判断。只报事实并要求重建，不阻断 —— 阻断会训练人忽略这条红。
-if (baseNames.length === 0) {
+if (v.kind === 'unknown-baseline') {
   console.error('[schema-fingerprint] 无法判断：基线缺 tools_map（工具名表），diff 不可算')
-  console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
-  console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used}`)
+  console.error(baseLine)
+  console.error(curLine)
   console.error('  该字段此前被 --update 主动剥掉（JSON.stringify 丢弃 undefined），导致 added 恒为「全部」、removed 恒为空')
   console.error('  已在 --update 中修正。请在**目标宿主**上重建基线后提交：npm run schema:verify -- --update')
   process.exit(0)
 }
 
-const curNames = canonical.map(([n]) => n)
-const added = curNames.filter((n) => !baseNames.includes(n))
-const removed = baseNames.filter((n) => !curNames.includes(n))
-
 // 2026-10-27：**换环境 ≠ 漂移**。基线是在某个宿主/profile 下采集的；在另一个宿主里跑，
 // 工具集可能整批不同（实测：基线 254 个，另一宿主 84 个，交集 0）。
 // 真漂移永远是「大部分还在、个别增删」；整批换掉只能是尺子换了。
-// 原先这里一律 FAIL，于是 `npm run check` 在换环境后永久红 —— 红的不是缺陷，是测量环境，
-// 这种红会训练人忽略它，比不检查更糟。零交集时改为跳过并说明，仍需 --update 才改基线。
-const overlap = curNames.filter((n) => baseNames.includes(n)).length
-if (overlap === 0) {
+if (v.kind === 'environment-switch') {
   console.error('[schema-fingerprint] 跳过：当前工具集与基线**零交集**，判定为换宿主/换 profile，不是 schema 漂移')
-  console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
-  console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used} 交集=0`)
+  console.error(baseLine)
+  console.error(`${curLine} 交集=0`)
   console.error('  若确认当前宿主就是目标宿主，再运行 --update 换基线并提交')
   process.exit(0)
 }
 
 console.error(`[schema-fingerprint] FAIL 工具 schema 漂移`)
-console.error(`  基线 hash=${base.hash} tools=${base.tools}（${base.generatedAt}）`)
-console.error(`  当前 hash=${hash} tools=${schema.size} sessions=${used} 交集=${overlap}`)
-if (added.length) console.error(`  新增工具 ${added.length}：${added.slice(0, 12).join(', ')}`)
-if (removed.length) console.error(`  消失工具 ${removed.length}：${removed.slice(0, 12).join(', ')}`)
+console.error(baseLine)
+console.error(`${curLine} 交集=${v.overlap}`)
+if (v.added.length) console.error(`  新增工具 ${v.added.length}：${v.added.slice(0, 12).join(', ')}`)
+if (v.removed.length) console.error(`  消失工具 ${v.removed.length}：${v.removed.slice(0, 12).join(', ')}`)
 console.error('  判定条件可能引用已不存在的参数 —— 请核对 gate-audit 输出后，确认无误再 --update')
 process.exit(1)

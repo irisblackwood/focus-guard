@@ -33,6 +33,9 @@ const TEST_AUDIT_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-AUDIT.log`)
 const TEST_STATUS_FILE = join(tmpdir(), `fg-selftest-${Date.now()}-status.json`)
 process.env.FG_AUDIT_FILE = TEST_AUDIT_FILE
 process.env.FG_STATUS_FILE = TEST_STATUS_FILE
+// 2026-10-29：审批目录同样要隔离。上面那条"只重定向卷宗、没重定向审计"的教训已经演过一次，
+// 这次是第三个面——`rm -rf` 类用例会触发 createApprovalRequest 写真实 approvals/。
+process.env.FG_APPROVAL_DIR = join(tmpdir(), `fg-selftest-${Date.now()}-approvals`)
 
 // 隔离的兜底断言：跑完比对真实审计文件大小，涨了就是漏了。
 // 2026-10-18：本文件从 src/dsh/ 移到 tools/（自检是工具不是宿主缝），相对深度少一级。

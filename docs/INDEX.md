@@ -21,7 +21,7 @@
 | 文档 | 角色 | 状态 | 适用版本 | 最后核对 |
 |---|---|---|---|---|
 | [README.md](../README.md) | 入口页：30 秒速览 / 快速开始 / 文档地图 | 权威 | 3.2.1 | 2026-10-28 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置） | 权威 | 3.2.1 | 2026-10-28 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） | 权威 | 3.2.1 | 2026-10-29 |
 | [INSTALL.md](../INSTALL.md) | 唯一安装源 | 权威 | 3.2.1 | 2026-10-24 |
 | [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） | 权威 | 3.2.1 | 2026-10-28 |
 | [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 | 权威 | 3.2.1 | 2026-10-27 |
@@ -30,7 +30,7 @@
 | [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 | 权威 | 3.2.1 | 2026-10-28 |
 | [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 | 权威 | 3.2.1 | 2026-10-27 |
 | [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 | 权威 | 3.2.1 | 2026-10-22 |
-| [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-19 |
+| [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-29 |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 | 参考 | 4.0 前置 | 2026-10-19 |
 | [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 | 参考 | 3.2.1 | 2026-10-27 |
 | [packages/core/README.md](../packages/core/README.md) | 核心包英文说明 | 参考 | 3.2.1 | 2026-10-27 |

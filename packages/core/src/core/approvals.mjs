@@ -8,10 +8,16 @@
  *   人类 → `node tools/focusguard.mjs approve <id>` → 写 approvals/approved-<id>.json
  *   模型下一轮 → consumeApproval() 读到批准 → 授予该工具一次 ttl=turn → 删批准文件（一次性）
  *
- * 三条纪律：
+ * 五条纪律：
  *   ① 批准文件与请求文件的 id 必须一致，且绑定**命令原文哈希**（改一个字符即失效）
  *   ② 一次性：消费即删除，不允许一条批准放行多次
  *   ③ 所有状态变化落审计（approval-requested / approval-granted / approval-consumed）
+ *   ④ **绑会话**（2026-10-29）：批准只在发起申请的会话里可消费。此前只有写入侧"换会话刷新 pending"，
+ *      消费侧根本不看会话——注释承诺的防线不存在：A 会话批的 `rm -rf /data` 没重试，
+ *      几小时后 B 会话跑同一条命令照样消费。现在消费侧校验，两侧都认得出身份且不一致即拒绝。
+ *   ⑤ **有时效**（2026-10-29）：批准不是永久通行证。默认 30 分钟内有效
+ *      （`FG_APPROVAL_TTL_MS` 可调）；过期批准文件当场清掉，并留 `approval-expired` 审计。
+ *      过期判定与"一次性"同源：批准是对**这一次意图**的授权，不是对这条命令的长期豁免。
  */
 
 import { createHash } from 'node:crypto'
@@ -30,6 +36,48 @@ export function approvalId(tool, command) {
     .update(`${String(tool ?? '')}\n${String(command ?? '')}`)
     .digest('hex')
     .slice(0, 12)
+}
+
+/** 批准有效期（默认 30 分钟）。`FG_APPROVAL_TTL_MS` 可覆盖，非法值回落默认。 */
+export const DEFAULT_APPROVAL_TTL_MS = 30 * 60 * 1000
+export function approvalTtlMs() {
+  const raw = Number(process.env.FG_APPROVAL_TTL_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_APPROVAL_TTL_MS
+}
+
+/**
+ * 会话身份是否可判定。
+ * 母版不认宿主：`unknown` 是母版中性值，`dsh-native` 是适配层取不到真实 id 时的兜底值，
+ * 空值同理。**这三类都不是身份，只是"我不知道你是谁"**——拿它当身份去比会误杀合法批准。
+ */
+const PLACEHOLDER_SESSIONS = new Set(['', 'unknown', 'native', 'dsh-native'])
+function identityKnown(session) {
+  return !PLACEHOLDER_SESSIONS.has(String(session ?? '').trim().toLowerCase())
+}
+
+/**
+ * 会话绑定判定。
+ * - 两侧都认得出身份且不一致 → 不通过（跨会话盗用）
+ * - 任一侧是占位值 → 通过，但标记 `loose`（身份不可判定，只做时效兜底）
+ *
+ * 为什么允许 loose：真实 id 与兜底值可能只在一侧出现（写入时宿主未就绪、消费时已就绪），
+ * 严格相等会把合法批准误杀。这条残余口子比"完全不校验"小得多，且会落到审计里。
+ */
+function sessionMatches(recordSession, session) {
+  const a = String(recordSession ?? '')
+  const b = String(session ?? '')
+  if (!identityKnown(a) || !identityKnown(b)) return { ok: true, loose: true }
+  return { ok: a === b, loose: false }
+}
+
+/** 批准时效判定：从 `approvedAt` 起算，缺失则回落到请求 `ts`；都不可解析视为过期（fail closed）。 */
+export function approvalAge(record, now = Date.now()) {
+  const stamp = record?.approvedAt || record?.ts
+  const at = Date.parse(String(stamp ?? ''))
+  if (!Number.isFinite(at)) return { expired: true, ageMs: Infinity, limitMs: approvalTtlMs(), unparsable: true }
+  const ageMs = now - at
+  const limitMs = approvalTtlMs()
+  return { expired: ageMs > limitMs, ageMs, limitMs }
 }
 
 function ensureDir(dir) {
@@ -58,7 +106,8 @@ export function createApprovalRequest({ session, tool, command = '', gateId, rea
     state: 'pending',
   }
   let created = false
-  // 复用同一 id 的 pending，但**换会话要刷新**（避免上一个会话的申请在另一个会话被批准）
+  // 复用同一 id 的 pending，但**换会话要刷新**：避免上一个会话留下的待批请求被本会话误当成自己的。
+  // 注意这只是写入侧的一半——真正的会话绑定在 `consumeApproval()` 的消费侧做（见纪律④）。
   if (existsSync(file)) {
     try {
       const prev = JSON.parse(readFileSync(file, 'utf8'))
@@ -98,34 +147,55 @@ export function approveRequest(id) {
   return { ok: true, id: pending.id, record }
 }
 
+/** 清掉与某 id 关联的 pending（仅当它确实是这条）。 */
+function clearPendingIfMatches(dir, id) {
+  const pendingFile = join(dir, 'pending_request.json')
+  if (!existsSync(pendingFile)) return
+  try {
+    const p = JSON.parse(readFileSync(pendingFile, 'utf8'))
+    if (p && p.id === id) rmSync(pendingFile, { force: true })
+  } catch {
+    /* 损坏则不管 */
+  }
+}
+
 /**
- * 尝试消费一条批准（一次性）。命中即删批准文件，并清 pending。
- * @returns {{consumed: boolean, id?: string}}
+ * 尝试消费一条批准（一次性 + 绑会话 + 有时效）。命中即删批准文件，并清 pending。
+ *
+ * @param {string} tool
+ * @param {string} command
+ * @param {string} [session] 消费方会话 id。省略/null 视为"身份不可判定"，只做时效校验。
+ * @returns {{consumed: boolean, id?: string, expired?: boolean, wrongSession?: boolean,
+ *            loose?: boolean, ageMs?: number, limitMs?: number}}
  */
-export function consumeApproval(tool, command) {
+export function consumeApproval(tool, command, session = null) {
   const dir = approvalDir()
   const id = approvalId(tool, command)
   const file = join(dir, `approved-${id}.json`)
   if (!existsSync(file)) return { consumed: false }
+  let record
   try {
-    const record = JSON.parse(readFileSync(file, 'utf8'))
-    if (record && record.id === id) {
-      rmSync(file, { force: true })
-      const pendingFile = join(dir, 'pending_request.json')
-      if (existsSync(pendingFile)) {
-        try {
-          const p = JSON.parse(readFileSync(pendingFile, 'utf8'))
-          if (p && p.id === id) rmSync(pendingFile, { force: true })
-        } catch {
-          /* ignore */
-        }
-      }
-      return { consumed: true, id }
-    }
+    record = JSON.parse(readFileSync(file, 'utf8'))
   } catch {
-    /* 损坏视同未批准 */
+    return { consumed: false } // 损坏视同未批准
   }
-  return { consumed: false }
+  if (!record || record.id !== id) return { consumed: false }
+
+  // ⑤ 时效：过期即失效，并当场清掉（连同 pending），免得死批准在目录里越积越多
+  const age = approvalAge(record)
+  if (age.expired) {
+    rmSync(file, { force: true })
+    clearPendingIfMatches(dir, id)
+    return { consumed: false, expired: true, id, ageMs: age.ageMs, limitMs: age.limitMs }
+  }
+
+  // ④ 会话绑定：两侧都认得出身份且不一致 → 拒绝，但**保留文件**，让本会话自己还能用
+  const match = sessionMatches(record.session, session)
+  if (!match.ok) return { consumed: false, wrongSession: true, id }
+
+  rmSync(file, { force: true })
+  clearPendingIfMatches(dir, id)
+  return { consumed: true, id, loose: match.loose, ageMs: age.ageMs, limitMs: age.limitMs }
 }
 
 /** 列出目录里残留的批准（诊断用）。 */

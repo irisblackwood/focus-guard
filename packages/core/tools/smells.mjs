@@ -58,6 +58,10 @@ const THRESHOLDS = {
   fileLines: 400,
   funcLines: 80,
   nesting: 5,
+  // 重复块：连续 8 行（去空行、去注释与字面量后）内容相同即算一块；
+  // 窗口内字符总数 ≥120 才计入，避免 `}`/`});` 这类结构性行凑数。
+  dupWindow: 8,
+  dupMinContent: 120,
 }
 
 /**
@@ -65,6 +69,25 @@ const THRESHOLDS = {
  * 现状 8 条（2026-10-27 从 28 降下来：seams/preGuard/stopGuard/postProgress/guard/* 均已拆）。
  */
 const BUDGET = 8
+
+/**
+ * 重复块上限（独立棘轮，2026-10-29）。
+ *
+ * 为什么单开一条：`file-length` / `long-function` / `deep-nesting` 量的是"单点复杂度"，
+ * 重复块量的是"同一段逻辑有几份"。混进同一个 BUDGET 会让两类债互相掩护——
+ * 拆函数能降前三条，却完全不动重复。
+ *
+ * 起因：审计行构造曾散在 5 处，字段集各不相同，真实 AUDIT.log 里漂出三种行形态。
+ * 那 5 份复制体穿过了 lint / smells / quality / schema 四道门禁一次没被看见——
+ * **漏报比误报隐蔽**，看不见不等于不存在。
+ *
+ * 首测基线 41 处（2026-10-29）。存量里最大的一坨是 `walk()`：同一个 49 行目录遍历函数
+ * 在 6 个 tools 文件里各有一份（`prefix-audit` / `schema-fingerprint` / `capture-fixtures` /
+ * `gate-audit` / `collect-panel` / `module-audit`）。清掉它能一次性降到 20 上下，但那是
+ * 另一件事——这里先立棘轮，不许再往上。
+ */
+const DUP_BUDGET = 41
+
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])
 const ROOTS = ['packages/core/src', 'packages/core/tools', 'packages/core/tests', 'packages/core/hooks', 'packages/extended/src'].map(
@@ -155,8 +178,105 @@ function measureFunctions(lines) {
   return found
 }
 
+/**
+ * 把源码切成"有内容的行"：去首尾空白、折叠内部空白、丢掉空行。
+ * 行号保留原文件行号，报告时能直接跳过去。
+ */
+function contentLines(plain) {
+  const out = []
+  const raw = plain.split('\n')
+  for (let i = 0; i < raw.length; i += 1) {
+    const t = raw[i].trim().replace(/\s+/g, ' ')
+    if (!t) continue
+    out.push({ line: i + 1, t })
+  }
+  return out
+}
+
+/**
+ * 重复块检测（2026-10-29）：滑动窗口 + 前后扩展。
+ *
+ * 做法：对每个"连续 dupWindow 行"的窗口取归一化文本当键，落进桶；桶里 ≥2 处即候选。
+ * 候选再从窗口起点**向前扩到块首、向后量到块尾**，得到极大重复块——
+ * 同一个重复块会由它内部的每个窗口各报一次，但扩展后起点相同，用 key 天然去重。
+ *
+ * 取舍：
+ *   - 只比文本、不比语义。改写过的复制（换个变量名）测不出来，这是已知局限。
+ *   - 同文件内的重复要求两段不重叠，否则 `}` 序列会自己跟自己"重复"。
+ *   - 混合重复（src ↔ test）归入测试口径，不占源文件预算——
+ *     它多半是"测试抄了实现"，不是"实现里有两份逻辑"。
+ */
+function findDuplicateBlocks(entries) {
+  const buckets = new Map()
+  for (const e of entries) {
+    const cl = e.cl
+    for (let k = 0; k + THRESHOLDS.dupWindow <= cl.length; k += 1) {
+      let content = 0
+      for (let d = 0; d < THRESHOLDS.dupWindow; d += 1) content += cl[k + d].t.length
+      if (content < THRESHOLDS.dupMinContent) continue
+      let key = ''
+      for (let d = 0; d < THRESHOLDS.dupWindow; d += 1) key += cl[k + d].t + '\n'
+      let arr = buckets.get(key)
+      if (!arr) buckets.set(key, (arr = []))
+      arr.push({ file: e.rel, isTest: e.isTest, cl, idx: k })
+    }
+  }
+
+  const seen = new Set()
+  const found = []
+  for (const arr of buckets.values()) {
+    if (arr.length < 2) continue
+    for (let a = 0; a < arr.length - 1; a += 1) {
+      for (let b = a + 1; b < arr.length; b += 1) {
+        const p = arr[a]
+        const q = arr[b]
+        let s1 = p.idx
+        let s2 = q.idx
+        // 向前扩到块首
+        while (s1 > 0 && s2 > 0 && p.cl[s1 - 1].t === q.cl[s2 - 1].t) {
+          s1 -= 1
+          s2 -= 1
+        }
+        // 同文件两段不许重叠（否则自己套自己）
+        if (p.file === q.file && Math.abs(s1 - s2) < THRESHOLDS.dupWindow) continue
+        // 向后量块尾
+        let len = 0
+        while (s1 + len < p.cl.length && s2 + len < q.cl.length && p.cl[s1 + len].t === q.cl[s2 + len].t) len += 1
+        if (len < THRESHOLDS.dupWindow) continue
+        const lineA = p.cl[s1].line
+        const lineB = q.cl[s2].line
+        const key = `${p.file}:${lineA}|${q.file}:${lineB}|${len}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        // 一条重复块会被它内部的每个窗口各找到一次；扩展后起点相同，key 去重即可收敛。
+        // 两侧各报一条：谁抄谁分不清，两边都是债。
+        found.push({ scope: !p.isTest && !q.isTest ? 'src' : 'test', file: p.file, line: lineA, len, other: `${q.file}:${lineB}` })
+        found.push({ scope: !p.isTest && !q.isTest ? 'src' : 'test', file: q.file, line: lineB, len, other: `${p.file}:${lineA}` })
+      }
+    }
+  }
+
+  // 同一位置可能对多个伙伴成立（三份以上共享同一段），只留最长的那条——
+  // 否则一个块被拆成 3 条报，数量看着吓人，读的人反而找不到重点。
+  const best = new Map()
+  for (const f of found) {
+    const k = `${f.file}:${f.line}`
+    const prev = best.get(k)
+    if (!prev || f.len > prev.len) best.set(k, f)
+  }
+  return [...best.values()].map((f) => ({
+    kind: 'duplicate-block',
+    scope: f.scope,
+    file: f.file,
+    line: f.line,
+    value: f.len,
+    detail: `与 ${f.other} 重复 ${f.len} 行`,
+  }))
+}
+
 const findings = []
 const files = ROOTS.flatMap((r) => walk(r))
+const entries = []
 
 for (const file of files) {
   let src
@@ -170,6 +290,7 @@ for (const file of files) {
   const plain = stripNoise(src)
   const lines = plain.split('\n')
   const total = src.split('\n').length
+  entries.push({ rel, isTest, cl: contentLines(plain) })
 
   if (total > THRESHOLDS.fileLines) {
     findings.push({ kind: 'file-length', scope: isTest ? 'test' : 'src', file: rel, line: 1, value: total, detail: `${total} 行（阈值 ${THRESHOLDS.fileLines}）` })
@@ -201,18 +322,40 @@ for (const file of files) {
 
 const srcFindings = findings.filter((f) => f.scope === 'src')
 const testFindings = findings.filter((f) => f.scope === 'test')
+const dupAll = findDuplicateBlocks(entries)
+const dupSrc = dupAll.filter((f) => f.scope === 'src')
+const dupTest = dupAll.filter((f) => f.scope === 'test')
 const byKind = {}
 for (const f of findings) byKind[f.kind] = (byKind[f.kind] || 0) + 1
 
+const overBudget = srcFindings.length > BUDGET
+const dupOverBudget = dupSrc.length > DUP_BUDGET
+
 if (AS_JSON) {
-  console.log(JSON.stringify({ files: files.length, thresholds: THRESHOLDS, byKind, srcFindings, testFindings, budget: BUDGET }, null, 2))
+  console.log(
+    JSON.stringify(
+      {
+        files: files.length,
+        thresholds: THRESHOLDS,
+        byKind,
+        srcFindings,
+        testFindings,
+        budget: BUDGET,
+        duplicates: { budget: DUP_BUDGET, src: dupSrc, test: dupTest },
+      },
+      null,
+      2,
+    ),
+  )
 } else if (BRIEF) {
   const parts = Object.entries(byKind)
     .sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${k} ${n}`)
-  const gate = srcFindings.length > BUDGET ? `❌ 超上限 ${BUDGET}` : `✅ 上限 ${BUDGET}`
+  const gate = overBudget ? `❌ 超上限 ${BUDGET}` : `✅ 上限 ${BUDGET}`
+  const dupGate = dupOverBudget ? `❌ 超上限 ${DUP_BUDGET}` : `✅ 上限 ${DUP_BUDGET}`
   console.log(
-    `结构异味：${files.length} 文件，源文件 ${srcFindings.length} 条（${gate}）/ 测试 ${testFindings.length} 条${parts.length ? `（${parts.join(' / ')}）` : ''}`,
+    `结构异味：${files.length} 文件，源文件 ${srcFindings.length} 条（${gate}）/ 测试 ${testFindings.length} 条` +
+      `；重复块 源 ${dupSrc.length} 条（${dupGate}）/ 测试 ${dupTest.length} 条${parts.length ? `（${parts.join(' / ')}）` : ''}`,
   )
 } else {
   const show = (title, list) => {
@@ -226,7 +369,12 @@ if (AS_JSON) {
   console.log(`结构异味：${files.length} 文件；阈值 文件 ${THRESHOLDS.fileLines} 行 / 函数 ${THRESHOLDS.funcLines} 行 / 嵌套 ${THRESHOLDS.nesting} 层`)
   show('源文件', srcFindings)
   show('测试文件（不计入阻断：测试函数长是常态，不是债务）', testFindings)
+  show(`重复块 · 源文件（窗口 ${THRESHOLDS.dupWindow} 行）`, dupSrc)
+  show(`重复块 · 测试（混合重复也归这里）`, dupTest)
   console.log('\n不报 todo-density：它分不出「已申报的空头条款」与「遗忘的债」。查空头条款用 npm run quality:audit。')
-  console.log(`闸门口径：源文件 ${srcFindings.length} 条 / 上限 ${BUDGET}（棘轮，只许降不许升）。`)
+  console.log('重复块只比文本、不比语义：改过名的复制测不出来（已知局限，别当它覆盖了）。')
+  console.log(
+    `闸门口径：源文件 ${srcFindings.length} 条 / 上限 ${BUDGET}；重复块 ${dupSrc.length} 条 / 上限 ${DUP_BUDGET}（两条棘轮，只许降不许升）。`,
+  )
 }
-process.exit(STRICT && srcFindings.length > BUDGET ? 1 : 0)
+process.exit(STRICT && (overBudget || dupOverBudget) ? 1 : 0)

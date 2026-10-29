@@ -1,95 +1,95 @@
 {
-  "ts": "2026-10-22T07:59:24.802Z",
+  "ts": "2026-10-29T09:40:18.239Z",
   "iterations": 10,
   "cases": 15,
   "calls": 150,
   "accuracy": 1,
   "falsePositiveRate": 0,
   "latencyMs": {
-    "p50": 0.36,
-    "p95": 2.37,
-    "max": 4.43
+    "p50": 0.45,
+    "p95": 8.28,
+    "max": 8.97
   },
   "byCase": {
     "redline-rm-rf-root": {
-      "p50": 0.39,
-      "p95": 0.61
+      "p50": 0.36,
+      "p95": 0.62
     },
     "redline-git-push-force": {
-      "p50": 0.38,
-      "p95": 0.45
+      "p50": 0.37,
+      "p95": 0.41
     },
     "hardcheck-cat": {
-      "p50": 0.43,
-      "p95": 0.86
+      "p50": 0.42,
+      "p95": 0.79
     },
     "whole-file-deny": {
-      "p50": 7.32,
-      "p95": 8.56
+      "p50": 6.97,
+      "p95": 8.29
     },
     "whole-file-offset-allow": {
-      "p50": 7.36,
-      "p95": 8.95
+      "p50": 6.51,
+      "p95": 8.36
     },
     "small-file-allow": {
-      "p50": 7.31,
-      "p95": 9.43
-    },
-    "grep-broad-dir-deny": {
-      "p50": 7.65,
+      "p50": 7.59,
       "p95": 8.95
     },
+    "grep-broad-dir-deny": {
+      "p50": 7.67,
+      "p95": 8.97
+    },
     "grep-narrowed-allow": {
-      "p50": 6.96,
-      "p95": 8.12
+      "p50": 6.69,
+      "p95": 7.77
     },
     "grep-default-allow": {
-      "p50": 0.19,
-      "p95": 0.24
+      "p50": 0.21,
+      "p95": 0.42
     },
     "eligibility-publish-deny": {
-      "p50": 0.86,
-      "p95": 1.1
+      "p50": 0.88,
+      "p95": 1.05
     },
     "evidence-edit-deny": {
-      "p50": 0.74,
-      "p95": 1.23
+      "p50": 0.81,
+      "p95": 1.49
     },
     "evidence-new-session-allow": {
-      "p50": 0.24,
-      "p95": 0.44
+      "p50": 0.25,
+      "p95": 0.34
     },
     "plain-ls-allow": {
-      "p50": 0.22,
-      "p95": 0.39
+      "p50": 0.21,
+      "p95": 0.28
     },
     "plain-git-status-allow": {
       "p50": 0.18,
-      "p95": 0.21
+      "p95": 0.24
     },
     "write-new-file-allow": {
-      "p50": 0.14,
-      "p95": 0.27
+      "p50": 0.15,
+      "p95": 0.45
     }
   },
   "slowest": [
     {
+      "id": "grep-broad-dir-deny",
+      "p50": 7.67,
+      "p95": 8.97
+    },
+    {
       "id": "small-file-allow",
-      "p50": 7.31,
-      "p95": 9.43
+      "p50": 7.59,
+      "p95": 8.95
     },
     {
       "id": "whole-file-offset-allow",
-      "p50": 7.36,
-      "p95": 8.95
-    },
-    {
-      "id": "grep-broad-dir-deny",
-      "p50": 7.65,
-      "p95": 8.95
+      "p50": 6.51,
+      "p95": 8.36
     }
   ],
   "failures": [],
-  "_latencyNote": "p95=2.37ms 是 2026-10-18 的旧标尺，刻意未随 2026-10-22 的实测（8.12ms）放宽——新增的 grep-broad-dir-deny / grep-narrowed-allow 两条要走 statSync，本身约 8ms。保留旧标尺是为了让「p95 是否劣化」继续可见；判定逻辑为 p95 > 基线×3+5 才报警。",
-  "_syncedAt": "2026-10-22"
+  "_latencyNote": "主指标是 p50（容差 ×2），不是 p95。延迟是双峰分布：5 个 Read/Grep 用例 6.9–8.0ms，其余 10 个 0.16–0.84ms；5/15 ≈ 33% 的样本落在慢峰，所以 p95 必然停在 7–8ms 一带。p50 落在快峰（0.5ms），更能代表「典型一次判定」的成本。7–8ms 的成因**未定位**。已排除三个假设：statSync（实测 0.017–0.026ms）、状态文件新建/复用（固定会话 + clearSession 后仍 7.5ms）、saveState 的 rename（改成直写后仍 8.0ms）。下一步查 volume.mjs 的三闸（judgeReadGate / judgeGrepGate / judgeCatGate）——慢的 5 个用例全是 Read/Grep，而 Edit / Bash 类都在 1ms 以下。2026-10-29 之前这里写的是「grep 两条要走 statSync，本身约 8ms」——归因错误。同一批注释里还写过「固定 sessionId 对照 p95 1.03ms / 真实热路径 1.16ms」，那两个数是在**行为错误**（9 个用例串味、准确率 94%）的状态下测的，不可引用，已删。同日重定基线：p50 0.36 → 0.51ms。旧基线 p95 2.37ms 与 byCase 里 7.3ms 的用例自相矛盾（整体 p95 不可能低于所有用例 p50），本就不该继续当尺子用。",
+  "_syncedAt": "2026-10-29"
 }

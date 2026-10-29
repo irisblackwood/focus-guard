@@ -16,7 +16,7 @@
  * 退出码：0 通过 / 1 不达基线 / 2 环境准备失败
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,10 +24,41 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const BASELINE = join(here, '..', 'docs', 'BENCH-BASELINE.json')
 const ITERATIONS = Number(process.env.FG_BENCH_ITER) || 10
-// Bash 类命令会进第 2 层语义判定（python 哨兵 ≈60ms/次），阈值按含哨兵的实际路径设定；
+// Bash 类命令会进第 2 层语义判定（python 哨兵 ≈35ms/次，仅首次 miss 付费）；
 // 非 Bash 工具实测 p95 < 3ms —— 见输出里的 byCase / slowest。
 const P95_LIMIT_MS = Number(process.env.FG_BENCH_P95_MS) || 100
 const ACCURACY_MIN = 1 // 这批用例是确定性的，必须全对；误伤单独统计
+/**
+ * 相对回归只看 p50，不看 p95（2026-10-29）。
+ *
+ * p95 的抖动来自本基准的构造，不是判定逻辑：每个用例每轮换一个 `sessionId`，
+ * 等于每次调用都在「首次访问一个新建的状态文件路径」上付费。
+ * 实测同一份代码连跑三次 p95 = 13.88 / 8.16 / 5.83ms（2.4 倍波动）；
+ * 把 sessionId 固定成每用例一个，p95 立刻落到 1.03ms（p50 基本不变）。
+ * 用这种指标判回归，等于让噪声决定红绿。
+ *
+ * p50 稳定在 0.42–0.53ms（波动 <25%），容差 ×2 能抓住「整体变慢一倍」级别的真回归，
+ * 又不会被构造噪声误报。p95 保留绝对上限（`P95_LIMIT_MS`）兜底严重退化。
+ */
+const P50_TOLERANCE = Number(process.env.FG_BENCH_P50_TOL) || 2
+
+/**
+ * 基线里的归因说明。`--update` 整体覆盖文件，report 对象里没有这个字段，
+ * 必须显式带上——否则每更新一次基线就把「为什么这么定」抹掉一次。
+ */
+const LATENCY_NOTE =
+  '主指标是 p50（容差 ×2），不是 p95。延迟是双峰分布：5 个 Read/Grep 用例 6.9–8.0ms，' +
+  '其余 10 个 0.16–0.84ms；5/15 ≈ 33% 的样本落在慢峰，所以 p95 必然停在 7–8ms 一带。' +
+  'p50 落在快峰（0.5ms），更能代表「典型一次判定」的成本。' +
+  '7–8ms 的成因**未定位**。已排除三个假设：statSync（实测 0.017–0.026ms）、' +
+  '状态文件新建/复用（固定会话 + clearSession 后仍 7.5ms）、saveState 的 rename（改成直写后仍 8.0ms）。' +
+  '下一步查 volume.mjs 的三闸（judgeReadGate / judgeGrepGate / judgeCatGate）——' +
+  '慢的 5 个用例全是 Read/Grep，而 Edit / Bash 类都在 1ms 以下。' +
+  '2026-10-29 之前这里写的是「grep 两条要走 statSync，本身约 8ms」——归因错误。' +
+  '同一批注释里还写过「固定 sessionId 对照 p95 1.03ms / 真实热路径 1.16ms」，' +
+  '那两个数是在**行为错误**（9 个用例串味、准确率 94%）的状态下测的，不可引用，已删。' +
+  '同日重定基线：p50 0.36 → 0.51ms。旧基线 p95 2.37ms 与 byCase 里 7.3ms 的用例自相矛盾' +
+  '（整体 p95 不可能低于所有用例 p50），本就不该继续当尺子用。'
 
 const args = process.argv.slice(2)
 const jsonOut = args.includes('--json')
@@ -102,7 +133,7 @@ const allowCases = CASES.filter((c) => c.expectKind === 'allow').length
 // 预热一轮（不计入延迟）：首次调用会触发环境探测/模块解析，属会话级一次性成本，
 // 混进 p95 会把"热路径 0.5ms"错报成 60ms（本基准第一版就踩了）。
 for (const c of CASES) {
-  await listener(execFor(c.id, c.tool, c.args, `bench-warmup-${c.id}`), allow)
+  await listener(execFor(c.id, c.tool, c.args, `bench-${process.pid}-warmup-${c.id}`), allow)
 }
 
 const durations = []
@@ -113,7 +144,9 @@ let falsePositives = 0
 
 for (let iter = 0; iter < ITERATIONS; iter += 1) {
   for (const c of CASES) {
-    const sessionId = `bench-${iter}-${c.id}`
+    // 会话名带 pid：同一天连跑两次不会撞上上次留下的状态文件。不带 pid 时，
+    // 第二次跑起 `evidence-new-session-allow` 会被上次的空状态文件带偏（2026-10-29 实测）。
+    const sessionId = `bench-${process.pid}-${iter}-${c.id}`
     // 每次调用都换会话，避免授权/取证状态跨用例串味。
     // seedState 用于测"已有会话但未取证"的那条分支（无状态文件是显式 fail-open）。
     if (c.seedState) saveState(statePath(sessionId), { fused: false, probation: false, readSet: {} })
@@ -169,7 +202,8 @@ const report = {
 
 if (update) {
   mkdirSync(dirname(BASELINE), { recursive: true })
-  writeFileSync(BASELINE, JSON.stringify(report, null, 2) + '\n')
+  const next = { ...report, _latencyNote: LATENCY_NOTE, _syncedAt: new Date().toISOString().slice(0, 10) }
+  writeFileSync(BASELINE, JSON.stringify(next, null, 2) + '\n')
 }
 
 const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : null
@@ -178,8 +212,9 @@ const failures = []
 if (accuracy < ACCURACY_MIN) failures.push(`准确率 ${report.accuracy} < ${ACCURACY_MIN}`)
 if (baseline) {
   if (report.accuracy < baseline.accuracy - 0.02) failures.push(`准确率较基线下降：${baseline.accuracy} → ${report.accuracy}`)
-  if (report.latencyMs.p95 > baseline.latencyMs.p95 * 3 + 5) {
-    failures.push(`p95 明显劣化：${baseline.latencyMs.p95}ms → ${report.latencyMs.p95}ms`)
+  const baseP50 = baseline.latencyMs && baseline.latencyMs.p50
+  if (baseP50 > 0 && report.latencyMs.p50 > baseP50 * P50_TOLERANCE) {
+    failures.push(`p50 劣化：${baseP50}ms → ${report.latencyMs.p50}ms（容差 ×${P50_TOLERANCE}）`)
   }
 }
 if (report.latencyMs.p95 > P95_LIMIT_MS) failures.push(`p95 ${report.latencyMs.p95}ms > 阈值 ${P95_LIMIT_MS}ms`)
@@ -191,7 +226,11 @@ if (jsonOut) {
   console.log(`  准确率      ${(accuracy * 100).toFixed(2)}%`)
   console.log(`  误伤率      ${(fpRate * 100).toFixed(2)}%（期望放行却被拦）`)
   console.log(`  延迟        p50 ${report.latencyMs.p50}ms / p95 ${report.latencyMs.p95}ms / max ${report.latencyMs.max}ms`)
-  if (baseline) console.log(`  基线        accuracy ${baseline.accuracy} / p95 ${baseline.latencyMs.p95}ms（${baseline.ts}）`)
+  if (baseline) {
+    console.log(
+      `  基线        accuracy ${baseline.accuracy} / p50 ${baseline.latencyMs.p50}ms（容差 ×${P50_TOLERANCE}）/ p95 ${baseline.latencyMs.p95}ms（仅上限 ${P95_LIMIT_MS}ms）`,
+    )
+  }
   if (report.failures.length > 0) {
     console.log('  失败用例：')
     for (const f of report.failures) console.log(`    ✗ ${f.id} 期望 ${f.expect} 实际 ${f.got} | ${f.reason}`)
@@ -202,6 +241,18 @@ if (jsonOut) {
   } else {
     console.log('  PASS')
   }
+}
+
+// 清掉本次跑产生的会话状态文件。不清理的话：① 同一天再跑会撞上旧状态（串味）；
+// ② tmpdir 里已经堆了上万个（2026-10-29 实测 11,570 个），每次再留 150 个只会更糟。
+// 按 pid 前缀删，不会碰到真实会话的 focus-guard-<uuid>.json。
+try {
+  const prefix = `focus-guard-bench-${process.pid}-`
+  for (const f of readdirSync(tmpdir())) {
+    if (f.startsWith(prefix)) rmSync(join(tmpdir(), f), { force: true })
+  }
+} catch {
+  /* 清理失败不影响基准结论 */
 }
 
 rmSync(WORK, { recursive: true, force: true })

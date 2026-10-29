@@ -23,7 +23,7 @@ import {
   loadCaseRecords,
 } from '../../core/state.mjs'
 import { noteFail } from '../../core/audit.mjs'
-import { detectEnv } from '../../core/env.mjs'
+import { detectEnv, quickShellId } from '../../core/env.mjs'
 import { ENGINE_VERSION } from '../../core/constants.mjs'
 import { sidOf, projDirOf, isSubagent, auditRow } from './shared.mjs'
 
@@ -67,11 +67,36 @@ export function sessionStartListener({ warn } = {}) {
   }
 }
 
-/** 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）。 */
+/**
+ * 本宿主应当使用的执行体标识：DSH 的 shell 工具执行体由宿主固定（win32 上是 pwsh），
+ * 不由用户 shell 会话决定——所以这里直接给出期望值，不靠 quickShellId 猜。
+ */
+function expectedShellId() {
+  return process.platform === 'win32' ? 'powershell' : quickShellId()
+}
+
+/**
+ * 2.0 环境检测：会话级一次，写入 state.envCache（总纲三 / MASTER-PLAN §三）。
+ *
+ * 2026-10-29 修：MASTER-PLAN §三 写的是「`envCache` 非空即代表已检测」「SessionStart
+ * 环境检测（若未检测）」，但此前这里**没有**那个判断，每次 SessionStart 都重算。
+ * 而 `agent/created` 会对同一会话反复触发——实测 82 次调用落在 21 个会话上，
+ * 单会话最多 33 次（跨重启/热重载恢复都算一次），每次白付约 228ms。
+ *
+ * 现在只在两种情况下重算：① 还没检测过；② 平台或执行体与缓存对不上。
+ * 后者是「缓存不能比它的输入活得久」——缓存 key 必须包含输入，否则换环境还拿旧结果。
+ *
+ * 关于「shell 变化重检」：`pre-step.mjs` 注释说该分支「留待后续批次」，实际从未移植。
+ * 在 DSH 路径上它不是缺口——插件是常驻进程，执行体由宿主配置（cordis.patch.yml 的
+ * pwshPath）在启动时固定，回合之间不会变。需要每进程重检的是封存版 `guard.mjs`
+ * （每次调用都是新进程，SHELL 可能不同），那条路本来就有。
+ */
 function detectEnvInto(state, projDir) {
   // 2026-10-18：DSH 的 shell 工具执行体是 pwsh（cordis.patch.yml 的 pwshPath），
   // 但 Node 进程自身的 ComSpec 是 cmd —— 不显式声明就会把执行体记成 cmd。
   // 用参数传，不写环境变量（否则会被子进程继承，污染测试）。
+  const cached = state.envCache
+  if (cached && cached.os === process.platform && cached.shellIdKey === expectedShellId()) return
   try {
     state.envCache = detectEnv(projDir, process.platform === 'win32' ? { shell: 'powershell' } : {})
   } catch {

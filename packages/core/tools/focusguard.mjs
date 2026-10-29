@@ -13,7 +13,7 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const { readApprovalRequest, approveRequest, listApprovals } = await import('../src/core/approvals.mjs')
+const { readApprovalRequest, approveRequest, listApprovals, approvalTtlMs } = await import('../src/core/approvals.mjs')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -50,7 +50,9 @@ if (cmd === 'approve') {
     process.exit(1)
   }
   console.log(`已批准 ${r.id}：${r.record.tool} — ${r.record.command}`)
-  console.log('模型下一轮会自动感知并放行一次（ttl=turn，一次性）。')
+  // 批准不是永久通行证：只对**这个会话的这一次意图**有效（一次性 + 时效）。
+  const mins = Math.round(approvalTtlMs() / 60000)
+  console.log(`有效窗口 ${mins} 分钟，且仅限会话 ${r.record.session}；消费一次即失效（FG_APPROVAL_TTL_MS 可调）。`)
   process.exit(0)
 }
 

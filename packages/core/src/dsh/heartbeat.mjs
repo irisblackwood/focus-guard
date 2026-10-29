@@ -29,7 +29,7 @@ export const STALE_AFTER_MS = Number(process.env.FG_STALE_AFTER_MS) || 30_000
 /** 插件文件位于 <仓库根>/packages/core/src/dsh/ → 上溯 4 级到仓库根。 */
 const STATUS_FILE = fileURLToPath(new URL('../../../../.focus-guard/status.json', import.meta.url))
 
-/** 心跳文件路径；与 `auditFilePath()` 同思路。 */
+/** 心跳文件路径；与 `auditFilePath()` 同思路：`FG_STATUS_FILE` 可重定向，**测试必须**用它指向 tmpdir。 */
 export function statusFilePath() {
   return process.env.FG_STATUS_FILE || STATUS_FILE
 }
@@ -144,7 +144,11 @@ export function startHeartbeat({ warn } = {}) {
 
   const beat = () => {
     const body = {
-      status: 'ALIVE',
+      // 2026-10-29：**不写 `status` 字段**。原先这里写死 `'ALIVE'`，只在启动时算一次，
+      // 进程死了文件里也还是 ALIVE——实测 `.focus-guard/status.json` 的 last_heartbeat
+      // 落后 24 小时，字段仍自称 ALIVE。存活是**读出来的**，不是写出来的：
+      // 由 `status.mjs` 按 `last_heartbeat` + `stale_after_ms` 现算。
+      // 快照只能声明"我最后一次跳是什么时候"，不能声明"我还活着"。
       started_at: startedAt,
       last_heartbeat: new Date().toISOString(),
       pid: process.pid,

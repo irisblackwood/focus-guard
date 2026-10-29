@@ -9,7 +9,7 @@
  * 本文件只保留 **DSH 语义**（exec → session 口径、deny/红线豁免字段、成本台账）。
  * 理由：适配层 `eligibility-gate.mjs` 需要写审计，但适配层不能反向依赖宿主缝。
  */
-import { appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { calcCost } from '../peak-cost.mjs'
 import {
@@ -18,11 +18,20 @@ import {
   AUDIT_ARCHIVE_KEEP,
   auditFilePath,
   appendAudit,
+  buildAuditRow,
   rotateAuditIfNeeded,
 } from '../core/audit-writer.mjs'
 
 // 兼容旧的引用面：底层实现已下沉，这里继续对外暴露同名符号。
-export { AUDIT_FILE, AUDIT_MAX_BYTES, AUDIT_ARCHIVE_KEEP, auditFilePath, appendAudit, rotateAuditIfNeeded }
+export {
+  AUDIT_FILE,
+  AUDIT_MAX_BYTES,
+  AUDIT_ARCHIVE_KEEP,
+  auditFilePath,
+  appendAudit,
+  buildAuditRow,
+  rotateAuditIfNeeded,
+}
 
 /** 从 exec 取会话标识（三处写入共用的口径）。 */
 function sessionOf(exec) {
@@ -49,15 +58,14 @@ function sessionOf(exec) {
  * @param {{ trigger?: string, level?: number|null }} [detail]
  */
 export function auditDeny(exec, cmd, detail = {}) {
-  return appendAudit({
-    ts: new Date().toISOString(),
-    session: sessionOf(exec),
-    action: 'deny',
-    trigger: detail.trigger || 'unspecified',
-    level: detail.level ?? 3,
-    evidence: String(cmd).slice(0, 120),
-    pardon: false,
-  })
+  return appendAudit(
+    buildAuditRow(sessionOf(exec), 'deny', {
+      trigger: detail.trigger || 'unspecified',
+      level: detail.level ?? 3,
+      evidence: cmd,
+      evidenceLimit: 120,
+    }),
+  )
 }
 
 /**
@@ -65,16 +73,15 @@ export function auditDeny(exec, cmd, detail = {}) {
  * 命中绝对红线但被判为"被引用的命令字符串"而豁免时调用——豁免不是静默放行，必须可审计。
  */
 export function auditRedlineExempt(exec, cmd, detail = {}) {
-  return appendAudit({
-    ts: new Date().toISOString(),
-    session: sessionOf(exec),
-    action: 'redline-exempt',
-    trigger: detail.redline || 'absolute-redline',
-    level: null,
-    basis: detail.basis || null,
-    evidence: `${detail.detail || ''} | ${String(cmd).slice(0, 120)}`.slice(0, 300),
-    pardon: false,
-  })
+  return appendAudit(
+    buildAuditRow(sessionOf(exec), 'redline-exempt', {
+      trigger: detail.redline || 'absolute-redline',
+      level: null,
+      evidence: `${detail.detail || ''} | ${String(cmd).slice(0, 120)}`,
+      evidenceLimit: 300,
+      extra: { basis: detail.basis || null },
+    }),
+  )
 }
 
 /**
@@ -87,6 +94,65 @@ function caseFilePath() {
 }
 
 const COST_MARK = '【五】成本台账'
+
+/**
+ * 台账状态行（2026-10-29）。
+ *
+ * 病根：台账暂停写入后，卷宗里只剩一张**空表**，而章节标题仍写着"自动追加"。
+ * 读卷宗的人无法区分"这阵子没用量"和"采集早就断了"——空表自己不会说话。
+ * 所以状态要写进记录本身：暂停时写一行「台账状态：暂停中」，恢复记账时自动换回「记录中」。
+ *
+ * 格式固定一行、原地替换，不随次数增长；已在目标状态则**不写**（避免无意义改写 mtime）。
+ */
+const COST_STATUS_RE = /^> \*\*台账状态：.*$/m
+const COST_TABLE_SEP = '|---|---|---|---|---|---|---|'
+
+function costStatusLine(state, detail) {
+  return `> **台账状态：${state}**（${detail}）`
+}
+
+/**
+ * 改台账状态行。只动【五】这一节里的一行；没有该节则不开节（不替人类建表）。
+ * @returns {boolean} 是否真的写了
+ */
+function setCostStatus(state, detail) {
+  const target = caseFilePath()
+  const DEFAULT_CASE_FILE = fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
+  if (target !== DEFAULT_CASE_FILE && !process.env.FG_CASE_FILE) return false
+  let text
+  try {
+    text = readFileSync(target, 'utf8')
+  } catch {
+    return false
+  }
+  const sectionAt = text.indexOf(COST_MARK)
+  if (sectionAt < 0) return false
+  const line = costStatusLine(state, detail)
+  // 只在【五】这一节内找状态行——别处即使有同名格式的引用行也不该被我们改掉。
+  const head = text.slice(0, sectionAt)
+  const tail = text.slice(sectionAt)
+  let next
+  const hit = COST_STATUS_RE.exec(tail)
+  if (hit) {
+    // 按**状态名**判等，不按整行判等：细节里的时间每次都会变，整行比较等于每次都重写整个卷宗。
+    const current = /台账状态：([^*]+)\*\*/.exec(hit[0])
+    if (current && current[1].trim() === state) return false
+    next = head + tail.replace(COST_STATUS_RE, line)
+  } else {
+    const sepAt = tail.indexOf(COST_TABLE_SEP)
+    if (sepAt < 0) return false
+    const cut = sepAt + COST_TABLE_SEP.length
+    next = `${head}${tail.slice(0, cut)}\n\n${line}${tail.slice(cut)}`
+  }
+  try {
+    writeFileSync(target, next)
+    return true
+  } catch (error) {
+    console.warn('[focus-guard-native] 台账状态写入失败（不阻塞）:', (error && error.message) || error)
+    return false
+  }
+}
+
 
 /** 退化值守卫：宿主未提供可信 usage 时不再写假账（2026-10-18）。 */
 let warnedDegenerate = false
@@ -116,6 +182,11 @@ export function appendCostRow(ts, model, inPeak, usage) {
         String(model || 'unknown'),
         String(usage && usage.input),
         String(usage && usage.output),
+      )
+      // 让卷宗自己说出"暂停中"——空表必须能自证是停摆而不是没用量（每进程只标一次）。
+      setCostStatus(
+        '暂停中',
+        `自 ${ts.slice(0, 16).replace('T', ' ')} 起未记账 · 原因：宿主 usage 不可信（model=${String(model || 'unknown')}, input=${String(usage && usage.input)}, output=${String(usage && usage.output)}） · 拿到真实用量后自动转回`,
       )
     }
     return false
@@ -147,6 +218,8 @@ export function appendCostRow(ts, model, inPeak, usage) {
       target,
       `${header}| ${ts} | ${model} | ${inPeak ? '峰' : '谷'} | ${usage.input} | ${usage.cacheRead} | ${usage.output} | ${usd === null ? '未知价目' : usd.toFixed(6)} |\n`,
     )
+    // 恢复记账就把状态行换回来——状态是现算的，不是一次性盖章。
+    setCostStatus('记录中', `最近一行 ${ts.slice(0, 16).replace('T', ' ')} · ${model} · usage 可信`)
   } catch (error) {
     console.warn('[focus-guard-native] 成本台账写入失败（不阻塞）:', (error && error.message) || error)
   }

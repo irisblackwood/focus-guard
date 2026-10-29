@@ -55,16 +55,50 @@ function existsInPath(bin) {
 }
 
 /** 探测可用后端；`FG_SEARCH_TOOL` 指定的后端优先（即使探测不到也信任用户）。 */
+/**
+ * 探测结果缓存（2026-10-29）
+ *
+ * 病根：`wholeFileStage` 每一步工具调用都会调本函数，而它要遍历整个 PATH——
+ * 实测 PATH 73 个目录 × 3 个后端 × Windows 4 种扩展名 = 最多 876 次 `accessSync`，
+ * **单次 13.72ms**，占判定总延迟的绝大部分（bench:decision 的 p95 从 2.37 涨到 18.35 就是这个）。
+ * 模块头注释原本写着"每会话探测一次并缓存结果"，但实现里没有缓存——注释与代码不符。
+ *
+ * 用 60 秒 TTL 而不是永久缓存：用户装完 rg 后一分钟内就能被重新探到，
+ * 不至于因为进程常驻而一直报"没装检索工具"。
+ */
+const PROBE_TTL_MS = 60_000
+let probeCache = null
+let probeKey = ''
+let probeAt = 0
+
+/** 缓存键 = 影响探测结果的全部输入。环境一变缓存立即失效——缓存不能比它的输入活得久。 */
+function probeKeyOf() {
+  return `${process.env.FG_SEARCH_TOOL || ''}\u0000${process.env.FG_SEARCH_BIN_DIR || ''}\u0000${process.env.PATH || ''}`
+}
+
+/** 清探测缓存（测试用；装完检索工具后想立刻重探也可手动调）。 */
+export function resetSearchBackendsCache() {
+  probeCache = null
+  probeKey = ''
+  probeAt = 0
+}
+
 export function detectSearchBackends() {
+  const key = probeKeyOf()
+  const now = Date.now()
+  if (probeCache && probeKey === key && now - probeAt < PROBE_TTL_MS) return probeCache
   const forced = String(process.env.FG_SEARCH_TOOL || '').toLowerCase().trim()
   const found = {}
   for (const id of Object.keys(BACKENDS)) found[id] = existsInPath(id)
   if (forced && BACKENDS[forced]) {
     found[forced] = true
-    return { found, preferred: forced, forced: true }
+    probeCache = { found, preferred: forced, forced: true }
+  } else {
+    probeCache = { found, preferred: ['xerj', 'rg', 'fd'].find((id) => found[id]) || null, forced: false }
   }
-  const preferred = ['xerj', 'rg', 'fd'].find((id) => found[id]) || null
-  return { found, preferred, forced: false }
+  probeKey = key
+  probeAt = now
+  return probeCache
 }
 
 /**

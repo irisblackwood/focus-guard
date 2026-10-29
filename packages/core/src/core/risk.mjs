@@ -51,16 +51,43 @@ export function isReadOnlyCall(tool, args) {
   return Boolean(action) && set.has(action);
 }
 
+/**
+ * MCP 工具名的动词兜底（2026-10-29 补口）
+ *
+ * 原正则要求动词**后面紧跟下划线**（`__write_`）。于是「工具名前缀 + 动词结尾」的命名
+ * （`mcp__hindsight__hindsight_write`、`mcp__memory__memory_save`）全部落成 `other`
+ * ——真正写库的工具绕过了取证闸（实测见 `tests/tool-kind-coverage.test.mjs`）。
+ *
+ * 放宽为 `_{1,2}` 分隔 + `(?:_|$)` 收尾：动词前一个或两个下划线、动词后是下划线或结尾，都算。
+ * 代价是 `mcp__fs__pending_delete` 这类"动词当名词用"的查询工具会被判成 mutation。
+ * 这是**故意的方向**：误判为改动类只多要一次取证（可被 `registerReadOnlyActions` 豁免），
+ * 漏判会让写工具天生免检——两害相权。
+ */
+const MCP_MUTATION_RE =
+  /^mcp__[\s\S]+?_{1,2}(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)(?:_|$)/;
+/** MCP 只读兜底：名字里带 web/search 的（mutation 先判，故 `x_write_search` 仍算写）。 */
+const MCP_READ_RE = /^mcp__.*(?:web|search)/;
+
 /** 名字 → 语义类别；未注册返回 'other'（安全默认：既不算只读也不算改动）。 */
 function semanticOf(tool) {
   const key = String(tool || "").toLowerCase();
   if (!key) return "other";
   const direct = KIND_BY_NAME.get(key);
   if (direct) return direct;
-  // MCP 写盘/构建类工具统一按动词前缀归为 mutation（适配层也会显式注册，这里是兜底）。
-  if (/^mcp__[\s\S]+?__(?:write|create|update|delete|remove|move|copy|patch|apply|edit|save|install|uninstall|build|package|scaffold|deploy|upload|publish)_/.test(key)) return "mutation";
-  if (/^mcp__.*(?:web|search)/.test(key)) return "read";
+  // MCP 写盘/构建类工具统一按动词归为 mutation（适配层也会显式注册，这里是兜底）。
+  if (MCP_MUTATION_RE.test(key)) return "mutation";
+  if (MCP_READ_RE.test(key)) return "read";
   return "other";
+}
+
+/**
+ * 工具名 → 语义类别（`other` = 未登记）。供启动自检发现"装了但没登记"的工具。
+ *
+ * 为什么需要这个出口：`other` 不是"不管"，而是两件具体的事——熔断期落 deny 分支
+ * （`dsh/preGuard.mjs` 的 `gateFused`）、调用计入执行池而非侦查池（`core/progressPolicy.mjs`）。
+ */
+export function toolKindOf(tool) {
+  return semanticOf(tool);
 }
 
 export function isMutating(tool, ti, handoff) {

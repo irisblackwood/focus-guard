@@ -4,6 +4,7 @@
 import { statSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { rotateAuditIfNeeded } from "./audit-writer.mjs";
 
 export let auditFile = null;
 
@@ -68,9 +69,13 @@ export function audit(sid, trigger, opts = {}) {
     pardon: !!opts.pardon,
   }) + "\n";
   // 2.5.1 假留痕防线：工作区写失败 → 回退系统临时目录；仍失败 → stderr 一行可见，绝不无声丢执法记录
-  for (const p of [auditTarget(sid), join(tmpdir(), `focus-guard-${sid}-AUDIT.log`)]) {
+  // 2026-10-29：补上体积轮转。此前只有 DSH 侧（audit-writer.appendAudit）轮转，母版这条路径不轮转——
+  // 两条路写同一个文件，等于"谁先到 5MB 谁说了算"，只有 DSH 在跑时母版日志才会无界增长。
+  const primary = auditTarget(sid);
+  for (const p of [primary, join(tmpdir(), `focus-guard-${sid}-AUDIT.log`)]) {
     try {
       mkdirSync(dirname(p), { recursive: true });
+      if (p === primary) rotateAuditIfNeeded(p);
       appendFileSync(p, record);
       return seq;
     } catch {}

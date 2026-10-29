@@ -49,7 +49,12 @@ test("心跳只写 status.json，不写审计（降噪）", async () => {
   stop();
   assert.ok(existsSync(process.env.FG_STATUS_FILE), "应写出 status.json");
   const body = JSON.parse(readFileSync(process.env.FG_STATUS_FILE, "utf8"));
-  assert.equal(body.status, "ALIVE");
+  // 2026-10-29：不再写 `status: 'ALIVE'`。快照只能说"最后一次跳在什么时候"，
+  // 说不了"我还活着"——那句 ALIVE 是启动时算的，进程死了也照样写着。
+  // 存活由 status.mjs 按 last_heartbeat + stale_after_ms 现算（见 status-cli.test.mjs）。
+  assert.equal("status" in body, false, "status.json 不得自带存活结论");
+  assert.ok(typeof body.last_heartbeat === "string", "必须给出最后一次心跳时间");
+  assert.ok(Number(body.stale_after_ms) > 0, "必须给出判死阈值，读取方才知道怎么算");
   assert.equal(existsSync(process.env.FG_AUDIT_FILE), false, "心跳不得往 AUDIT.log 写任何行");
   rmSync(WORK, { recursive: true, force: true });
 });

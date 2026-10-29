@@ -28,6 +28,12 @@ const CHILD_ENV = {
   FG_PROJECT_DIR: "",
   FG_SHELL: "",
   FG_AUDIT_FILE: EVAL_AUDIT,
+  // 2026-10-29 补（同一类缺口的第三个面）：本脚本跑 61 条高危样本，其中 rm -rf 类会触发
+  // `createApprovalRequest`，于是往**真实** `.focus-guard/approvals/pending_request.json`
+  // 写一条待批。审计隔离守卫扩到记录面之后当场抓到（`npm run check` 报"新增 pending_request.json"）。
+  // 卷宗同理：guard.mjs 会写卷宗【一】【三】【四】。
+  FG_APPROVAL_DIR: join(tmpdir(), `focus-guard-eval-approvals-${process.pid}-${Date.now()}`),
+  FG_CASE_FILE: join(tmpdir(), `focus-guard-eval-case-${process.pid}-${Date.now()}.md`),
 };
 
 const engines = process.argv.slice(2);

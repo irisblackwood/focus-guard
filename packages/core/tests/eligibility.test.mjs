@@ -1,5 +1,9 @@
 // 2026-10-22：默认审批通道已改为宿主 ask 缝（GUI 卡片）；本文件的验收①③针对 CLI 闭环，显式退回 cli。
 process.env.FG_APPROVAL_SEAM = "cli";
+// 2026-10-29：审批目录也要沙箱。此前只重定向了 FG_AUDIT_FILE，于是本文件里触发 strictGateHit 的用例
+// 会把 `pending_request.json` 写进**真实** `.focus-guard/approvals/`——实测确认（md5 变化 + mtime 更新）。
+// 审计隔离守卫只看 AUDIT.log，所以它一直报零增长 PASS。教训同源：隔离要包住整个记录面，不只审计一条线。
+process.env.FG_APPROVAL_DIR = join(tmpdir(), `fg-eligibility-approvals-${process.pid}-${Date.now()}`);
 // 2026-10-22 分层：母版只认语义类别，宿主工具名由适配层注册（本文件直接调 checkEligibility）。
 await import("../src/adapters/dsh/tool-kinds.mjs");
 
@@ -635,7 +639,11 @@ describe("审计日志体积轮转（2026-10-09）", () => {
     // ① 未超限：不轮转，追加行为与现状一致
     assert.equal(rotateAuditIfNeeded(file, 64), null, "文件不存在时不应轮转");
     assert.equal(appendAudit({ n: 1 }, file), true, "追加应成功");
-    assert.equal(rotateAuditIfNeeded(file, 64), null, "未超限不应轮转");
+    // 2026-10-29：这里的阈值原先写死 64 字节。审计行改为统一经 buildAuditRow 规范化后，
+    // 单行从 `{"n":1}`（8B）变成含七字段的完整行（≈150B），64 字节已不代表"未超限"——
+    // 夹具参数失真会把"行变大了"误报成"轮转坏了"。改成按实际体积取上限，语义仍是"未超限"。
+    const roomy = read(file).length + 1;
+    assert.equal(rotateAuditIfNeeded(file, roomy), null, "未超限不应轮转");
     assert.match(read(file), /"n":1/);
 
     // ② 超限：归档 + 重建空文件，归档件含原全部内容（记录不丢）

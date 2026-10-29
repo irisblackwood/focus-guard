@@ -182,6 +182,24 @@ export function apply(ctx) {
     },
     'agent/created(hook-order)',
   )
+  // 工具类别覆盖自检（2026-10-29）：装了插件却没在适配层登记语义类别 → 熔断期被误拒、
+  // 且调用算执行池而不是侦查池。只报 MCP 前缀（内置工具的欠账由 tool-kinds.mjs 自己补），
+  // 只 warn 不改判定，与 policy-audit / hook-order 同纪律。
+  register(
+    'agent/created',
+    () => async (payload, next) => {
+      try {
+        const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
+        const { auditToolKinds, renderToolKindNotice } = await import('./toolKindAudit.mjs')
+        const notice = renderToolKindNotice(auditToolKinds({ schemas: tools }))
+        if (notice) warn(notice)
+      } catch (error) {
+        warn('工具类别自检失败（不影响执法）：', (error && error.message) || error)
+      }
+      return typeof next === 'function' ? next(payload) : undefined
+    },
+    'agent/created(tool-kinds)',
+  )
   register('agent/pre-step', preStepListener, 'agent/pre-step')
   // 回合结束自动落账（L4，2026-10-18）：只记 FG 亲眼看到的事实（人类指令 / 被人否决的命令），
   // 不推断、不编造；写失败只 warn。与 DCR 不同：这里不 cancel、不 reject、不碰 surface。

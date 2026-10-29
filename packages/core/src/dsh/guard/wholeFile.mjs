@@ -12,9 +12,11 @@ import { join, isAbsolute } from 'node:path'
 import { detectSearchBackends, retrievalHint, installReminder } from '../search-hints.mjs'
 import { auditDeny } from '../audit.mjs'
 import { cwdOf, pathOfTool, resolveToolPath, sessionIdOf } from './tooling.mjs'
+import { sessionFlag } from '../../core/sessionScratch.mjs'
 
-// 每会话只提醒一次"没装检索工具"（避免每步刷屏）。
-const remindedNoBackend = new Set()
+// 每会话只提醒一次"没装检索工具"（避免每步刷屏）。2026-10-29：改由 sessionScratch 托管，
+// 测试能按会话清空——原来是个裸 Set<sid>，跑两次同一会话就再也提醒不出来。
+const remindedNoBackend = sessionFlag('remindedNoBackend')
 
 const WHOLE_FILE_MAX_LINES = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300
 // 提示按**本机可用后端**给（2026-10-25）：xerj 装了就用它，没装就退到 rg/fd，
@@ -74,8 +76,9 @@ export async function wholeFileStage(ctx) {
     const args = (exec && exec.arguments) || {}
     // 检索后端每会话探测一次并缓存结果（PATH 扫描很便宜，但没必要每步都扫）。
     const backends = detectSearchBackends()
-    if (!backends.preferred && !remindedNoBackend.has(sessionIdOf(exec))) {
-      remindedNoBackend.add(sessionIdOf(exec))
+    const sid = sessionIdOf(exec)
+    if (!backends.preferred && !remindedNoBackend.has(sid)) {
+      remindedNoBackend.add(sid)
       const tip = installReminder(backends)
       if (tip) warn(tip)
     }

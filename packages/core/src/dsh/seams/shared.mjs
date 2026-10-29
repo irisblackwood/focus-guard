@@ -13,7 +13,7 @@
  *   人类文本 = messages.flatMap(m => m.content).filter(b => b.type==='text').map(b => b.text).join('')
  */
 import { statePath, loadState } from '../../core/state.mjs'
-import { appendAudit } from '../audit.mjs'
+import { appendAudit, buildAuditRow } from '../audit.mjs'
 
 /** 会话标识：与桥同源（agent.session.header.id）。取不到才退化为 dsh-native。 */
 export function sidOf(agent) {
@@ -97,16 +97,13 @@ export function loadOrInit(agent) {
   return { sid, file, state: loadState(file) }
 }
 
-/** 写一条审计（DSH 侧统一入口，带体积轮转）。 */
+/**
+ * 写一条审计（DSH 侧统一入口，带体积轮转）。
+ * 2026-10-29：行构造收敛到 `core/audit-writer.mjs::buildAuditRow`——
+ * 此前本函数与 postProgress / preGuard / stopGuard / compactionWatch 各写一份，
+ * 五份字段集不同，实测日志里漂出三种形态。现在只保留"取 evidence、透传 extra"这一层。
+ */
 export function auditRow(sid, action, evidence, extra = {}) {
-  appendAudit({
-    ts: new Date().toISOString(),
-    session: sid,
-    seq: Date.now().toString(36) + '.' + Math.floor(performance.now()),
-    action,
-    trigger: action,
-    level: extra.level ?? null,
-    evidence: String(evidence || '').slice(0, 200),
-    pardon: !!extra.pardon,
-  })
+  const { level, pardon, ...rest } = extra
+  appendAudit(buildAuditRow(sid, action, { level, pardon, evidence, extra: rest }))
 }

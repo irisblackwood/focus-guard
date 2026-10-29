@@ -26,9 +26,13 @@ import {
   sessionIdOf,
   shellWriteTargets,
 } from './tooling.mjs'
+import { gateSwitch } from '../testRuntime.mjs'
+import { sessionSet } from '../../core/sessionScratch.mjs'
 
 export const STATE_GATE = { effective: true }
-export const EVIDENCE_GATE = { effective: process.env.FG_EVIDENCE_GATE !== '0' }
+// 2026-10-29 立法：不允许关闭任何功能。`FG_EVIDENCE_GATE=0` 只在测试运行时生效，
+// 生产环境 gateSwitch 恒返 true——见 testRuntime.mjs 头注释。
+export const EVIDENCE_GATE = { effective: gateSwitch('FG_EVIDENCE_GATE') }
 const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
 
 /**
@@ -65,24 +69,17 @@ export function readGuardState(target = tmpdir()) {
 // 3.0.8：按【会话身份】分表（原为模块级单一 Set，跨会话共享）。
 // DSH 单进程里多个会话共用同一份 pipeline 模块，共享 Set 会让"会话 A 读过的文件"
 // 被判成"会话 B 也读过"——违反取证的本会话语义（新增用例「会话隔离」锁定了这一点）。
-const nativeReadSet = new Map() // sid → Set<path>
-const evidenceBlockedOnce = new Map() // sid → Set<path>
-/** 取某会话的集合（不存在则建）。 */
-const setOf = (m, sid) => {
-  let s = m.get(sid)
-  if (!s) {
-    s = new Set()
-    m.set(sid, s)
-  }
-  return s
-}
+// 2026-10-29：两个容器改由 core/sessionScratch.mjs 托管——能按会话清空（测试可重置）、
+// 有插入序上限（长驻进程不无限涨）。原来各 new 一个 Map，没有任何 API 能摆回起点。
+const nativeReadSet = sessionSet('nativeReadSet')
+const evidenceBlockedOnce = sessionSet('evidenceBlockedOnce')
 
 /**
  * 本会话是否"读过"该文件。先查直命（归一化键），再兼容历史/异形态键
  *（postProgress 存的是相对正斜杠、老记录可能存原始相对路径）——逐个解析后比较。
  */
 function isReadRecorded(state, sid, absKey, exec) {
-  const seen = setOf(nativeReadSet, sid)
+  const seen = nativeReadSet.of(sid)
   const rs = state && state.readSet && typeof state.readSet === 'object' ? state.readSet : {}
   if (seen.has(absKey) || Object.hasOwn(rs, absKey)) return true
   const candidates = [...seen, ...Object.keys(rs)]
@@ -109,7 +106,7 @@ export function rememberReads(exec) {
   // 2026-10-19：键必须与查证侧（resolveToolPath 的绝对路径）同形态，否则"读过"永远查不到。
   const key = evidenceKeyOf(p, exec) || String(p)
   const sid = sessionIdOf(exec)
-  const seen = setOf(nativeReadSet, sid)
+  const seen = nativeReadSet.of(sid)
   if (seen.has(key)) return
   seen.add(key)
   try {
@@ -286,8 +283,8 @@ function evidenceTargetsVerdict({ exec, warn, tool, isMutating, shellTargets, st
     // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
     // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
     // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
-    if (!known && existsSync(key) && !setOf(evidenceBlockedOnce, sid).has(key)) {
-      setOf(evidenceBlockedOnce, sid).add(key)
+    if (!known && existsSync(key) && !evidenceBlockedOnce.has(sid, key)) {
+      evidenceBlockedOnce.add(sid, key)
       return {
         kind: 'deny',
         reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
