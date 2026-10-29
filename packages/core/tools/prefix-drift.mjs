@@ -16,6 +16,7 @@
  *       --ab               不读会话落盘，改跑 A/B 重放：同一串输入（30 回合 + 并发会话改写快照）
  *                          分别喂给"每回合重渲染"与"首步冻结"两套规则，报版本数 / 断点 / 稳定率
  *       --cost             读会话落盘，算"改前 vs 改后"的 token 与费用（est4 口径，非账单）
+ *                          可配 --panel <file>（默认 panel-runs.json）把 est4 与面板实测对账
  */
 
 import { basename, dirname, join } from 'node:path'
@@ -23,7 +24,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { decodeSession, firstDiff, textOfMessage, walkSessionFiles } from './lib/sessionDump.mjs'
-import { calcCost } from '../src/peak-cost.mjs'
+import { attachPanel, runCost } from './lib/prefix-cost.mjs'
 
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
 const argv = process.argv.slice(2)
@@ -36,89 +37,21 @@ const FAIL_ON_SYSTEM = argv.includes('--fail-on-system')
 const AB = argv.includes('--ab')
 const COST = argv.includes('--cost')
 
-/**
- * 费用对比（`--cost`）：改前 vs 改后。
- *
- * 机制前提（实测）：宿主 `systemPromptUpdate: "in-history"`——系统提示一变，就**追加一条完整的
- * system 消息**（约 10,280 字），此后每一步都背着它。所以 FG 抖 480 字，代价是 21 倍放大的整份提示。
- *
- * 口径：est4（字符/4），与 `prefix-audit` 一致，**不是账单**；真实 token 只在宿主面板。
- * 费用按"除这次追加外全部命中"算——那正是面板 99.6% 的场景。改成全未命中，费用比就退回 token 比。
- */
-function runCost() {
-  const TOK = (chars) => Math.round(chars / 4)
-  const rows = []
-  for (const cand of walkSessionFiles(SESSIONS).filter((x) => x.size < 3 * 1024 * 1024).slice(0, 8)) {
-    let lines
-    try {
-      lines = decodeSession(cand.f)
-    } catch {
-      continue
-    }
-    const steps = []
-    let cur = null
-    let prefixChars = 0
-    for (const l of lines) {
-      if (l.type === 'request/header') {
-        const hd = (l.data && (l.data.header || l.data)) || {}
-        if (Array.isArray(hd.tools)) prefixChars += JSON.stringify(hd.tools).length
-        continue
-      }
-      if (l.type === 'step/start') {
-        cur = { msgs: 0, sysChars: 0, sysCount: 0 }
-        steps.push(cur)
-        continue
-      }
-      if (!cur) continue
-      if (l.type === 'system/message') {
-        const t = textOfMessage(l)
-        cur.sysChars += t.length
-        cur.sysCount += 1
-        prefixChars += t.length
-      } else if (l.type === 'user/message' || l.type === 'assistant/message' || l.type === 'tool/result') {
-        cur.msgs += textOfMessage(l).length
-      }
-    }
-    if (steps.length < 5) continue
-    const sysSteps = []
-    for (let i = 0; i < steps.length; i += 1) if (steps[i].sysCount > 0) sysSteps.push(i)
-    let cum = 0
-    let totalChars = 0
-    for (const s of steps) {
-      cum += s.msgs
-      totalChars += prefixChars + cum
-    }
-    const sysChars = steps[sysSteps[0]].sysChars
-    const appends = Math.max(0, sysSteps.length - 1)
-    const carried = appends ? steps.length - sysSteps[1] : 0
-    const totalTok = TOK(totalChars)
-    const extraTok = TOK(sysChars * appends * carried)
-    const missTok = TOK(sysChars * appends)
-    const before = calcCost('deepseek-flash', { input: missTok, cacheRead: extraTok - missTok, output: 0 }, false)
-    const afterTok = totalTok - extraTok
-    const after = calcCost('deepseek-flash', { input: 0, cacheRead: afterTok, output: 0 }, false)
-    if (before === null || after === null) continue
-    rows.push({
-      sid: basename(dirname(cand.f)).replace('session-', '').slice(0, 8),
-      steps: steps.length,
-      appends,
-      totalTok,
-      extraTok,
-      before,
-      after,
-      beforeTotal: before + after,
-      afterTotal: after,
-    })
-  }
-  return rows
-}
-
 if (COST) {
-  const rows = runCost()
+  const rows = runCost({ sessionsDir: SESSIONS })
   if (!rows.length) {
     console.log('找不到 ≥5 步的会话', SID || '(最近 8 个)')
     process.exit(0)
   }
+  // 面板实测对账（2026-10-29）：est4 只是估算，真实 token 与命中率在宿主面板；
+  // 面板基线（panel-runs.json，collect-panel.mjs 产出）带 session id，能按 sid 匹配时给校准系数。
+  const { panelFile, matched } = attachPanel(rows, arg('--panel', 'panel-runs.json'))
+
+  if (AS_JSON) {
+    console.log(JSON.stringify({ rows, panelFile, matched }, null, 2))
+    process.exit(0)
+  }
+
   const pad = (s, n) => String(s).padStart(n)
   console.log('会话'.padEnd(10) + pad('步', 5) + pad('追加', 6) + pad('总输入tok', 12) + pad('额外tok', 10) + pad('token占比', 10) + pad('改前$', 11) + pad('改后$', 11) + pad('费用省', 9))
   for (const r of rows) {
@@ -140,8 +73,27 @@ if (COST) {
       `改前 $${sum.b.toFixed(6)} → 改后 $${sum.f.toFixed(6)}（省 ${(((sum.b - sum.f) / sum.b) * 100).toFixed(2)}%）`,
   )
   console.log(`有追加的会话：${rows.filter((r) => r.appends).length}/${rows.length}`)
+
+  const withReal = rows.filter((r) => r.real)
+  if (withReal.length) {
+    console.log(`\n面板实测对账（${panelFile}，匹配 ${withReal.length} 条）：`)
+    console.log('会话'.padEnd(10) + pad('实测total', 12) + pad('缓存读', 11) + pad('实测命中', 10) + pad('实测/est4', 11))
+    for (const r of withReal) {
+      console.log(
+        r.sid.padEnd(10) +
+          pad(r.real.total, 12) +
+          pad(r.real.cacheRead, 11) +
+          pad(((r.real.hit || 0) * 100).toFixed(1) + '%', 10) +
+          pad((r.real.factor || 0).toFixed(2) + 'x', 11),
+      )
+    }
+    const tr = withReal.reduce((a, r) => ({ t: a.t + r.real.total, c: a.c + r.real.cacheRead, u: a.u + r.real.uncached }), { t: 0, c: 0, u: 0 })
+    console.log(`实测合计：total ${tr.t} · 缓存读 ${tr.c}（命中 ${((tr.c / (tr.t || 1)) * 100).toFixed(1)}%）· 未缓存 ${tr.u}`)
+  } else {
+    console.log(`\n面板实测：${panelFile} 无可匹配会话（est4 仍只是估算，不是账单）。`)
+  }
   console.log('\n口径：est4（字符/4），不是账单；费用按"除这次追加外全部命中"算（面板 99.6% 的场景）。')
-  console.log('改成全未命中，费用比就退回 token 比——未命中价是命中价的 50 倍，这才是两者差 3 倍的原因。')
+  console.log('实测/est4 <1 表示 est4 高估（按字符/4 算多了）、>1 表示低估；面板命中率是真实缓存收益，改前改后对比它比 $ 估更有意义。')
   process.exit(0)
 }
 
