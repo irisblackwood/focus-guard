@@ -60,6 +60,43 @@ test("差异：删除也能报（段没了等于前缀短了）", () => {
   assert.equal(d.bytes, -Buffer.byteLength("熔断"), "删除段后总字节减少");
 });
 
+// 黄金指纹（2026-10-29）：固定输入 → FG 段指纹。**CI 可复现**，不依赖本机会话落盘。
+// 改注入内容（规则 / 卷宗渲染 / 熔断告知）会让它红：确认是有意改，再同步更新这三个数字，
+// 而不是直接删断言——它替代不了 prefix-drift（那是真机探针），但能把"注入内容漂移"挡在 CI。
+const GOLDEN = {
+  hash: "e2c278768158",
+  bytes: 979,
+  parts: { "focus-guard-rules": 520, "focus-guard-workspace": 242, "focus-guard-fuse": 217 },
+};
+
+test("黄金指纹：固定输入下 FG 段指纹不得漂移", async () => {
+  const { SESSION_RULES, FUSE_NOTICE } = await import("../src/core/constants.mjs");
+  const { renderWorkspaceSection } = await import("../src/dsh/workspace.mjs");
+  const record = {
+    workspace_hash: "h".repeat(16),
+    decisions: ["d1"],
+    constraints: ["cmd-A"],
+    next_action: [],
+    snapshot: {
+      sid: "sess-prev",
+      at: "2026-10-29T09:00:00.000Z",
+      toolCalls: 40,
+      denies: 2,
+      kpi: -9,
+      delegateBudget: 12,
+    },
+  };
+  const sections = [
+    { name: "focus-guard-rules", text: SESSION_RULES },
+    { name: "focus-guard-workspace", text: renderWorkspaceSection(record, { sid: "sess-current" }) },
+    { name: "focus-guard-fuse", text: FUSE_NOTICE },
+  ];
+  const fp = fingerprintSections(sections);
+  assert.equal(fp.hash, GOLDEN.hash, "注入内容变了：有意改就同步更新黄金值，别直接删断言");
+  assert.equal(fp.bytes, GOLDEN.bytes, "总字节按 UTF-8 算");
+  for (const p of fp.parts) assert.equal(p.bytes, GOLDEN.parts[p.name], `${p.name} 段字节数漂了`);
+});
+
 test("跟踪器：首见只建基线不报，之后变了才报一次", () => {
   const events = [];
   const t = createPrefixTracker({ audit: (e) => events.push(e) });
@@ -184,7 +221,8 @@ test("接线：观测器看最终装配（含 cost 段），fuse 单独翻转不
     const mod = await import(`../src/dsh/index.js?observer=${Date.now()}`);
     const observer = mod.prefixObserverListener();
     const context = { agent: { session: { header: { id: "obs-session" } } } };
-    const base = (cost) => [
+    const base = (cost, host = "host-base-A") => [
+      { name: "host-base", text: host },
       { name: "focus-guard-rules", text: "规则" },
       { name: "focus-guard-cost", text: cost },
     ];
@@ -204,6 +242,18 @@ test("接线：观测器看最终装配（含 cost 段），fuse 单独翻转不
       rows().filter((r) => r.action === "prompt-prefix-shift").length,
       1,
       "只由 fuse 段翻转引起的抖动不写审计",
+    );
+
+    // 宿主段漂移：单独诊断、每会话只报一次，且不得混进 FG 的 shift 审计
+    await call(base("cost-B", "host-base-B"));
+    await call(base("cost-B", "host-base-C"));
+    const hostRows = rows().filter((r) => r.action === "prompt-prefix-host");
+    assert.equal(hostRows.length, 1, "宿主段漂移每会话最多一条");
+    assert.match(hostRows[0].evidence, /host-base/, "证据要指出是哪个宿主段变了");
+    assert.equal(
+      rows().filter((r) => r.action === "prompt-prefix-shift").length,
+      1,
+      "宿主段变化不得写进 FG 的 prompt-prefix-shift",
     );
   } finally {
     if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;

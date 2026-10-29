@@ -25,7 +25,7 @@ import { setProjectDirProvider } from '../core/audit.mjs'
 // 熔断告知（2026-10-27）：文案在母版，宿主缝只决定"何时注入"。
 import { FUSE_NOTICE } from '../core/constants.mjs'
 import { loadState, statePath } from '../core/state.mjs'
-import { createPrefixTracker, describeShift } from '../core/prefixStability.mjs'
+import { createPrefixTracker, describeShift, isFgSection } from '../core/prefixStability.mjs'
 import { appendAudit, buildAuditRow } from '../core/audit-writer.mjs'
 
 // 分层纪律（2026-10-22）：项目目录由宿主层注入；DSH 侧用中立变量 FG_PROJECT_DIR，
@@ -79,6 +79,39 @@ function notePrefixShift(context, downstream, extra) {
 }
 
 /**
+ * 宿主段漂移（2026-10-29，只读诊断）：FG 段之外的部分（宿主工具表 / 系统提示 / 技能目录）
+ * 一变前缀也会断，但它不归 FG 管，不该混进 `prompt-prefix-shift` 的告警里。
+ * 单独记一条 `prompt-prefix-host`，**每会话最多一次**——用来区分"FG 又抖了"与"宿主变了"，
+ * 免得修完 FG 还在怀疑自己。
+ */
+const HOST_REPORT_SEEN = new Set()
+const HOST_SEEN_MAX = 64
+
+const hostTracker = createPrefixTracker({
+  // 宿主段 = 非 FG 段；默认 filter 只认 focus-guard-*，这里反向取。
+  filter: (s) => !isFgSection(s && s.name),
+  audit: ({ sid, diff }) => {
+    if (HOST_REPORT_SEEN.has(sid)) return
+    if (HOST_REPORT_SEEN.size >= HOST_SEEN_MAX) HOST_REPORT_SEEN.delete(HOST_REPORT_SEEN.values().next().value)
+    HOST_REPORT_SEEN.add(sid)
+    appendAudit(
+      buildAuditRow(sid, 'prompt-prefix-host', {
+        trigger: 'system-prompt/assemble',
+        evidence: describeShift(diff),
+      }),
+    )
+  },
+})
+
+function noteHostShift(context, downstream) {
+  const header = context && context.agent && context.agent.session ? context.agent.session.header : null
+  const sid = header ? header.id : null
+  if (!sid) return null
+  const sections = ((downstream && downstream.sections) || []).filter((s) => !isFgSection(s && s.name))
+  return hostTracker.note(sid, sections)
+}
+
+/**
  * 观测器：必须是 `system-prompt/assemble` 上**最先注册**的监听器。
  * Cordis waterfall 按注册顺序 outermost-first（`cbs[0]` 最先跑，`next()` 继续），
  * 先注册才能看到 `next()` 返回的**最终装配**——否则像 cost 段那样由别的监听器
@@ -91,6 +124,11 @@ export function prefixObserverListener() {
       notePrefixShift(context, downstream, [])
     } catch {
       /* 指纹失败不影响装配 */
+    }
+    try {
+      noteHostShift(context, downstream)
+    } catch {
+      /* 宿主段诊断失败不影响装配 */
     }
     return downstream
   }

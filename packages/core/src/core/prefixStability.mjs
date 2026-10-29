@@ -74,9 +74,9 @@ export function describeShift(diff) {
  * 按会话跟踪前缀指纹。
  * 只在**同一会话内**比：会话 A 的基线拿去比会话 B 是两回事（换会话本来就会变）。
  *
- * @param {{audit?: (evt: {sid: string, diff: object, fingerprint: object}) => void, max?: number}} opts
+ * @param {{audit?: (evt: {sid: string, diff: object, fingerprint: object}) => void, max?: number, filter?: (section: object) => boolean}} opts
  */
-export function createPrefixTracker({ audit, max = 64 } = {}) {
+export function createPrefixTracker({ audit, max = 64, filter = (s) => isFgSection(s && s.name) } = {}) {
   const memo = new Map()
   return {
     /**
@@ -85,7 +85,7 @@ export function createPrefixTracker({ audit, max = 64 } = {}) {
      */
     note(sid, sections) {
       if (!sid) return null
-      const fp = fingerprintSections((sections || []).filter((s) => isFgSection(s && s.name)))
+      const fp = fingerprintSections((sections || []).filter((s) => filter(s)))
       const prev = memo.get(sid)
       const diff = prev && prev.hash !== fp.hash ? diffFingerprints(prev, fp) : null
       // 有界：长跑进程里会话数无上限，最老的先丢（丢掉的会话下次装配重算基线，不报）。
