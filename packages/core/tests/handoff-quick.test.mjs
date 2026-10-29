@@ -39,6 +39,23 @@ test("同会话（sid 相同）→ 不注入快照（避免重复噪音）", () 
   assert.doesNotMatch(String(section), /上次会话：/);
 });
 
+test("同会话内决策增长不再改变注入字节（前缀稳定，2026-10-29）", () => {
+  // 实测（tools/prefix-drift.mjs）：系统段每会话 2 个版本，分歧点恒定落在「决策：」这一行。
+  // 决策是**历史**，历史每回合都在长；而人类指令原文本来就在会话消息里，抄进系统提示既重复又抖。
+  ws.mergeWorkspace(WORK, {
+    decisions: ["稳定前缀之前的决策"],
+    snapshot: { at: "2026-10-22T22:00:00.000Z", sid: "session-stable", toolCalls: 12, denies: 3, kpi: -5, delegateBudget: 19 },
+  });
+  const before = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-stable" }));
+  assert.ok(before.length > 10, "夹具必须真的渲染出内容，否则「相等」等于什么都没验");
+  ws.mergeWorkspace(WORK, { decisions: ["同会话里又记了一条"] });
+  const after = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-stable" }));
+  assert.equal(after, before, "同会话内决策增长不得改变注入字节");
+  // 换会话才给决策——那是交接信息，不是每回合的噪音
+  const fresh = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-other" }));
+  assert.match(fresh, /决策：/, "新会话应看到上次会话的决策");
+});
+
 test("新会话渲染：含「上次会话」行与三类事实", () => {
   const rec = ws.readWorkspace(WORK);
   const section = String(ws.renderWorkspaceSection(rec, { sid: "session-bbb" }));

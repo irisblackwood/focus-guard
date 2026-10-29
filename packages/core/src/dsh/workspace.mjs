@@ -142,9 +142,14 @@ export function renderWorkspaceSection(record, opts = {}) {
   const snap = showSnapshot
     ? `上次会话：${s.sid ? String(s.sid).slice(0, 12) : '-'} · ${s.at || '-'} · 工具调用 ${s.toolCalls ?? '-'} · 被拦 ${s.denies ?? '-'} · KPI ${s.kpi ?? '-'} · 委托 ${s.delegateBudget ?? '-'}`
     : ''
+  // 决策行同理，且理由更硬（2026-10-29）：它是**历史**，而历史每回合都在长。
+  // 实测（tools/prefix-drift.mjs）系统段每会话 2 个版本，分歧点恒定落在这一行——
+  // 前缀一变，后面整段会话历史都要按未缓存价重付，而这些指令原文本来就在会话消息里。
+  const showDecisions = opts.sid === undefined || shouldInjectHandoff(record, opts.sid)
   const lines = [
     snap,
-    block('决策', record.decisions),
+    showDecisions ? block('决策', record.decisions) : '',
+    // 约束（人类否决过的命令）保留实时：它是安全信息、只在真被否决时变，不是每回合的噪音。
     block('约束', record.constraints),
     block('下一步', record.next_action),
   ].filter(Boolean)

@@ -10,74 +10,22 @@
  * 用法：node packages/core/tools/prefix-audit.mjs [--sid <前缀>] [--json]
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import { zstdDecompressSync } from 'node:zlib'
+import { basename, dirname } from 'node:path'
+import { decodeSession, walkSessionFiles } from './lib/sessionDump.mjs'
 
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
 const argv = process.argv.slice(2)
 const SID = argv.includes('--sid') ? argv[argv.indexOf('--sid') + 1] : null
 const AS_JSON = argv.includes('--json')
 
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (e === 'session.v4.jsonl.zstd') out.push({ f: p, m: st.mtimeMs, size: st.size })
-  }
-  return out
-}
-
-function decode(file) {
-  const buf = readFileSync(file)
-  const starts = []
-  for (let i = 0; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) starts.push(i)
-  }
-  let text = ''
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = k + 1 < starts.length ? starts[k + 1] : buf.length
-    try {
-      text += zstdDecompressSync(buf.subarray(starts[k], end)).toString('utf8')
-    } catch {
-      /* 坏帧 */
-    }
-  }
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l)
-      } catch {
-        return null
-      }
-    })
-    .filter(Boolean)
-}
-
-const files = walk(SESSIONS)
-  .filter((x) => x.size < 3 * 1024 * 1024)
-  .sort((a, b) => b.m - a.m)
+const files = walkSessionFiles(SESSIONS).filter((x) => x.size < 3 * 1024 * 1024)
 // 选会话：默认取"最近且真的带 tools + 有若干步"的那个（子代理/空会话会干扰）。
 let pick = null
 let lines = null
 for (const cand of (SID ? files.filter((x) => x.f.includes(SID)) : files.slice(0, 20))) {
   let ls
   try {
-    ls = decode(cand.f)
+    ls = decodeSession(cand.f)
   } catch {
     continue
   }

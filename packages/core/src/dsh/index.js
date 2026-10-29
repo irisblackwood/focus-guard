@@ -25,11 +25,45 @@ import { setProjectDirProvider } from '../core/audit.mjs'
 // 熔断告知（2026-10-27）：文案在母版，宿主缝只决定"何时注入"。
 import { FUSE_NOTICE } from '../core/constants.mjs'
 import { loadState, statePath } from '../core/state.mjs'
+import { createPrefixTracker, describeShift } from '../core/prefixStability.mjs'
+import { appendAudit, buildAuditRow } from '../core/audit-writer.mjs'
 
 // 分层纪律（2026-10-22）：项目目录由宿主层注入；DSH 侧用中立变量 FG_PROJECT_DIR，
 // 母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_（那是替别的宿主代言）。
 setProjectDirProvider(() => process.env.FG_PROJECT_DIR || '')
 import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
+
+/**
+ * 前缀抖动跟踪（2026-10-29）
+ *
+ * 缓存命中要前缀逐字节相同。实测（`tools/prefix-drift.mjs`）四个真实会话里
+ * `tools` / `user` 段全程 1 个版本，`system` 段却 2 个版本、分歧点恒定落在 FG 自己的
+ * `[FG-WORKSPACE]` 段。修内容是一半，**能测出来**是另一半——
+ * 否则下次谁再往注入里塞易变内容，还是没人知道。
+ *
+ * 只比 `focus-guard-*` 段，且只比同一会话内：换会话本来就会变，拿它报警等于报假阳性。
+ */
+const prefixTracker = createPrefixTracker({
+  audit: ({ sid, diff }) => {
+    appendAudit(
+      buildAuditRow(sid, 'prompt-prefix-shift', {
+        trigger: 'system-prompt/assemble',
+        evidence: describeShift(diff),
+      }),
+    )
+  },
+})
+
+function notePrefixShift(context, downstream, extra) {
+  const header = context && context.agent && context.agent.session ? context.agent.session.header : null
+  const sid = header ? header.id : null
+  if (!sid) return null
+  return prefixTracker.note(sid, [...((downstream && downstream.sections) || []), ...(extra || [])])
+}
+
+// 导出给测试：接线本身（2 条 assemble 监听 + 这个函数）必须能被单独验证，
+// 否则"审计会不会真的写"只能靠跑真宿主才知道。
+export { notePrefixShift, prefixTracker }
 
 export const name = 'focus-guard'
 // 2026-10-18：`ctx.tools` 是 Cordis 服务，未声明 inject 就访问会抛
@@ -124,6 +158,13 @@ export function apply(ctx) {
           }
         } catch {
           /* fail-open：卷宗读取失败不影响系统提示 */
+        }
+        // 前缀稳定性（2026-10-29）：装配完算一次 FG 段指纹，同一会话内变了就留一条审计。
+        // 只观测，不改任何段——段内容由上面决定，这里只负责"抖了要说出来"。
+        try {
+          notePrefixShift(context, downstream, extra)
+        } catch {
+          /* 指纹失败不影响装配 */
         }
         if (!extra.length) return downstream
         return { ...downstream, sections: [...downstream.sections, ...extra] }

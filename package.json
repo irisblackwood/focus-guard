@@ -44,7 +44,9 @@
     "smells": "node packages/core/tools/smells.mjs",
     "smells:brief": "node packages/core/tools/smells.mjs --brief",
     "health": "node packages/core/tools/health.mjs",
-    "health:brief": "node packages/core/tools/health.mjs --brief"
+    "health:brief": "node packages/core/tools/health.mjs --brief",
+    "prefix:drift": "node packages/core/tools/prefix-drift.mjs",
+    "prefix:audit": "node packages/core/tools/prefix-audit.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {
