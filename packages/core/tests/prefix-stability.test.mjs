@@ -23,7 +23,7 @@ test("指纹：同内容同哈希，顺序不同也算变（前缀是字节序�
   assert.equal(a.hash, b.hash, "同样的段同样的顺序 → 同一段字节");
   const swapped = fingerprintSections([sec("focus-guard-cost", "乙"), sec("focus-guard-rules", "甲")]);
   assert.notEqual(a.hash, swapped.hash, "顺序换了，前缀就不是同一段字节");
-  assert.equal(a.chars, 2, "字符数应累加");
+  assert.equal(a.bytes, Buffer.byteLength("甲乙", "utf8"), "字节数应累加（UTF-8，中文一字 3 字节）");
 });
 
 test("指纹：只认 focus-guard-* 段，宿主段不参与", () => {
@@ -46,10 +46,10 @@ test("差异：改 / 增 / 删三类都能报出来，带字节差", () => {
     d.changed.map((x) => x.name),
     ["focus-guard-workspace"],
   );
-  assert.equal(d.changed[0].delta, 6 - 1, "字节差应可算出（6 字 vs 1 字）");
+  assert.equal(d.changed[0].delta, Buffer.byteLength("新的内容更长") - Buffer.byteLength("旧"), "字节差按 UTF-8 算");
   assert.deepEqual(d.added, ["focus-guard-fuse"]);
   assert.deepEqual(d.removed, []);
-  assert.ok(describeShift(d).includes("focus-guard-workspace(+5B)"), describeShift(d));
+  assert.ok(describeShift(d).includes("focus-guard-workspace(+15B)"), describeShift(d));
 });
 
 test("差异：删除也能报（段没了等于前缀短了）", () => {
@@ -57,7 +57,7 @@ test("差异：删除也能报（段没了等于前缀短了）", () => {
   const next = fingerprintSections([sec("focus-guard-rules", "甲")]);
   const d = diffFingerprints(prev, next);
   assert.deepEqual(d.removed, ["focus-guard-fuse"]);
-  assert.equal(d.bytes, -2);
+  assert.equal(d.bytes, -Buffer.byteLength("熔断"), "删除段后总字节减少");
 });
 
 test("跟踪器：首见只建基线不报，之后变了才报一次", () => {
@@ -117,7 +117,7 @@ test("跟踪器：audit 抛错不影响跟踪（观测不能拖垮装配）", ()
 // ── 接线：审计行真的会被写出来吗（2026-10-29）──────────────────────────────
 // 前面测的是纯函数；这一条测"接线在不在"。没有它，纯函数全绿也可能根本没被调用。
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -132,9 +132,10 @@ test("接线：FG 段变了 → 写一条 prompt-prefix-shift（七字段齐）"
     const context = { agent: { session: { header: { id: "wire-session" } } } };
     const host = { sections: [{ name: "host-base", text: "宿主自带" }] };
     const rules = { name: "focus-guard-rules", text: "规则" };
+    const rulesChanged = { name: "focus-guard-rules", text: "规则已改" };
     assert.equal(mod.notePrefixShift(context, host, [rules]), null, "首见只建基线");
     assert.equal(mod.notePrefixShift(context, host, [rules]), null, "没变不写");
-    mod.notePrefixShift(context, host, [rules, { name: "focus-guard-fuse", text: "熔断" }]);
+    mod.notePrefixShift(context, host, [rulesChanged, { name: "focus-guard-fuse", text: "熔断" }]);
     const rows = readFileSync(auditFile, "utf8")
       .trim()
       .split("\n")
@@ -145,13 +146,64 @@ test("接线：FG 段变了 → 写一条 prompt-prefix-shift（七字段齐）"
       assert.ok(k in shift[0], `审计行缺字段 ${k}`);
     }
     assert.equal(shift[0].session, "wire-session");
-    assert.match(shift[0].evidence, /focus-guard-fuse/, "证据里要写清是哪一段变了");
+    assert.match(shift[0].evidence, /focus-guard-rules/, "证据里要写清是哪一段变了");
     // 宿主段变化不该触发
-    mod.notePrefixShift(context, { sections: [{ name: "host-base", text: "换了" }] }, [rules, { name: "focus-guard-fuse", text: "熔断" }]);
+    mod.notePrefixShift(context, { sections: [{ name: "host-base", text: "换了" }] }, [rulesChanged, { name: "focus-guard-fuse", text: "熔断" }]);
     assert.equal(
       readFileSync(auditFile, "utf8").trim().split("\n").length,
       rows.length,
       "宿主段变化不得写 FG 的抖动审计",
+    );
+  } finally {
+    if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;
+    else process.env.FG_AUDIT_FILE = saved.audit;
+    if (saved.ws === undefined) delete process.env.FG_WORKSPACE_FILE;
+    else process.env.FG_WORKSPACE_FILE = saved.ws;
+  }
+});
+
+// 2026-10-29：原实现只在 rules 监听器里自算,而 cost 段由另一个监听器在 next() 之后追加,
+// 观测点看不到 → cost 变了审计不响。改成最外层观测器后,这里锁两件事:
+//   ① 观测器拿到的是 next() 返回的最终装配（含 cost 段）
+//   ② 只有 fuse 段翻转（熔断开关）时不写审计（已知合法切换,别把真抖动淹掉）
+test("接线：观测器看最终装配（含 cost 段），fuse 单独翻转不写审计", async () => {
+  const TMP = mkdtempSync(join(tmpdir(), "fg-prefix-observer-"));
+  const auditFile = join(TMP, "AUDIT.log");
+  const saved = { audit: process.env.FG_AUDIT_FILE, ws: process.env.FG_WORKSPACE_FILE };
+  process.env.FG_AUDIT_FILE = auditFile;
+  process.env.FG_WORKSPACE_FILE = join(TMP, "workspace.json");
+  const rows = () =>
+    existsSync(auditFile)
+      ? readFileSync(auditFile, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l))
+      : [];
+  try {
+    const mod = await import(`../src/dsh/index.js?observer=${Date.now()}`);
+    const observer = mod.prefixObserverListener();
+    const context = { agent: { session: { header: { id: "obs-session" } } } };
+    const base = (cost) => [
+      { name: "focus-guard-rules", text: "规则" },
+      { name: "focus-guard-cost", text: cost },
+    ];
+    const call = (sections) => observer(null, context, async () => ({ sections }));
+
+    await call(base("cost-A")); // 基线
+    await call(base("cost-A")); // 稳定
+    assert.equal(rows().length, 0, "稳定期不得写审计");
+    await call(base("cost-B")); // cost 段变了 → 必须响（这就是原盲区的回归）
+    const shifts = rows().filter((r) => r.action === "prompt-prefix-shift");
+    assert.equal(shifts.length, 1, "cost 段变化必须被观测到");
+    assert.match(shifts[0].evidence, /focus-guard-cost/, "证据要指出是哪一段变了");
+
+    await call([...base("cost-B"), { name: "focus-guard-fuse", text: "熔断告知" }]);
+    await call(base("cost-B"));
+    assert.equal(
+      rows().filter((r) => r.action === "prompt-prefix-shift").length,
+      1,
+      "只由 fuse 段翻转引起的抖动不写审计",
     );
   } finally {
     if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;

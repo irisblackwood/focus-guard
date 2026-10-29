@@ -27,17 +27,20 @@ const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 1
 
 /**
  * 段指纹：整段一个总哈希 + 每段一个。
- * 总哈希用「名字:长度:内容哈希」拼起来再哈希——**顺序敏感**，
+ * 总哈希用「名字:字节数:内容哈希」拼起来再哈希——**顺序敏感**，
  * 因为段的顺序一变，前缀就不再是同一段字节（哪怕内容集合相同）。
+ *
+ * 2026-10-29 修：原先用 `text.length`（UTF-16 码元）却把差值写成 `B`——
+ * 中文一字 3 字节，审计里的"字节差"会低估约 3 倍。现统一用 UTF-8 字节。
  */
 export function fingerprintSections(sections) {
   const parts = (sections || []).map((s) => {
     const text = String((s && s.text) ?? '')
-    return { name: String((s && s.name) ?? ''), chars: text.length, hash: sha(text) }
+    return { name: String((s && s.name) ?? ''), bytes: Buffer.byteLength(text, 'utf8'), hash: sha(text) }
   })
-  const hash = sha(parts.map((p) => `${p.name}:${p.chars}:${p.hash}`).join('|'))
-  const chars = parts.reduce((a, p) => a + p.chars, 0)
-  return { hash, chars, parts }
+  const hash = sha(parts.map((p) => `${p.name}:${p.bytes}:${p.hash}`).join('|'))
+  const bytes = parts.reduce((a, p) => a + p.bytes, 0)
+  return { hash, bytes, parts }
 }
 
 /** 两版指纹的差异：谁变了、变了多少字节、有没有增删。 */
@@ -50,10 +53,10 @@ export function diffFingerprints(prev, next) {
   for (const [name, p] of after) {
     const q = before.get(name)
     if (!q) added.push(name)
-    else if (q.hash !== p.hash) changed.push({ name, chars: p.chars, delta: p.chars - q.chars })
+    else if (q.hash !== p.hash) changed.push({ name, bytes: p.bytes, delta: p.bytes - q.bytes })
   }
   for (const name of before.keys()) if (!after.has(name)) removed.push(name)
-  const bytes = ((next && next.chars) || 0) - ((prev && prev.chars) || 0)
+  const bytes = ((next && next.bytes) || 0) - ((prev && prev.bytes) || 0)
   return { changed, added, removed, bytes, stable: !changed.length && !added.length && !removed.length }
 }
 

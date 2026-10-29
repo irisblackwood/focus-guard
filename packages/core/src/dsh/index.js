@@ -43,8 +43,25 @@ import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
  *
  * 只比 `focus-guard-*` 段，且只比同一会话内：换会话本来就会变，拿它报警等于报假阳性。
  */
+
+/**
+ * 已知会**合法**翻转的段：`focus-guard-fuse` 随熔断开/关每回合切换一次。
+ * 只由它引起的抖动不写审计——否则长会话里每回合一条噪音，真正该看的抖动会被淹掉。
+ */
+const EXPECTED_SHIFT_SECTIONS = new Set(['focus-guard-fuse'])
+
+function onlyExpectedShifts(diff) {
+  const all = [
+    ...diff.changed.map((c) => c.name),
+    ...diff.added,
+    ...diff.removed,
+  ]
+  return all.length > 0 && all.every((name) => EXPECTED_SHIFT_SECTIONS.has(name))
+}
+
 const prefixTracker = createPrefixTracker({
   audit: ({ sid, diff }) => {
+    if (onlyExpectedShifts(diff)) return
     appendAudit(
       buildAuditRow(sid, 'prompt-prefix-shift', {
         trigger: 'system-prompt/assemble',
@@ -61,7 +78,25 @@ function notePrefixShift(context, downstream, extra) {
   return prefixTracker.note(sid, [...((downstream && downstream.sections) || []), ...(extra || [])])
 }
 
-// 导出给测试：接线本身（2 条 assemble 监听 + 这个函数）必须能被单独验证，
+/**
+ * 观测器：必须是 `system-prompt/assemble` 上**最先注册**的监听器。
+ * Cordis waterfall 按注册顺序 outermost-first（`cbs[0]` 最先跑，`next()` 继续），
+ * 先注册才能看到 `next()` 返回的**最终装配**——否则像 cost 段那样由别的监听器
+ * 在 `next()` 之后追加，观测点只能看到半截（2026-10-29 修）。
+ */
+export function prefixObserverListener() {
+  return async (assembly, context, next) => {
+    const downstream = await next()
+    try {
+      notePrefixShift(context, downstream, [])
+    } catch {
+      /* 指纹失败不影响装配 */
+    }
+    return downstream
+  }
+}
+
+// 导出给测试：接线本身（观测监听器 + 跟踪器）必须能被单独验证，
 // 否则"审计会不会真的写"只能靠跑真宿主才知道。
 export { notePrefixShift, prefixTracker }
 
@@ -125,6 +160,9 @@ export function apply(ctx) {
   register('tools/pre-execute', withLivenessBadge(preExecuteListener), 'tools/pre-execute')
   // 3.0.8 移植批 5：结构性执法（图书馆隔离/环境规则/大小写冲突/子代理闸/熔断白名单/L2·L5）
   register('tools/pre-execute', withLivenessBadge(preGuardListener), 'tools/pre-execute(structural)')
+  // 前缀抖动观测：必须最先注册（waterfall outermost-first）——它的 next() 才返回最终装配，
+  // 能看到 cost / rules / workspace / fuse 全部 FG 段。
+  register('system-prompt/assemble', prefixObserverListener, 'system-prompt/assemble(prefix-observer)')
   register('system-prompt/assemble', systemPromptListener, 'system-prompt/assemble')
   // 3.0.8 移植批 4：常驻规则注入（guard.mjs 的 SESSION_RULES，原文走 stdout，原生改走注入缝）
   // 2026-10-18：再包一层——启动自检缺模块时追加 `focus-guard-degraded` 段，让模型自己也看得见。
@@ -159,13 +197,8 @@ export function apply(ctx) {
         } catch {
           /* fail-open：卷宗读取失败不影响系统提示 */
         }
-        // 前缀稳定性（2026-10-29）：装配完算一次 FG 段指纹，同一会话内变了就留一条审计。
-        // 只观测，不改任何段——段内容由上面决定，这里只负责"抖了要说出来"。
-        try {
-          notePrefixShift(context, downstream, extra)
-        } catch {
-          /* 指纹失败不影响装配 */
-        }
+        // 前缀稳定性（2026-10-29）：观测已移到最外层 prefixObserverListener——
+        // 这里不再自算，否则内层看不到 cost 段会每步误报。
         if (!extra.length) return downstream
         return { ...downstream, sections: [...downstream.sections, ...extra] }
       }
