@@ -96,11 +96,16 @@ if (AB) {
     console.log(JSON.stringify(r, null, 2))
     process.exit(0)
   }
-  console.log(`输入：${r.turns} 回合 · 同一工作区 · 并发会话每 3 回合改写快照\n`)
-  console.log(`改前（每回合重渲染）  版本 ${r.before.versions} · 断点 ${r.before.breaks.length} 次 · 稳定率 ${r.before.rate.toFixed(1)}%`)
+  console.log(`输入：${r.turns} 回合 · 同一工作区 · 并发会话每 3 回合改写快照`)
+  console.log('⚠ 这是**压力场景**，不是现状：真实落盘里每个会话的系统段只变 1 次。')
+  console.log('⚠ 宿主 `systemPromptUpdate: "in-history"`——系统段变了是往历史里追加一条新 system 消息，')
+  console.log('   不是改写前缀，所以下面这些"断点"不会让整段历史重付，只多背一份系统提示。\n')
+  console.log(`改前（每回合重渲染）  版本 ${r.before.versions} · 断点 ${r.before.breaks.length} 次 · 字节稳定率 ${r.before.rate.toFixed(1)}%`)
   console.log(`  断点回合：${r.before.breaks.join(',')}`)
-  console.log(`改后（首步冻结）      版本 ${r.after.versions} · 断点 ${r.after.breaks.length} 次 · 稳定率 ${r.after.rate.toFixed(1)}%`)
+  console.log(`改后（首步冻结）      版本 ${r.after.versions} · 断点 ${r.after.breaks.length} 次 · 字节稳定率 ${r.after.rate.toFixed(1)}%`)
   console.log(`  断点回合：${r.after.breaks.join(',') || '无'}`)
+  console.log('\n字节稳定率 ≠ 宿主面板的缓存命中率：前者按回合数算"字节是否相同"，')
+  console.log('后者按 token 算"命中多少"。两个分母不同，不能直接比。')
   process.exit(0)
 }
 
