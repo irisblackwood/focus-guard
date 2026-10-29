@@ -27,6 +27,24 @@
   - **改法**：换回合清零两个计数与 `invWarned`；识别 `focus-guard-native` 的 deny 并跳过停滞累加；`STALL_FUSE` 3 → 5。
   - **测试**：新增 `fuse-budget.test.mjs` 4 条；`repeatGuard` 的"先停手"改为每会话一次。
 
+### 顺序
+
+- docs(hooks): **核查 hooks-ordering：waterfall 参与者承载不了 deny**
+  - **起因**：人类提议用它把 FG 的 `pre-execute` 声明为 `before` 其他参与者，让「先拦」从碰巧变成必然。
+  - **实测**：真包 1.0.15 + 最小 ctx，FG 排第一、`run` 返回 `{kind:'deny'}`，派发结果仍是 `HOST-DEFAULT`。
+  - **根因**：`runPhase` 是 `for (const e of topoSort(entries)) await e.run(...payload)`，**返回值没人接**；serial 那条才有 `isBailed(result) return result`。
+  - **后果**：硬接等于「`plan()` 显示排第一、实际一次没拦住」，比不装更糟。
+  - **结论**：waterfall 侧不可用；`agent/turn-stopping` 属 serial，那条有 bail 语义。
+  - **全文**：`docs/HOOK-ORDERING.md`——四条路与各自的代价。
+- feat(core): **FG 自己做定序者：`pre-execute` 阶段表改为声明式 + 拓扑排序**
+  - **动机**：顺序此前只存在于数组的书写位置里。想表达「红线必须最先」只能写注释，而注释不会被执行——挪一行数组，行为就变了，没有任何东西会红。
+  - **新增** `src/core/stageGraph.mjs`：稳定拓扑排序 + 环检测，零依赖纯函数。并列保持输入顺序、未知目标忽略、成环点名失败。
+  - **改造** `PRE_STAGES`：从函数数组改为 `{id, run, before?}` 声明，顺序由 `orderStages` 推出。
+  - **只声明一条硬约束**：`redline` 先于其余 8 段。其余不编造约束——稳定排序保持原顺序，不为「用上拓扑」把数组换个写法。
+  - **测试** `tests/stage-graph.test.mjs` 13 条：稳定 / 前推 / 后推 / 一对多 / 未知目标 / 自指 / 成环 / 重复 id / 缺 id / 纯函数 / 重复边 + **顺序不变量** + **红线第一**。
+  - **等价性**：`npm run check` exit 0、558/558，9 段实际执行顺序与改造前逐条相同。
+  - **边界**：解决「FG 内部顺序可声明、可断言」，**不解决**别的插件 prepend 插队——那只能改上游或让 FG 接管整个钩子。
+
 ### 结构
 
 - refactor(dsh): **结构异味 27 → 8，健康分 79 → 93**〔开发期〕

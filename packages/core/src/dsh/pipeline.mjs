@@ -30,6 +30,8 @@ import { eligibilityStage, valueGateStage } from './guard/authz.mjs'
 import { volumeStage, pollutionStage } from './guard/volume.mjs'
 import { OBSERVATION, riskOfSentinel, riskStage } from './guard/risk.mjs'
 import { warnIfStaleOnce } from './guard/runtime.mjs'
+// 阶段定序（母版纯函数）：顺序写成 before/after 声明，由拓扑排序推出，不靠数组书写位置。
+import { orderStages, stageIds } from '../core/stageGraph.mjs'
 
 // 各缝原有导出原样转发（引用面：index.js / tests / tools/selftest.mjs）。
 export { ABSOLUTE_REDLINES } from '../core/redlines.mjs'
@@ -47,21 +49,40 @@ export { hardCheck } from './guard/hardCheck.mjs'
 export { systemPromptListener, postExecuteListener } from './guard/runtime.mjs'
 
 /**
- * pre-execute 阶段顺序（与原单函数内的段落顺序逐条对应；首个非空即短路）。
+ * pre-execute 阶段表（2026-10-29 改为声明式 + 拓扑定序）。
+ *
  * 每个阶段的契约：返回 falsy → 继续下一段；返回决策 → 立即生效；
  * 自身异常在其内部 catch，按原语义 fail-open（放行下游或继续下一段）。
+ *
+ * 顺序此前只存在于**数组的书写位置**里：想表达「红线必须最先」只能写注释，
+ * 而注释不会被执行，挪一行数组没有任何东西会红。现在它是 `before` 声明，
+ * 由 `orderStages` 推出顺序——顺序意图变成可断言的东西。
+ *
+ * 只有 `redline` 声明了硬约束（它是最硬的拒绝，且拒绝不需要任何前置信息）。
+ * 其余段落没有强制的先后，靠**稳定排序保持输入顺序**——不为了"用上拓扑"
+ * 去编造约束，那等于把数组换个写法。
  */
-const PRE_STAGES = [
-  redlineStage,
-  superpowersStage,
-  wholeFileStage,
-  hardCheckStage,
-  eligibilityStage,
-  valueGateStage,
-  volumeStage,
-  pollutionStage,
-  riskStage,
-]
+const PRE_STAGES = orderStages([
+  {
+    id: 'redline',
+    run: redlineStage,
+    before: ['superpowers', 'wholeFile', 'hardCheck', 'eligibility', 'valueGate', 'volume', 'pollution', 'risk'],
+  },
+  { id: 'superpowers', run: superpowersStage },
+  { id: 'wholeFile', run: wholeFileStage },
+  { id: 'hardCheck', run: hardCheckStage },
+  { id: 'eligibility', run: eligibilityStage },
+  { id: 'valueGate', run: valueGateStage },
+  { id: 'volume', run: volumeStage },
+  { id: 'pollution', run: pollutionStage },
+  { id: 'risk', run: riskStage },
+])
+
+/**
+ * 定序结果的 id 序列——供 `tests/stage-graph.test.mjs` 锁住顺序不变量。
+ * 改顺序要么改声明、要么改这里，两者都得过测试。
+ */
+export const PRE_STAGE_ORDER = stageIds(PRE_STAGES)
 
 export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OBSERVATION, statePath } = {}) {
   return async (exec, next) => {
@@ -100,7 +121,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
     }
 
     for (const stage of PRE_STAGES) {
-      const verdict = await stage(ctx)
+      const verdict = await stage.run(ctx)
       if (verdict) return verdict
     }
     return next()

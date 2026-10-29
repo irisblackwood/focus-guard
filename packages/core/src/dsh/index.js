@@ -164,6 +164,24 @@ export function apply(ctx) {
     },
     'agent/created(policy-audit)',
   )
+  // 钩子顺序自检（2026-10-29）：Cordis 的 waterfall 按注册顺序派发，互不相关的插件之间
+  // 顺序不确定。**不能**用 @zfdx123/dsh-hooks-ordering 的 participant 接口解决——它的
+  // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（实测见 docs/HOOK-ORDERING.md）。
+  // 这里只观测：协调器在不在、FG 在不在参与者列表里。只报不改，与 policy-audit 同纪律。
+  register(
+    'agent/created',
+    () => async (payload, next) => {
+      try {
+        const { probeHookOrdering } = await import('./hookOrder.mjs')
+        const verdict = probeHookOrdering(ctx)
+        warn(`钩子顺序[${verdict.state}]：${verdict.message}`)
+      } catch (error) {
+        warn('钩子顺序自检失败（不影响执法）：', (error && error.message) || error)
+      }
+      return typeof next === 'function' ? next(payload) : undefined
+    },
+    'agent/created(hook-order)',
+  )
   register('agent/pre-step', preStepListener, 'agent/pre-step')
   // 回合结束自动落账（L4，2026-10-18）：只记 FG 亲眼看到的事实（人类指令 / 被人否决的命令），
   // 不推断、不编造；写失败只 warn。与 DCR 不同：这里不 cancel、不 reject、不碰 surface。
