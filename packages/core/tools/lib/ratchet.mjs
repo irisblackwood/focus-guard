@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 /**
@@ -13,17 +14,42 @@ import { join } from 'node:path'
  * 本模块把「降」从口号变成可校验的事实：台账里每个版本记一次实际值，发版时必须
  * 严格小于上一版本。想发版，就得先还一条债。
  *
- * ## 三条规则
+ * ## 四条规则
  *
  *   ① 实测 ≤ 本版记账值 —— 防反弹（台账写完又被改坏）
  *   ② 本版总和 < 上一版总和 —— 每版至少还 1 条
  *   ③ 首版免 ② —— 总得有个起点
+ *   ④ 自上次记账起 ≥10 次提交仍未降 —— 还款期限（2026-10-30 人类要求：
+ *      「每 N 次提交必须降 1」。按版本记账的问题是：版本可以很久不发，
+ *      于是 8/8 能一直挂着不动。改成按提交数催，才管得住「不发版就不还债」）
  *
  * ## 为什么不塞进 smells.mjs
  *
  * 那个文件 380 行，上限 400。台账逻辑加进去会把闸门自己顶成一条新的结构异味。
  * 判据：**闸门不能自己触发自己的告警**。
  */
+
+/** 还款期限：自上次记账 commit 起，多少提交内必须还 1 条 */
+export const COMMITS_PER_PAYBACK = 10
+
+/**
+ * 自某 commit 起的提交数。取不到就返回 null（浅克隆 / 非 git 仓库 / 无该 sha）。
+ * 返回 null 时规则④跳过——**缺数据允许粗判，但必须在输出里写明**，不能假装查过。
+ */
+function commitsSince(repo, sha) {
+  if (!sha) return null
+  try {
+    const out = execFileSync('git', ['rev-list', '--count', `${sha}..HEAD`], {
+      cwd: repo,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const n = Number(out.trim())
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * 校验台账。
@@ -33,7 +59,7 @@ import { join } from 'node:path'
  * @param {{smells: number, duplicates: number}} actual 本次实测值
  * @returns {{findings: Array<{rule: string, detail: string}>, entry: object|null, total: number|null}}
  */
-export function checkRatchet(ledger, version, actual) {
+export function checkRatchet(ledger, version, actual, opts = {}) {
   const findings = []
   const history = Array.isArray(ledger?.history) ? ledger.history : []
   const idx = history.findIndex((h) => h && h.version === version)
@@ -64,9 +90,10 @@ export function checkRatchet(ledger, version, actual) {
   }
 
   // ② 还款义务：必须严格小于上一版
+  let prevTotal = null
   if (idx > 0) {
     const prev = history[idx - 1]
-    const prevTotal = (prev.smells || 0) + (prev.duplicates || 0)
+    prevTotal = (prev.smells || 0) + (prev.duplicates || 0)
     if (!(total < prevTotal)) {
       findings.push({
         rule: 'ratchet-not-lowered',
@@ -75,7 +102,27 @@ export function checkRatchet(ledger, version, actual) {
     }
   }
 
-  return { findings, entry: cur, total }
+  // ④ 还款期限：不发新版也要还债。只看「当前版本还没降」这一种情形——
+  //    已经降过的（② 满足）不该再被催。
+  const n = opts.commitsSinceLast
+  if (typeof n === 'number' && n >= COMMITS_PER_PAYBACK) {
+    const stalled = idx === 0 || total >= prevTotal
+    if (stalled) {
+      findings.push({
+        rule: 'ratchet-overdue',
+        detail: `自上次记账（${cur.commit || '未记 commit'}）起已 ${n} 次提交，总和仍为 ${total}——超过 ${COMMITS_PER_PAYBACK} 次必须还 1 条`,
+      })
+    }
+  }
+
+  return { findings, entry: cur, total, commitsSinceLast: typeof n === 'number' ? n : null }
+}
+
+/** 还款期限的展示文案。放在这里而不是 smells.mjs——那文件 396 行，上限 400，加 4 行就自己超限。 */
+export function paybackNote(check) {
+  if (check.commitsKnown === false) return '（提交数取不到，只能粗判）'
+  const n = check.commitsSinceLast
+  return typeof n === 'number' ? `（距上次记账 ${n}/${COMMITS_PER_PAYBACK} 次提交）` : ''
 }
 
 /**
@@ -99,7 +146,15 @@ export function loadRatchet(repo, actual) {
   try {
     const version = JSON.parse(readFileSync(pkgPath, 'utf8')).version
     const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
-    return { ...checkRatchet(ledger, version, actual), version }
+    const history = Array.isArray(ledger.history) ? ledger.history : []
+    const last = history.length ? history[history.length - 1] : null
+    const n = commitsSince(repo, last && last.commit)
+    return {
+      ...checkRatchet(ledger, version, actual, { commitsSinceLast: n }),
+      version,
+      // 取不到提交数时明说「只能粗判」——假装精确比承认不确定更糟
+      commitsKnown: n !== null,
+    }
   } catch (error) {
     return {
       findings: [{ rule: 'ledger-unreadable', detail: String(error && error.message) }],

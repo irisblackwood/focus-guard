@@ -11,7 +11,7 @@
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
     "check": "node packages/core/tests/audit-isolation.mjs --wrap \"npm run check:inner\"",
-    "check:inner": "npm run test:all && npm run eval && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run docs:lint:gate && npm run lint:gate && npm run smells:gate && npm run schema:verify",
+    "check:inner": "npm run test:all && npm run eval && npm run eval:dsh && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run docs:lint:gate && npm run lint:gate && npm run smells:gate && npm run schema:verify",
     "privacy:gate": "node packages/core/tools/privacy-guard.mjs",
     "test:all": "node packages/core/tests/audit-isolation.mjs",
     "selftest": "node packages/core/tools/selftest.mjs",
@@ -47,7 +47,8 @@
     "health": "node packages/core/tools/health.mjs",
     "health:brief": "node packages/core/tools/health.mjs --brief",
     "prefix:drift": "node packages/core/tools/prefix-drift.mjs",
-    "prefix:audit": "node packages/core/tools/prefix-audit.mjs"
+    "prefix:audit": "node packages/core/tools/prefix-audit.mjs",
+    "eval:dsh": "node packages/core/tests/threat-eval-dsh.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

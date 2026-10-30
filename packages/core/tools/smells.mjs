@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url'
 // 一路吞到下一个引号，把中间的 `export function preExecuteListener` 抹平——398 行的函数
 // 量成了"不存在"。同一段逻辑写两遍就一定会分叉，现统一。
 import { stripLiterals as stripNoise } from './lib/source-text.mjs'
-import { loadRatchet } from './lib/ratchet.mjs'
+import { loadRatchet, paybackNote } from './lib/ratchet.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：测试要造夹具目录跑真扫描，否则这个工具自己没被测量。
@@ -360,7 +360,10 @@ if (AS_JSON) {
     .map(([k, n]) => `${k} ${n}`)
   const gate = overBudget ? `❌ 超上限 ${BUDGET}` : `✅ 上限 ${BUDGET}`
   const dupGate = dupOverBudget ? `❌ 超上限 ${DUP_BUDGET}` : `✅ 上限 ${DUP_BUDGET}`
-  const ratchetGate = ledgerBad ? `❌ 台账 ${ledgerCheck.findings.length} 条` : '✅ 台账'
+  // 台账不只报红绿，还要报「离还债期限还有几次提交」——否则绿着绿着就到期了没人知道
+  const ratchetGate = ledgerBad
+    ? `❌ 台账 ${ledgerCheck.findings.length} 条`
+    : `✅ 台账${paybackNote(ledgerCheck)}`
   console.log(
     `结构异味：${files.length} 文件，源文件 ${srcFindings.length} 条（${gate}）/ 测试 ${testFindings.length} 条` +
       `；重复块 源 ${dupSrc.length} 条（${dupGate}）/ 测试 ${dupTest.length} 条${parts.length ? `（${parts.join(' / ')}）` : ''}；${ratchetGate}`,
