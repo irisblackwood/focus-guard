@@ -154,7 +154,7 @@ test("跟踪器：audit 抛错不影响跟踪（观测不能拖垮装配）", ()
 // ── 接线：审计行真的会被写出来吗（2026-10-29）──────────────────────────────
 // 前面测的是纯函数；这一条测"接线在不在"。没有它，纯函数全绿也可能根本没被调用。
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -255,6 +255,115 @@ test("接线：观测器看最终装配（含 cost 段），fuse 单独翻转不
       1,
       "宿主段变化不得写进 FG 的 prompt-prefix-shift",
     );
+  } finally {
+    if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;
+    else process.env.FG_AUDIT_FILE = saved.audit;
+    if (saved.ws === undefined) delete process.env.FG_WORKSPACE_FILE;
+    else process.env.FG_WORKSPACE_FILE = saved.ws;
+  }
+});
+
+// ── 注册顺序：观测器必须真的在最外层（2026-10-30）─────────────────────────
+// 上面两条接线用例是**手工调用** observer 函数，绕过了注册链。若注册顺序错了
+// （比如有人在 observer 之前 prepend 了别的监听器），它就成了内层，
+// next() 只能看到下游，rules 追加的 workspace 段它永远看不见——而测试照样全绿。
+// 这条走真实 apply(ctx)，并按 Cordis 语义跑链（源码 lib/index.js:317 `cbs.shift()`，
+// 注释原文 "Listeners run outermost-first"）：注册在前的先跑 = 最外层。
+
+test("注册顺序：apply 后观测器在最外层，基线含 rules 追加的 workspace 段", async () => {
+  const TMP = mkdtempSync(join(tmpdir(), "fg-prefix-order-"));
+  const saved = { ws: process.env.FG_WORKSPACE_FILE, audit: process.env.FG_AUDIT_FILE };
+  process.env.FG_WORKSPACE_FILE = join(TMP, "workspace.json");
+  process.env.FG_AUDIT_FILE = join(TMP, "AUDIT.log");
+  try {
+    const mod = await import(`../src/dsh/index.js?order=${Date.now()}`);
+    const ws = await import("../src/dsh/workspace.mjs");
+    const cwd = join(TMP, "proj");
+    mkdirSync(cwd, { recursive: true });
+    ws.resetWorkspaceSectionCache();
+    ws.mergeWorkspace(cwd, { decisions: ["order-d1"], constraints: ["order-c1"] });
+
+    // 假 ctx：**push 不覆盖**。fuse-lifecycle 那份用 Map.set，同事件只留最后一个，测不了顺序。
+    const hooks = new Map();
+    const ctx = {
+      on: (event, fn) => {
+        if (!hooks.has(event)) hooks.set(event, []);
+        hooks.get(event).push(fn);
+      },
+      tools: { register: () => {}, guard: () => {}, schemas: () => [] },
+      logger: { warn: () => {} },
+      effect: () => {},
+    };
+    mod.apply(ctx);
+
+    const chain = hooks.get("system-prompt/assemble") || [];
+    assert.ok(chain.length >= 3, `装配缝应有 ≥3 个监听器，实际 ${chain.length}`);
+
+    const sid = `order-${process.pid}`;
+    const context = { agent: { session: { header: { id: sid, cwd } } } };
+    const inner = () => ({ sections: [{ name: "host-base", text: "宿主" }] });
+    // 按 Cordis waterfall 语义跑：cbs.shift() → 第一个先跑，next() 继续；没人接管就落到 inner。
+    const runChain = (assembly) => {
+      const cbs = [...chain];
+      const next = () => {
+        const cb = cbs.shift();
+        return cb ? cb(assembly, context, next) : inner();
+      };
+      return next();
+    };
+
+    const out = await runChain({ sections: [{ name: "host-base", text: "宿主" }] });
+    const names = (out && out.sections ? out.sections : []).map((s) => s.name);
+    assert.ok(
+      names.includes("focus-guard-workspace"),
+      `rules 监听器应追加 workspace 段，实际：${names.join(",") || "(空)"}`,
+    );
+
+    // 关键断言：观测器的基线里必须有 workspace 段。
+    // 若它被注册到内层，next() 返回的是 rules 之前的结果，基线里就只有 host-base。
+    const fp = mod.prefixTracker.get(sid);
+    assert.ok(fp, "观测器应已建基线");
+    const tracked = fp.parts.map((p) => p.name);
+    assert.ok(
+      tracked.includes("focus-guard-workspace"),
+      `观测器看不到 rules 追加的段（说明它不在最外层）：${tracked.join(",") || "(空)"}`,
+    );
+    assert.ok(!tracked.includes("host-base"), "宿主段不该进 FG 基线");
+  } finally {
+    if (saved.ws === undefined) delete process.env.FG_WORKSPACE_FILE;
+    else process.env.FG_WORKSPACE_FILE = saved.ws;
+    if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;
+    else process.env.FG_AUDIT_FILE = saved.audit;
+  }
+});
+
+// fuse 白名单是**限次免检**，不是免检（2026-10-30）：
+// 正常熔断拨一下，连续拨第四次说明它在抖（state 读错/写错），必须报。
+test("fuse 单独翻转超过阈值 → 判 churn 并写审计", async () => {
+  const TMP = mkdtempSync(join(tmpdir(), "fg-prefix-churn-"));
+  const auditFile = join(TMP, "AUDIT.log");
+  const saved = { audit: process.env.FG_AUDIT_FILE, ws: process.env.FG_WORKSPACE_FILE };
+  process.env.FG_AUDIT_FILE = auditFile;
+  process.env.FG_WORKSPACE_FILE = join(TMP, "workspace.json");
+  const rows = () =>
+    existsSync(auditFile)
+      ? readFileSync(auditFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+      : [];
+  try {
+    const mod = await import(`../src/dsh/index.js?churn=${Date.now()}`);
+    const context = { agent: { session: { header: { id: "churn-session" } } } };
+    const call = (fuse) =>
+      mod.notePrefixShift(context, { sections: [{ name: "focus-guard-fuse", text: fuse }] }, []);
+
+    call("关"); // 基线
+    call("开"); // 1
+    call("关"); // 2
+    call("开"); // 3
+    assert.equal(rows().filter((r) => r.action === "prompt-prefix-shift").length, 0, "前 3 次属正常拨动，不报");
+    call("关"); // 4 > 阈值
+    const shifts = rows().filter((r) => r.action === "prompt-prefix-shift");
+    assert.equal(shifts.length, 1, "第 4 次必须报——白名单不能把真故障吞掉");
+    assert.match(shifts[0].evidence, /fuse-churn/, "证据要标明这是 churn 而非普通抖动");
   } finally {
     if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;
     else process.env.FG_AUDIT_FILE = saved.audit;

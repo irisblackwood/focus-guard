@@ -176,6 +176,18 @@
   - **可测**：每次装配算 FG 段指纹，同会话内变了写 `prompt-prefix-shift` 审计（段名 + 字节差）。顺序变了也算变。
   - **纠错**：本条初版把抖动源写成「决策」行——那是看错分歧上下文，实测是「上次会话」行。已在 `docs/ARCHITECTURE.md` 同节改正。
   - **顺带**：`prefix-audit` 与 `prefix-drift` 的 `walk` / `decode` 抽进 `tools/lib/sessionDump.mjs`——重复块检测当场报了 44 > 41。
+- fix(prefix): **观测器移到装配最外层，字节口径改 UTF-8，fuse 白名单改限次**〔开发期〕
+  - **盲区**：观测器原住在 rules 监听器内部，而 cost 段由外层在 `next()` 之后追加——cost 变了审计不响。现独立成监听器、注册在 `system-prompt/assemble` 第一位。
+  - **依据**：Cordis `lib/index.js:317` 是 `cbs.shift()`，注释 `Listeners run outermost-first`——注册在前先跑。测试用真实 `apply(ctx)` 跑链锁住，变异会红。
+  - **字节**：`text.length` 数的是 UTF-16 码元却标成 `B`，中文低估约 3 倍；改 `Buffer.byteLength`。
+  - **限次**：fuse 单独翻转超过 3 次判 `churn` 照常报——白名单不能把真故障吞掉。
+- feat(prefix): **黄金指纹进 CI，宿主段漂移单独诊断**〔开发期〕
+  - **黄金指纹**：固定规则 + 固定卷宗 + 固定熔断文案 → 断言指纹 / 总字节 / 分段字节。注入内容漂移直接红，改内容须显式更新黄金值。
+  - **分责**：`hostTracker` 只看非 FG 段，变了写 `prompt-prefix-host`，每会话最多一次——分清"FG 又抖了"与"宿主变了"。
+- feat(prefix): **`--cost` 接面板对账，并统一命中率分母**〔开发期〕
+  - **口径**：`hit` 原用 `cacheRead/total`，而 total 含 output；现改 `cacheRead/(cacheRead+uncached)`，与 `collect-panel` 一致。
+  - **如实**：真实运行只报"sid 无交集，对账没有发生"——`panel-runs.json` 只有 3 条 10-22 记录。功能没坏，是没数据。
+  - **顺带**：`runCost` + 面板匹配抽到 `tools/lib/prefix-cost.mjs`，CLI 412 → 312 行。
 
 ### 文档
 

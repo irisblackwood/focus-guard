@@ -45,10 +45,13 @@ if (COST) {
   }
   // 面板实测对账（2026-10-29）：est4 只是估算，真实 token 与命中率在宿主面板；
   // 面板基线（panel-runs.json，collect-panel.mjs 产出）带 session id，能按 sid 匹配时给校准系数。
-  const { panelFile, matched } = attachPanel(rows, arg('--panel', 'panel-runs.json'))
+  // 2026-10-30：attachPanel 现在返回诊断（panelRows / panelLatest / rowsScanned / error），
+  // 匹配不上时能说清原因，而不是只丢一句"无可匹配"。
+  const diag = attachPanel(rows, arg('--panel', 'panel-runs.json'))
+  const { panelFile, matched } = diag
 
   if (AS_JSON) {
-    console.log(JSON.stringify({ rows, panelFile, matched }, null, 2))
+    console.log(JSON.stringify({ rows, panel: diag }, null, 2))
     process.exit(0)
   }
 
@@ -90,7 +93,18 @@ if (COST) {
     const tr = withReal.reduce((a, r) => ({ t: a.t + r.real.total, c: a.c + r.real.cacheRead, u: a.u + r.real.uncached }), { t: 0, c: 0, u: 0 })
     console.log(`实测合计：total ${tr.t} · 缓存读 ${tr.c}（命中 ${((tr.c / (tr.t || 1)) * 100).toFixed(1)}%）· 未缓存 ${tr.u}`)
   } else {
-    console.log(`\n面板实测：${panelFile} 无可匹配会话（est4 仍只是估算，不是账单）。`)
+    // 说清"为什么没对上"，别让人分不清是缺数据还是功能坏了。
+    const why = diag.error
+      ? `读不了（${diag.error}）`
+      : diag.panelRows === 0
+        ? '文件为空或不是数组'
+        : `共 ${diag.panelRows} 条（最新 ${String(diag.panelLatest || '无日期').slice(0, 10)}），` +
+          `本次扫描 ${diag.rowsScanned} 个会话——sid 前 8 位无交集`
+    console.log(`\n面板实测：${panelFile} ${why}。`)
+    console.log(
+      '        → 对账**没有发生**，est4 仍只是估算。面板数字只能人工从宿主抄：' +
+        '`node packages/core/tools/collect-panel.mjs --init` 生成模板，抄完再跑本命令。',
+    )
   }
   console.log('\n口径：est4（字符/4），不是账单；费用按"除这次追加外全部命中"算（面板 99.6% 的场景）。')
   console.log('实测/est4 <1 表示 est4 高估（按字符/4 算多了）、>1 表示低估；面板命中率是真实缓存收益，改前改后对比它比 $ 估更有意义。')

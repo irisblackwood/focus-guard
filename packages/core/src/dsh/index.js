@@ -47,25 +47,24 @@ import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
 /**
  * 已知会**合法**翻转的段：`focus-guard-fuse` 随熔断开/关每回合切换一次。
  * 只由它引起的抖动不写审计——否则长会话里每回合一条噪音，真正该看的抖动会被淹掉。
+ *
+ * 2026-10-30：白名单从"免检"改成"限次免检"，逻辑落在 `createPrefixTracker`
+ * （`expectedSections` / `churnLimit`）。正常熔断是"拨一下"，连拨第四次说明它在抖。
  */
 const EXPECTED_SHIFT_SECTIONS = new Set(['focus-guard-fuse'])
-
-function onlyExpectedShifts(diff) {
-  const all = [
-    ...diff.changed.map((c) => c.name),
-    ...diff.added,
-    ...diff.removed,
-  ]
-  return all.length > 0 && all.every((name) => EXPECTED_SHIFT_SECTIONS.has(name))
-}
+const FUSE_CHURN_LIMIT = 3
 
 const prefixTracker = createPrefixTracker({
+  expectedSections: EXPECTED_SHIFT_SECTIONS,
+  churnLimit: FUSE_CHURN_LIMIT,
   audit: ({ sid, diff }) => {
-    if (onlyExpectedShifts(diff)) return
     appendAudit(
       buildAuditRow(sid, 'prompt-prefix-shift', {
         trigger: 'system-prompt/assemble',
-        evidence: describeShift(diff),
+        evidence:
+          diff.kind === 'churn'
+            ? `fuse-churn(>${FUSE_CHURN_LIMIT} 次) | ${describeShift(diff)}`
+            : describeShift(diff),
       }),
     )
   },
@@ -278,7 +277,7 @@ export function apply(ctx) {
   )
   // 钩子顺序自检（2026-10-29）：Cordis 的 waterfall 按注册顺序派发，互不相关的插件之间
   // 顺序不确定。**不能**用 @zfdx123/dsh-hooks-ordering 的 participant 接口解决——它的
-  // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（实测见 docs/HOOK-ORDERING.md）。
+  // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（实测见 CHANGELOG「FG 自己做定序者」条目）。
   // 这里只观测：协调器在不在、FG 在不在参与者列表里。只报不改，与 policy-audit 同纪律。
   register(
     'agent/created',

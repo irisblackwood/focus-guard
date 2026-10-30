@@ -91,29 +91,53 @@ export function runCost({ sessionsDir, limit = 8 } = {}) {
  * 面板实测对账：把 `panel-runs.json`（带 sid 的真实 token）按前 8 位 sid 匹配到本次扫描的会话，
  * 给每行补 `real = {total, cacheRead, uncached, output, hit, factor}`。
  * `factor = 实测/est4`：<1 表示 est4 高估，>1 表示低估。
+ *
+ * 2026-10-30 修两处：
+ *  ① `hit` 原先用 `cacheRead / total`，而 total = uncached + cacheRead + **output**——
+ *     output 不是缓存对象，把它算进命中率的分母会让命中率系统性偏低，
+ *     且与 `collect-panel.mjs` 的 `hitRate`（cacheRead/(cacheRead+uncached)）同名不同值。
+ *     现统一用**输入**作分母。
+ *  ② 返回体补诊断字段（panelRows / panelLatest / rowsScanned / error），
+ *     让"一条都没匹配上"能说清是**面板没数据**、**日期不相交**还是**读不了**——
+ *     原实现只说"无可匹配"，读的人分不清是缺数据还是功能坏了。
  */
 export function attachPanel(rows, panelFile) {
   let panel = []
+  let error = null
   try {
     panel = JSON.parse(readFileSync(panelFile, 'utf8'))
-  } catch {
+  } catch (e) {
+    error = (e && e.message) || String(e)
     panel = []
   }
+  const list = Array.isArray(panel) ? panel : []
   const bySid = new Map(rows.map((r) => [r.sid, r]))
   let matched = 0
-  for (const p of Array.isArray(panel) ? panel : []) {
+  for (const p of list) {
     const r = bySid.get(String((p && p.sid) || '').slice(0, 8))
     if (!r) continue
     matched += 1
     const total = Number(p.total) || 0
+    const cacheRead = Number(p.cacheRead) || 0
+    const uncached = Number(p.uncached) || 0
+    const inputTok = cacheRead + uncached
     r.real = {
       total,
-      cacheRead: Number(p.cacheRead) || 0,
-      uncached: Number(p.uncached) || 0,
+      cacheRead,
+      uncached,
       output: Number(p.output) || 0,
-      hit: total ? (Number(p.cacheRead) || 0) / total : null,
+      // 分母只算输入：output 不是缓存对象。
+      hit: inputTok ? cacheRead / inputTok : null,
       factor: r.totalTok ? total / r.totalTok : null,
     }
   }
-  return { panelFile, matched }
+  const dates = list.map((p) => String((p && p.at) || '')).filter(Boolean).sort()
+  return {
+    panelFile,
+    matched,
+    panelRows: list.length,
+    panelLatest: dates.length ? dates[dates.length - 1] : null,
+    rowsScanned: rows.length,
+    error,
+  }
 }

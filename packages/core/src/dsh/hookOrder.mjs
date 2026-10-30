@@ -8,7 +8,7 @@
  * 为什么不用 `@zfdx123/dsh-hooks-ordering` 的 participant 接口来解决：**它不消费返回值**。
  * 协调器的 `runPhase` 是 `for (const e of topoSort(entries)) await e.run(...payload)`，
  * 返回值被丢弃，而 FG 的拦截正是靠 `return {kind:'deny'}`。接上去的后果是
- * 「plan() 显示排第一，实际一次都没拦住」——比不装更糟。完整核查见 `docs/HOOK-ORDERING.md`。
+ * 「plan() 显示排第一，实际一次都没拦住」——比不装更糟。完整核查见 CHANGELOG 里「FG 自己做定序者」那条的实测记录（真包 1.0.15 + 最小 ctx：FG 排第一、run 返回 deny，派发结果仍是 HOST-DEFAULT）。
  *
  * 所以这里只做**观测**：探测协调器在不在、FG 在不在参与者列表里，如实报出去。
  * 与 `policy-audit.mjs` 同纪律：只报不改，不改任何判定。
@@ -57,7 +57,7 @@ export function judgeOrdering({ hasService, plans = {} }) {
       // 正常情况下不该出现：waterfall 参与者无法承载 deny，FG 若出现在这里说明有人接错了
       message:
         `FG 出现在 hooks-ordering 的参与者列表（${where.join('、')}）——` +
-        'waterfall 参与者的返回值会被协调器丢弃，FG 的 deny 不会生效。见 docs/HOOK-ORDERING.md §三。',
+        'waterfall 参与者的返回值会被协调器丢弃，FG 的 deny 不会生效（实测：runPhase 的 for-of 丢弃返回值，只有 serial 那条有 isBailed）。',
     }
   }
 

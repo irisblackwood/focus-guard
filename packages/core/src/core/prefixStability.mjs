@@ -74,14 +74,44 @@ export function describeShift(diff) {
  * 按会话跟踪前缀指纹。
  * 只在**同一会话内**比：会话 A 的基线拿去比会话 B 是两回事（换会话本来就会变）。
  *
- * @param {{audit?: (evt: {sid: string, diff: object, fingerprint: object}) => void, max?: number, filter?: (section: object) => boolean}} opts
+ * `expectedSections` / `churnLimit`：已知会**合法**翻转的段（目前只有熔断告知）。
+ * 只由它们引起的抖动默认不回调 audit，但**不是免检**——同一会话内累计超过
+ * `churnLimit` 次判为 `churn` 照常回调（`diff.kind === 'churn'`）。
+ * 理由：正常熔断是"拨一下"，连拨第四次说明它在抖（state 读错/写错），
+ * 白名单不能把真故障吞掉（2026-10-30 修）。
+ *
+ * @param {{audit?: (evt: {sid: string, diff: object, fingerprint: object}) => void, max?: number, filter?: (section: object) => boolean, expectedSections?: Set<string>|null, churnLimit?: number}} opts
  */
-export function createPrefixTracker({ audit, max = 64, filter = (s) => isFgSection(s && s.name) } = {}) {
+export function createPrefixTracker({
+  audit,
+  max = 64,
+  filter = (s) => isFgSection(s && s.name),
+  expectedSections = null,
+  churnLimit = 3,
+} = {}) {
   const memo = new Map()
+  const churn = new Map()
+
+  /** @returns {'real'|'expected'|'churn'} */
+  const classify = (diff, sid) => {
+    if (!expectedSections) return 'real'
+    const all = [...diff.changed.map((c) => c.name), ...diff.added, ...diff.removed]
+    if (!all.length || !all.every((name) => expectedSections.has(name))) return 'real'
+    const n = (churn.get(sid) || 0) + 1
+    if (!churn.has(sid) && churn.size >= max) churn.delete(churn.keys().next().value)
+    if (n > churnLimit) {
+      // 报一次就归零：连续抖动会每 churnLimit+1 次报一条，可观测但不刷屏。
+      churn.set(sid, 0)
+      return 'churn'
+    }
+    churn.set(sid, n)
+    return 'expected'
+  }
+
   return {
     /**
      * 记一次装配。首见某会话只建基线（不报）；之后变了才回调 audit。
-     * @returns {object|null} 变化描述；稳定或首见返回 null
+     * @returns {object|null} 变化描述（带 `kind`）；稳定或首见返回 null
      */
     note(sid, sections) {
       if (!sid) return null
@@ -93,7 +123,10 @@ export function createPrefixTracker({ audit, max = 64, filter = (s) => isFgSecti
       // **先更新基线再回调**：回调（写审计）万一抛错，基线也已经是新的，
       // 否则下一步会拿旧基线再报一次，把一次抖动变成每步都报。
       memo.set(sid, fp)
-      if (diff && typeof audit === 'function') audit({ sid, diff, fingerprint: fp })
+      if (diff) {
+        diff.kind = classify(diff, sid)
+        if (diff.kind !== 'expected' && typeof audit === 'function') audit({ sid, diff, fingerprint: fp })
+      }
       return diff
     },
     /** 取某会话当前基线（诊断/测试用）。 */
