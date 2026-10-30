@@ -21,7 +21,7 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { statePath, loadState } from '../core/state.mjs'
 
-/** 默认落点：仓库根 `.focus-guard/workspace.json`（该目录已在 .gitignore）。 */
+/** 默认落点：仓库根 `.focus-guard/workspace.json`（该目录在本地 exclude 里，2026-10-30 起不再写进 .gitignore）。 */
 const WORKSPACE_FILE = fileURLToPath(new URL('../../../../.focus-guard/workspace.json', import.meta.url))
 
 /** `FG_WORKSPACE_FILE` 可重定向——测试必须用它，否则会写进真实工作区。 */

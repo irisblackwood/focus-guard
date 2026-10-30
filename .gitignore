@@ -1,11 +1,18 @@
-# 本地运行产物（含会话 ID 与本机路径，禁止入库）
-.focus-guard/
-.ai/
-*.log
+# 私有面（本机数据 / 含本机绝对路径的本地文件）**不写在这里**——见 `.git/info/exclude`。
+#
+# 原因：本文件进版本库、是公开的。在这里点名一条，就等于向外界宣告"我有这么一类
+# 私有数据"——内容看不到，但分类全暴露。搬到 `.git/info/exclude`（本地、不入库）之后，
+# 外人只知道仓库里没有这些文件，看不到屏蔽了什么。
+#
+# 代价与对策：exclude 不随仓库走，换机器 clone 后必须重装，否则 `git add .` 会
+# 把私有数据整包收进去。所以有守卫：
+#   npm run privacy:gate                                  校验（已跟踪命中 / 此处点名 / 清单是否已装）
+#   node packages/core/tools/privacy-guard.mjs --install   重装清单（幂等）
+#
+# 维护纪律：新增私有路径只加在 exclude 与清单备份，**不要**往本文件加。
 
-# 本地部署辅助脚本（含本机绝对路径）
-deploy.mjs
-HANDOFF.md
+# 运行日志（通用后缀；私有目录本身在 exclude 里）
+*.log
 
 # 测试临时产物
 _guard_under_test.mjs
@@ -24,18 +31,6 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-# 本地研读精华（正文私有，不入库；仅保留空壳清单做版本保护）
-/docs/vault-notes/*
-!/docs/vault-notes/README.md
-
-# 插件与工具产物（本地自动维护 / 可再生，不入库）
-.archify/
-.workbuddy-ai/
-self-improvement/
-
-# IDE 工作区状态（Visual Studio / VS Code，本机私有）
+# IDE 工作区状态（Visual Studio / VS Code）
 .vs/
 .vscode/
-
-# 面板采集数据（人工抄录的轮次数据，本机私有）
-panel-runs*.json
