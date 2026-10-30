@@ -1,4 +1,7 @@
 /**
+ * 【私有工具】读 .ai/output/library-*，产物落 .ai/output/——私有面，不入库、不随 npm 分发。
+ * 见 .git/info/exclude 与 privacy:gate。
+ *
  * 把派生积木拼成一本**单文件 HTML 书**（2026-10-30）
  *
  * 为什么是单文件：用户要「双击一个文件就打开」，不能起服务器。
