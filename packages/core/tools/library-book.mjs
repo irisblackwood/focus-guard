@@ -10,6 +10,10 @@
  *
  * 用法：
  *   node packages/core/tools/library-book.mjs [--src .ai/output/library] [--out <file>]
+ *                                             [--label <书名>] [--unit <量词>]
+ *   同一份资料可以有两种切法（library-build 的默认 / --by-file），各自成书：
+ *     --src .ai/output/library           --label 资料书（卡片）  --unit 块
+ *     --src .ai/output/library-by-file   --label 资料书（章节）  --unit 章
  */
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -19,10 +23,14 @@ const argv = process.argv.slice(2)
 const arg = (k, d) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : d)
 const SRC = arg('--src', '.ai/output/library')
 const OUT = arg('--out', join(SRC, 'book.html'))
+const LABEL = arg('--label', '资料书')
+const UNIT = arg('--unit', '块')
 
 // ── markdown：只覆盖积木实际用到的语法 ────────────────────────────────────
 // 实测（28 块 5.7 万字）：无序列表 728、有序列表 60、### 小标题 23、粗体 164；
-// 表格 0、代码块 0、引用 0。所以不引依赖，写这几种就够。
+// 表格 0、代码块 0。所以不引依赖，写这几种就够。
+// 2026-10-30 补 `>` 引用与 `---` 分隔线：按文件切（章节版）会保留每份资料开头的
+// 来源说明，那几行正是 `>` 引用；卡片版按 `##` 切时整段被丢掉，所以以前没暴露。
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function inline(s) {
@@ -34,10 +42,16 @@ function inline(s) {
 export function mdToHtml(md) {
   const out = []
   let list = null
+  let quote = null
   const flush = () => {
-    if (!list) return
-    out.push(`<${list.tag}>${list.items.map((i) => `<li>${i}</li>`).join('')}</${list.tag}>`)
-    list = null
+    if (list) {
+      out.push(`<${list.tag}>${list.items.map((i) => `<li>${i}</li>`).join('')}</${list.tag}>`)
+      list = null
+    }
+    if (quote) {
+      out.push(`<blockquote>${quote.map((i) => `<p>${i}</p>`).join('')}</blockquote>`)
+      quote = null
+    }
   }
   for (const raw of String(md).split('\n')) {
     const line = raw.trimEnd()
@@ -50,6 +64,22 @@ export function mdToHtml(md) {
       flush()
       const lv = Math.min(6, h[1].length + 1)
       out.push(`<h${lv}>${inline(h[2])}</h${lv}>`)
+      continue
+    }
+    // 分隔线：必须在列表之前判，否则 `---` 会被当成空的列表项
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      flush()
+      out.push('<hr>')
+      continue
+    }
+    const bq = /^>\s?(.*)$/.exec(line)
+    if (bq) {
+      if (list) {
+        out.push(`<${list.tag}>${list.items.map((i) => `<li>${i}</li>`).join('')}</${list.tag}>`)
+        list = null
+      }
+      if (!quote) quote = []
+      quote.push(inline(bq[1]))
       continue
     }
     const ul = /^[-*]\s+(.*)$/.exec(line)
@@ -129,7 +159,12 @@ function load() {
   return blocks
 }
 
-const blocks = load()
+// 只在被当脚本跑时读目录与落盘；被 import（测试 mdToHtml / parseBlock）时全程空转。
+// 为什么不包成 main()：整本书的模板有 100 多行，包进函数会把 main 撑到 153 行，
+// 直接顶破结构预算（阈值 80）。模板留在模块级，守卫只圈住"读"和"写"两个动作。
+const IS_MAIN = Boolean(process.argv[1] && process.argv[1].endsWith('library-book.mjs'))
+
+const blocks = IS_MAIN ? load() : []
 const grouped = []
 for (const b of blocks) {
   const last = grouped[grouped.length - 1]
@@ -143,7 +178,7 @@ const HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>资料书 · ${blocks.length} 块</title>
+<title>${LABEL} · ${blocks.length} ${UNIT}</title>
 <style>
   :root{--bg:#faf9f7;--panel:#f3f1ec;--ink:#242220;--dim:#6b6660;--line:#e2ded6;--accent:#8a5a2b;--mark:#fff3d6}
   *{box-sizing:border-box}
@@ -170,7 +205,12 @@ const HTML = `<!DOCTYPE html>
   article:last-child{border-bottom:0}
   article h2{font-size:21px;margin:0 0 6px;letter-spacing:.01em}
   .src{font-size:11.5px;color:var(--dim);margin-bottom:16px;word-break:break-all}
+  article h3{font-size:17px;margin:26px 0 10px;color:#3a342e}
   article h4{font-size:15px;margin:20px 0 8px;color:#4a443d}
+  article blockquote{margin:0 0 16px;padding:2px 0 2px 14px;border-left:3px solid #d9c9ad;
+    color:#5a544c;font-size:14.5px;line-height:1.7}
+  article blockquote p{margin:0 0 6px}
+  article hr{border:0;border-top:1px solid var(--line);margin:22px 0}
   article p{margin:0 0 12px}
   article ul,article ol{margin:0 0 14px;padding-left:22px}
   article li{margin:0 0 7px}
@@ -187,8 +227,8 @@ const HTML = `<!DOCTYPE html>
 </head>
 <body>
 <aside>
-  <h1>资料书</h1>
-  <div class="meta">${blocks.length} 块 · ${(totalChars / 10000).toFixed(1)} 万字<br>${grouped.length} 个主题</div>
+  <h1>${LABEL}</h1>
+  <div class="meta">${blocks.length} ${UNIT} · ${(totalChars / 10000).toFixed(1)} 万字<br>${grouped.length} 个主题</div>
   <input id="q" placeholder="搜索标题…" autocomplete="off">
   <nav id="tree"></nav>
 </aside>
@@ -271,7 +311,9 @@ document.getElementById('q').oninput = (ev) => {
 </html>
 `
 
-writeFileSync(OUT, HTML)
-console.log(`已生成：${OUT}`)
-console.log(`块 ${blocks.length} · 组 ${grouped.length} · 正文 ${totalChars} 字 · 文件 ${(HTML.length / 1024).toFixed(0)} KB`)
-console.log(`双击打开即可（无需服务器）。长块（>${6000} 字）默认折叠。`)
+if (IS_MAIN) {
+  writeFileSync(OUT, HTML)
+  console.log(`已生成：${OUT}`)
+  console.log(`${LABEL} · ${blocks.length} ${UNIT} · 组 ${grouped.length} · 正文 ${totalChars} 字 · 文件 ${(HTML.length / 1024).toFixed(0)} KB`)
+  console.log(`双击打开即可（无需服务器）。长${UNIT}（>${6000} 字）默认折叠。`)
+}

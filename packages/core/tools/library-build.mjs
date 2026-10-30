@@ -6,9 +6,16 @@
 // 视图，同样禁止直写（guard.mjs LIBRARY_RE / BLOCKS_RE 拦截 Write/Edit，防自我投毒）。
 //
 // 用法：
-//   node tools/library-build.mjs [--src <目录或文件，可多次>] [--out <目录>] [--name <源标签>]
+//   node tools/library-build.mjs [--src <目录或文件，可多次>] [--out <目录>] [--name <源标签>] [--by-file]
 //   默认 --src .ai/library --out .ai/output/library
 //   幂等：源内容未变（SHA-256 一致）的积木跳过重建；源删除的积木标记 retired 不物理删除（留痕原则）。
+//
+// 两种切法（2026-10-30 加 `--by-file`）：
+//   默认按 `##` 切 → 细粒度卡片，便于"这条结论出自哪一节"，但同一份资料被切成几块后读起来会断；
+//   `--by-file` 按文件切 → 一个文件即一章，章节完整，适合当书连续读。
+//   两种切法的产物**必须落在不同目录**：积木 id 与指纹由内容派生，混在一处会把另一种切法的
+//   全部积木标成 retired（retired 不物理删除，于是索引里堆一堆死行）。所以 `--by-file` 未显式
+//   给 `--out` 时，落点自动改为 `.ai/output/library-by-file`，两种视图并存互不干扰。
 //
 // 积木格式（NNN-slug.md）：
 //   ---
@@ -33,15 +40,19 @@ const slug = (s) =>
 
 const DEFAULT_SRC = ".ai/library"; // 静态资料区：外部来源原文（只同步不就地改）
 const DEFAULT_OUT = ".ai/output/library"; // 派生积木视图：由本工具生成
+const BY_FILE_OUT = ".ai/output/library-by-file"; // 按文件切时的独立落点（两种视图并存）
 
 function parseArgs(argv) {
-  const args = { src: [], out: DEFAULT_OUT, name: "" };
+  const args = { src: [], out: "", name: "", byFile: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--src") args.src.push(argv[++i]);
     else if (argv[i] === "--out") args.out = argv[++i];
     else if (argv[i] === "--name") args.name = argv[++i];
+    else if (argv[i] === "--by-file") args.byFile = true;
   }
   if (!args.src.length) args.src.push(DEFAULT_SRC);
+  // 未显式给 --out 时按切法选落点，避免两种切法互相把对方的积木标成 retired
+  if (!args.out) args.out = args.byFile ? BY_FILE_OUT : DEFAULT_OUT;
   return args;
 }
 
@@ -60,7 +71,7 @@ function collectFiles(src) {
 }
 
 // 按 ## 标题切积木；无 ## 的文件整体作为一块
-function splitBlocks(text) {
+export function splitBlocks(text) {
   const lines = text.split("\n");
   const heads = [];
   lines.forEach((l, i) => {
@@ -79,6 +90,19 @@ function splitBlocks(text) {
     if (body) blocks.push({ title, body });
   }
   return blocks;
+}
+
+// 按文件切：一个文件 = 一章。标题取 `# ` 一级标题，正文去掉那一行（否则书里会出现
+// 两层重复标题：外层 h2 章节名 + 内层 h1 同名）。`##` 小节原样留在正文里，
+// 由 library-book 渲染成子标题——这正是"章节完整"与"卡片式"的区别所在。
+export function wholeFileBlock(text, fallbackTitle) {
+  const lines = text.split("\n");
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i += 1;
+  const h1 = /^#\s+(.*)$/.exec(lines[i] || "");
+  const title = h1 ? h1[1].trim() : fallbackTitle || "全文";
+  const body = h1 ? lines.slice(i + 1).join("\n").trim() : text.trim();
+  return body ? [{ title, body }] : [];
 }
 
 // 主题导航：只影响 INDEX.md 的分组渲染——积木编号、文件名、指纹与内容一律不动。
@@ -140,7 +164,8 @@ function main() {
     try { text = readFileSync(f, "utf8"); } catch { continue; }
     const srcLabel = args.name || basename(dirname(f)) || "src";
     const rel = normSep(relative(process.cwd(), f) || f);
-    for (const b of splitBlocks(text)) {
+    const pieces = args.byFile ? wholeFileBlock(text, basename(f, ".md")) : splitBlocks(text);
+    for (const b of pieces) {
       const fp = sha(b.title + "\n" + b.body);
       // 幂等：同内容指纹的积木已存在 → 复用旧 id 与文件（重建不换号；按内容配对，与源路径写法无关）
       const dup = index.rows.find((v) => v.sha === fp);
@@ -180,7 +205,9 @@ function main() {
 
   writeFileSync(index.path, renderIndex({ rows, built, kept, today, table: buildTable(rows) }), "utf8");
 
-  console.log(`library-build：共 ${rows.length} 块（新建 ${built}，保留 ${kept}），索引 ${index.path}`);
+  console.log(
+    `library-build：共 ${rows.length} 块（新建 ${built}，保留 ${kept}），切法 ${args.byFile ? "按文件（一章一块）" : "按 ## 节"}，索引 ${index.path}`,
+  );
 }
 
 /** 按主题分组渲染成表：组标题 + 重复表头，保证每组独立成表；`| B` 行格式不变（外部解析器只认该前缀）。 */
@@ -226,4 +253,5 @@ function renderIndex({ rows, built, kept, today, table }) {
   ].join("\n");
 }
 
-main();
+// 只在被当脚本跑时执行——被 import（测试）时不落盘。
+if (process.argv[1] && process.argv[1].endsWith("library-build.mjs")) main();
