@@ -5,9 +5,12 @@
  * 所以「开发期」条目（缺陷只在未对外分发的代码里存在过）正文不得出现「修复」二字——
  * 否则等于向读者宣称一个不存在的影响面：读者会去核对一个自己不可能踩到的坑。
  *
- * 两种标注，粒度不同：
+ * 三种标注，粒度不同：
  *   - 段级 `> **影响面：开发期**`：整段每一条都属开发期（同质段落用，省得逐条标）
- *   - 条目级 `〔开发期〕`：段内个别条目属开发期（混合段落用）
+ *   - 条目级 `〔开发期〕`：该条缺陷只在未分发代码里存在过（混合段落用）
+ *   - 条目级 `〔影响面：x.y.z〕`：该条 fix 改的是已分发版本里的缺陷，点名版本（混合段落用）
+ * 未发布段里每条 `fix` 必须二选一自报，否则报 `unattributed-fix`。
+ * 段级一刀切换掉的正是「段里只要有一处标记就算合规」——同段另一条开发期缺陷会被放过。
  * 本仓 3.2.0（已推 GitHub `main`，2026-10-27）属混合段落：熔断/抽查B 修的是 3.1.0（已推 GitHub）里的问题，而工具链四件是当天新造的。
  *
  * 机械判据只有一个常量 `PUBLISHED_MAX`：
@@ -58,7 +61,10 @@ function splitSections(text) {
 
 const SECTION_DEV = /^>\s*\*\*影响面：开发期/;
 const ENTRY_DEV = /^- .*〔开发期〕/;
+/** 条目级「已发布影响」：这条 fix 改的是哪个**已分发**版本里的缺陷 */
+const ENTRY_IMPACT = /^- .*〔影响面：(\d+\.\d+\.\d+)〕/;
 const isBullet = (l) => /^- /.test(l);
+const isFix = (l) => isBullet(l) && /^- fix\b/.test(l);
 
 /** 剥掉「…」引号内的内容：加引号 = 在谈论这个词，不加 = 在宣称修了东西 */
 const stripQuoted = (line) => line.replace(/「[^」]*」/g, "");
@@ -72,6 +78,7 @@ function auditChangelog(text, publishedMax = PUBLISHED_MAX) {
   for (const s of splitSections(text)) {
     const sectionDev = s.body.some((l) => SECTION_DEV.test(l));
     const entryDev = s.body.some((l) => isBullet(l) && ENTRY_DEV.test(l));
+    const fixes = s.body.filter(isFix);
     const released = cmpVersion(s.version, publishedMax) <= 0;
 
     if (released && sectionDev)
@@ -80,12 +87,39 @@ function auditChangelog(text, publishedMax = PUBLISHED_MAX) {
         kind: "false-section-mark",
         detail: "该版本已对外分发，不得把整段声明为「影响面：开发期」",
       });
-    if (!released && !sectionDev && !entryDev)
-      findings.push({
-        version: s.version,
-        kind: "missing-scope-mark",
-        detail: "未对外分发的版本段须至少标一处影响面（段级 `影响面：开发期` 或条目级 `〔开发期〕`）",
-      });
+
+    // 未发布段：每条 fix 自报影响面（〔开发期〕或〔影响面：x.y.z〕）。
+    // 段级一刀切换掉，是因为它两种错都放过——段里只要有一处标记就算合规，
+    // 同段里另一条开发期缺陷照样能写「修复」（2026-10-30 实测：3.3.0 段没有任何开发期条目，
+    // 却被报「一处标注都没有」——两种情形被压成同一句红）。
+    // 段里一条 fix 都没有时退回段级要求：那是让作者先想一遍「这段到底有没有用户受影响」。
+    if (!released && !sectionDev) {
+      const bare = fixes.filter((l) => !ENTRY_DEV.test(l) && !ENTRY_IMPACT.test(l));
+      if (bare.length)
+        findings.push({
+          version: s.version,
+          kind: "unattributed-fix",
+          detail: `未发布段的 fix 条目须自报影响面（〔开发期〕或〔影响面：x.y.z〕），${bare.length} 条未标`,
+          samples: bare.map((l) => l.slice(0, 60)),
+        });
+      else if (!fixes.length && !entryDev)
+        findings.push({
+          version: s.version,
+          kind: "missing-scope-mark",
+          detail: "未对外分发的版本段须至少标一处影响面（段级 `影响面：开发期` 或条目级 `〔开发期〕`）",
+        });
+    }
+
+    // 影响面写高于已分发最高版 = 宣称一个还没发出去的版本有人受害，是另一种方向的失真
+    for (const l of s.body.filter(isBullet)) {
+      const m = ENTRY_IMPACT.exec(l);
+      if (m && cmpVersion(m[1], publishedMax) > 0)
+        findings.push({
+          version: s.version,
+          kind: "false-impact-version",
+          detail: `〔影响面：${m[1]}〕高于已分发最高版 ${publishedMax}——那个版本还没有用户`,
+        });
+    }
 
     const devBullets = s.body.filter((l) => isBullet(l) && (sectionDev || ENTRY_DEV.test(l)));
     const bad = devBullets.filter((l) => stripQuoted(l).includes("修复"));
@@ -173,6 +207,28 @@ describe("CHANGELOG 受众口径（开发期缺陷不称「修复」）", () => 
     const findings = auditChangelog("## 9.9.9 · 2026-01-01\n\n- feat(x): 新增能力\n");
     assert.equal(findings.length, 1);
     assert.equal(findings[0].kind, "missing-scope-mark");
+  });
+
+  test("夹具：未推送段的 fix 自报〔影响面：已发布版〕即合规（不必整段标开发期）", () => {
+    const text =
+      "## 9.9.9 · 2026-01-01\n\n- fix(x): 〔影响面：3.2.1〕**改掉已推送版本里的毛病**\n- feat(y): 新增能力\n";
+    assert.deepEqual(auditChangelog(text), [], "缺陷确实在已发布版本里，标开发期才是失真");
+  });
+
+  test("夹具：未推送段的 fix 不自报影响面必须报（段里别处有标记也不行）", () => {
+    const text =
+      "## 9.9.9 · 2026-01-01\n\n- feat(y): 〔开发期〕新增能力\n- fix(z): **悄悄改了个行为**\n";
+    const findings = auditChangelog(text);
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].kind, "unattributed-fix");
+    assert.match(findings[0].detail, /1 条未标/);
+  });
+
+  test("夹具：影响面版本高于已分发最高版必须报（反向失真）", () => {
+    const text = "## 9.9.9 · 2026-01-01\n\n- fix(x): 〔影响面：9.9.9〕**改掉了什么**\n";
+    const findings = auditChangelog(text);
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].kind, "false-impact-version");
   });
 
   test("夹具：已发布段标整段开发期必须报", () => {
