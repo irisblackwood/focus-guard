@@ -41,7 +41,9 @@ export const AUTHORITATIVE_DOCS = [
   'packages/core/docs/PROFILE-TUNING.md',
 ]
 
-const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', 'self-improvement', 'archived', 'backup'])
+// `HANDOFF.md` 是本机私有备忘（在 .git/info/exclude 里），不属于公开文档面，
+// 混进来会让"文档口径"这个数字同时反映私有文件——口径不纯。
+const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', 'self-improvement', 'archived', 'backup', 'HANDOFF.md'])
 
 /** 遍历仓库内 Markdown（排除运行产物与归档）。 */
 export function listMarkdownFiles(root) {
@@ -100,6 +102,39 @@ export function checkVersionFace(root) {
   return findings
 }
 
+/**
+ * 行内代码里的仓库相对路径必须能解析（3.3 A）。
+ *
+ * 为什么单列一条：`checkRelativeLinks` 只查 `[文字](路径)`，而本仓大量引用写成**行内代码**
+ * `` `tools/lint.mjs` ``——这部分从来没被校验过。于是出现「CHANGELOG 指向
+ * `docs/HOOK-ORDERING.md`、文件实际在 `packages/core/docs/`」这种悬空，读者按字面找不到。
+ *
+ * **基准不唯一是现状**（2026-10-30 实测 223 条）：142 条相对 `packages/core/`、
+ * 74 条相对仓库根。所以两个根都试，能解析就算过；两边都不成立才算死引用。
+ * 这条规则同时也是"两个 docs 根该不该合并"的尺子——等哪天真单根化了，把它收紧成单根即可。
+ */
+export function checkCodePathRefs(root, files = listMarkdownFiles(root)) {
+  const REF = /`([A-Za-z0-9_./-]+\.(?:md|mjs|json))`/g
+  const REPO_REL = /^(?:docs|packages|tools|src)\//
+  const findings = []
+  for (const file of files) {
+    const rel = relative(root, file).replace(/\\/g, '/')
+    readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
+      // 表格行里的路径是**数据**不是指针：RULES.md 有一张「蓝图路径 → 实际部署」映射表，
+      // 左列写的是设想中的文件（`src/guard.mjs`），从来不存在也不该存在。
+      // 只校验正文里的引用（含列表项），才是"读者会照着去找"的那类。
+      if (/^\s*\|/.test(line)) return
+      for (const m of line.matchAll(REF)) {
+        const p = m[1]
+        if (!REPO_REL.test(p)) continue
+        if (existsSync(join(root, p)) || existsSync(join(root, 'packages/core', p))) continue
+        findings.push({ rule: 'dead-code-path', file: rel, line: i + 1, detail: p })
+      }
+    })
+  }
+  return findings
+}
+
 /** 相对链接目标存在性（跳过 http(s)/mailto/锚点/空链接）。 */
 export function checkRelativeLinks(root, files = listMarkdownFiles(root)) {
   const findings = []
@@ -108,7 +143,10 @@ export function checkRelativeLinks(root, files = listMarkdownFiles(root)) {
     const rel = relative(root, file).replace(/\\/g, '/')
     const lines = readFileSync(file, 'utf8').split(/\r?\n/)
     lines.forEach((line, i) => {
-      for (const m of line.matchAll(LINK)) {
+      // 先剥掉行内代码：`` `[文字](路径)` `` 是在**讲**链接语法，不是真链接。
+      // 不剥的话，任何"举例说明链接写法"的文档都会自己把自己判成死链（2026-10-30 踩过）。
+      const text = line.replace(/`[^`]*`/g, '')
+      for (const m of text.matchAll(LINK)) {
         const raw = String(m[1] || '').trim().replace(/^<|>$/g, '')
         if (!raw || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(raw)) continue
         const target = raw.split('#')[0].split('?')[0]

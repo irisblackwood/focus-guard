@@ -44,6 +44,7 @@ import { fileURLToPath } from 'node:url'
 // 一路吞到下一个引号，把中间的 `export function preExecuteListener` 抹平——398 行的函数
 // 量成了"不存在"。同一段逻辑写两遍就一定会分叉，现统一。
 import { stripLiterals as stripNoise } from './lib/source-text.mjs'
+import { loadRatchet } from './lib/ratchet.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：测试要造夹具目录跑真扫描，否则这个工具自己没被测量。
@@ -331,6 +332,11 @@ for (const f of findings) byKind[f.kind] = (byKind[f.kind] || 0) + 1
 const overBudget = srcFindings.length > BUDGET
 const dupOverBudget = dupSrc.length > DUP_BUDGET
 
+// 台账（3.3 B）：闸门只防涨，这张表催还。读取与容错都在 ratchet.mjs 里——
+// 塞在这里会把 smells.mjs 自己顶过 400 行，变成一条新的结构异味（2026-10-30 实测踩过）。
+const ledgerCheck = loadRatchet(REPO, { smells: srcFindings.length, duplicates: dupSrc.length })
+const ledgerBad = ledgerCheck.findings.length > 0
+
 if (AS_JSON) {
   console.log(
     JSON.stringify(
@@ -342,6 +348,7 @@ if (AS_JSON) {
         testFindings,
         budget: BUDGET,
         duplicates: { budget: DUP_BUDGET, src: dupSrc, test: dupTest },
+        ratchet: { version: ledgerCheck.version || null, entry: ledgerCheck.entry, findings: ledgerCheck.findings, skipped: ledgerCheck.skipped || null },
       },
       null,
       2,
@@ -353,10 +360,12 @@ if (AS_JSON) {
     .map(([k, n]) => `${k} ${n}`)
   const gate = overBudget ? `❌ 超上限 ${BUDGET}` : `✅ 上限 ${BUDGET}`
   const dupGate = dupOverBudget ? `❌ 超上限 ${DUP_BUDGET}` : `✅ 上限 ${DUP_BUDGET}`
+  const ratchetGate = ledgerBad ? `❌ 台账 ${ledgerCheck.findings.length} 条` : '✅ 台账'
   console.log(
     `结构异味：${files.length} 文件，源文件 ${srcFindings.length} 条（${gate}）/ 测试 ${testFindings.length} 条` +
-      `；重复块 源 ${dupSrc.length} 条（${dupGate}）/ 测试 ${dupTest.length} 条${parts.length ? `（${parts.join(' / ')}）` : ''}`,
+      `；重复块 源 ${dupSrc.length} 条（${dupGate}）/ 测试 ${dupTest.length} 条${parts.length ? `（${parts.join(' / ')}）` : ''}；${ratchetGate}`,
   )
+  for (const f of ledgerCheck.findings) console.log(`  ✗ [${f.rule}] ${f.detail}`)
 } else {
   const show = (title, list) => {
     console.log(`\n${title}（${list.length} 条）`)
@@ -376,5 +385,9 @@ if (AS_JSON) {
   console.log(
     `闸门口径：源文件 ${srcFindings.length} 条 / 上限 ${BUDGET}；重复块 ${dupSrc.length} 条 / 上限 ${DUP_BUDGET}（两条棘轮，只许降不许升）。`,
   )
+  console.log(
+    `台账（RATCHET.json）：${ledgerCheck.entry ? `${ledgerCheck.version} 记账 ${ledgerCheck.entry.smells}/${ledgerCheck.entry.duplicates}` : '无本版记账行'}；${ledgerBad ? `${ledgerCheck.findings.length} 条不合规` : '合规'}`,
+  )
+  for (const f of ledgerCheck.findings) console.log(`  ✗ [${f.rule}] ${f.detail}`)
 }
-process.exit(STRICT && (overBudget || dupOverBudget) ? 1 : 0)
+process.exit(STRICT && (overBudget || dupOverBudget || ledgerBad) ? 1 : 0)
