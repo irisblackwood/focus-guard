@@ -174,6 +174,27 @@ export function checkStatusHeaders(root, docs = AUTHORITATIVE_DOCS) {
 }
 
 /** D2：`docs/INDEX.md` 必须能到达每一份权威文档（链接解析后按绝对路径比对）。 */
+/**
+ * docs/ 与 packages/core/docs/ 下的全部 `.md`（相对仓库根）。
+ *
+ * 为什么需要：`checkIndexCoverage` 原先只查「权威」文档，于是「参考」级的漏登记不报。
+ * 2026-10-30 我判定 `HOOK-ORDERING.md`「不存在」——只查了 `docs/`，而它一直在
+ * `packages/core/docs/`，且没在 INDEX 里登记（25 份里漏 1 份，正是这份）。
+ * 两个根并存时，检索顺序决定结论；**INDEX 漏登记 = 那份文档在入口页上不存在**。
+ * 所以口径从「权威文档」扩到「全部文档」：只要落在文档目录里，就必须能点得到。
+ */
+export function allDocFiles(root) {
+  const out = []
+  for (const dir of ['docs', 'packages/core/docs']) {
+    const abs = join(root, dir)
+    if (!existsSync(abs)) continue
+    for (const name of readdirSync(abs)) {
+      if (name.endsWith('.md') && name !== 'INDEX.md') out.push(`${dir}/${name}`)
+    }
+  }
+  return out
+}
+
 export function checkIndexCoverage(root, docs = AUTHORITATIVE_DOCS) {
   const findings = []
   const indexPath = join(root, 'docs/INDEX.md')

@@ -18,6 +18,7 @@ import {
   checkCodePathRefs,
   checkStatusHeaders,
   checkIndexCoverage,
+  allDocFiles,
   checkReadmeMetrics,
 } from './lib/docs-core.mjs'
 
@@ -43,7 +44,7 @@ const findings = [
   ...checkRelativeLinks(ROOT, files),
   ...checkCodePathRefs(ROOT, files),
   ...checkStatusHeaders(ROOT),
-  ...checkIndexCoverage(ROOT),
+  ...checkIndexCoverage(ROOT, allDocFiles(ROOT)),
   ...checkReadmeMetrics(ROOT),
 ]
 const byRule = {}
