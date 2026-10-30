@@ -25,8 +25,40 @@ import { statePath, loadState } from '../core/state.mjs'
 const WORKSPACE_FILE = fileURLToPath(new URL('../../../../.focus-guard/workspace.json', import.meta.url))
 
 /** `FG_WORKSPACE_FILE` 可重定向——测试必须用它，否则会写进真实工作区。 */
-function workspaceFilePath() {
+export function workspaceFilePath() {
   return process.env.FG_WORKSPACE_FILE || WORKSPACE_FILE
+}
+
+/**
+ * 条目标签（2026-10-30）：卷宗是**人格连续性**的载体，不是聊天记录，
+ * 所以要能区分"长期目标"和"当下的一句话"。
+ *
+ * 只有四个状态，自由标签会失控：
+ *   [goal] 长期目标——上限淘汰时永不挤掉
+ *   [done] 已完成——**不注入**（僵尸记忆的主要来源）
+ *   [note] 备注——**不注入**
+ *   无标签 普通决策——按 FIFO
+ *
+ * 用文本前缀而不是结构化字段：零 schema 变更、可逆、人可直接编辑文件。
+ */
+export const CASE_TAGS = Object.freeze(['goal', 'done', 'note'])
+const TAG_RE = /^\[(goal|done|note)\]\s*/i
+
+/** 取标签；无标签返回 null。 */
+export function parseTag(text) {
+  const m = TAG_RE.exec(String(text ?? ''))
+  return m ? m[1].toLowerCase() : null
+}
+
+/** 去掉标签前缀（注入时用，别把标记塞进系统提示）。 */
+export function stripTag(text) {
+  return String(text ?? '').replace(TAG_RE, '')
+}
+
+/** 不注入的标签：已完成 / 备注。 */
+export function isHiddenTag(text) {
+  const t = parseTag(text)
+  return t === 'done' || t === 'note'
 }
 
 /** 条目上限：每类最多 10 条、每条 ≤200 字、注入正文 ≤1200 字。 */
@@ -78,7 +110,20 @@ function clean(list) {
     seen.add(text)
     kept.push(text)
   }
-  return kept.slice(-MAX_ITEMS)
+  if (kept.length <= MAX_ITEMS) return kept
+  // 上限淘汰：从**最老的**开始，但跳过 `[goal]`。
+  // 原先直接 slice(-10)：说十句闲话就能把"本科→普通级→高级"这种长期目标挤掉，
+  // 而被挤掉的恰好是唯一一句像"人"的话（2026-10-30 实测，真实卷宗正好顶格 10 条）。
+  const out = [...kept]
+  const need = out.length - MAX_ITEMS
+  let removed = 0
+  for (let i = 0; i < out.length && removed < need; i += 1) {
+    if (parseTag(out[i]) === 'goal') continue
+    out.splice(i, 1)
+    i -= 1
+    removed += 1
+  }
+  return out
 }
 
 /**
@@ -135,7 +180,6 @@ export function mergeWorkspace(cwd, patch = {}) {
 /** 渲染成系统提示 section；无内容返回 null（正常路径零注入）。 */
 export function renderWorkspaceSection(record, opts = {}) {
   if (!record) return null
-  const block = (label, items) => (items && items.length ? `${label}：${items.map((x) => `「${x}」`).join('、')}` : '')
   const s = record.snapshot
   // 快照行只在"换会话"时出现：同一会话里重复自己的快照纯属噪音。
   const showSnapshot = s && (opts.sid === undefined || shouldInjectHandoff(record, opts.sid))
@@ -146,15 +190,34 @@ export function renderWorkspaceSection(record, opts = {}) {
   // 实测（tools/prefix-drift.mjs）系统段每会话 2 个版本，分歧点恒定落在这一行——
   // 前缀一变，后面整段会话历史都要按未缓存价重付，而这些指令原文本来就在会话消息里。
   const showDecisions = opts.sid === undefined || shouldInjectHandoff(record, opts.sid)
-  const lines = [
-    snap,
-    showDecisions ? block('决策', record.decisions) : '',
-    // 约束（人类否决过的命令）保留实时：它是安全信息、只在真被否决时变，不是每回合的噪音。
-    block('约束', record.constraints),
-    block('下一步', record.next_action),
-  ].filter(Boolean)
-  if (!lines.length) return null
-  const text = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：\n${lines.join('\n')}`
+  const head = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：`
+  /** 组装可见条目：`[done]` / `[note]` 不注入，`[goal]` 剥掉标记。 */
+  const parts = []
+  const push = (label, items) => {
+    const shown = (items || []).filter((x) => !isHiddenTag(x)).map((x) => stripTag(x))
+    if (shown.length) parts.push({ label, shown })
+  }
+  if (showDecisions) push('决策', record.decisions)
+  // 约束（人类否决过的命令）保留实时：它是安全信息、只在真被否决时变，不是每回合的噪音。
+  push('约束', record.constraints)
+  push('下一步', record.next_action)
+  if (!parts.length) return null
+  const compose = () => {
+    const body = parts.map((p) => `${p.label}：${p.shown.map((x) => `「${x}」`).join('、')}`).join('\n')
+    return snap ? `${head}\n${snap}\n${body}` : `${head}\n${body}`
+  }
+  let text = compose()
+  // 超预算时**丢整条**，绝不切半句——切半句比丢整条更糟：模型会把半截指令当真。
+  // 淘汰顺序：决策最老 → 下一步最老 → 其余最老；约束是安全信息，最后才动。
+  while (text.length > MAX_RENDER) {
+    const target =
+      parts.find((p) => p.label === '决策' && p.shown.length > 1) ||
+      parts.find((p) => p.label === '下一步' && p.shown.length > 1) ||
+      parts.find((p) => p.shown.length > 1)
+    if (!target) break
+    target.shown.shift()
+    text = compose()
+  }
   return text.slice(0, MAX_RENDER)
 }
 

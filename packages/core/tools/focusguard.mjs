@@ -79,5 +79,75 @@ if (cmd === 'status') {
   process.exit(0)
 }
 
-console.error(`未知子命令：${cmd}（可用：pending / approve <id> / list / status）`)
+if (cmd === 'case') {
+  // 卷宗人工维护（2026-10-30）：只读打分 + 人工删改，**不做自动淘汰**。
+  const { loadCase, entriesOf, scoreEntry, dropEntry, tagEntry, parseTag, stripTag, CASE_TAGS } = await import('./lib/case-tool.mjs')
+  const { record, file, error } = loadCase()
+  if (error) {
+    console.error(`卷宗读不了：${error}`)
+    process.exit(1)
+  }
+  if (!record) {
+    console.log(`本目录没有卷宗（${file}）。卷宗在首次回合结束时自动生成。`)
+    process.exit(0)
+  }
+  const rest = args.slice(1)
+  const val = (flag) => (rest.includes(flag) ? rest[rest.indexOf(flag) + 1] : null)
+
+  if (rest.includes('--drop')) {
+    const r = dropEntry(record, val('--drop'))
+    if (!r.ok) {
+      console.error(`删除失败：${r.reason}`)
+      process.exit(1)
+    }
+    console.log(`已删除：${r.removed}`)
+    console.log(`原卷宗已备份：${r.backup}`)
+    process.exit(0)
+  }
+
+  if (rest.includes('--tag')) {
+    const loc = val('--tag')
+    const tag = rest[rest.indexOf('--tag') + 2] || null
+    const r = tagEntry(record, loc, tag)
+    if (!r.ok) {
+      console.error(`打标签失败：${r.reason}（可用标签：${CASE_TAGS.join(' / ')}，不传则清除）`)
+      process.exit(1)
+    }
+    console.log(`已改：${r.before}\n  → ${r.after || '(无标签)'}`)
+    process.exit(0)
+  }
+
+  const withScore = rest.includes('--score')
+  const all = entriesOf(record)
+  if (!all.length) {
+    console.log('卷宗是空的。')
+    process.exit(0)
+  }
+  console.log(`卷宗：${file}`)
+  console.log(`工作区：${record.workspace_path || '-'} · 更新 ${record.updated_at || '-'}\n`)
+  let lastField = null
+  for (let i = 0; i < all.length; i += 1) {
+    const e = all[i]
+    if (e.field !== lastField) {
+      console.log(`【${e.label}】`)
+      lastField = e.field
+    }
+    const tag = parseTag(e.text)
+    const body = stripTag(e.text)
+    const hidden = tag === 'done' || tag === 'note'
+    const mark = tag ? `[${tag}]`.padEnd(8) : '        '
+    const line = `${String(i + 1).padStart(3)} ${mark}${body.length > 46 ? `${body.slice(0, 46)}…` : body}`
+    if (withScore) {
+      const { score, reasons } = scoreEntry(body)
+      console.log(`${line}${hidden ? '  (不注入)' : ''}`)
+      console.log(`      ${String(score).padStart(3)} 分 · ${reasons.join(' / ') || '无信号'}`)
+    } else {
+      console.log(`${line}${hidden ? '  (不注入)' : ''}`)
+    }
+  }
+  console.log(`\n共 ${all.length} 条。--score 看打分（仅参考，不作判决）；--drop <序号> 删除；--tag <序号> <goal|done|note> 打标签。`)
+  process.exit(0)
+}
+
+console.error(`未知子命令：${cmd}（可用：pending / approve <id> / list / status / case）`)
 process.exit(2)
