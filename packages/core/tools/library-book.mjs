@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { BOOK_CSS } from './lib/book-style.mjs'
 
 const argv = process.argv.slice(2)
 const arg = (k, d) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : d)
@@ -101,7 +102,19 @@ export function mdToHtml(md) {
       continue
     }
     flush()
-    out.push(`<p>${inline(line)}</p>`)
+    // 认笔记自己的体例（三层）：整行只有一句粗体的 → 小标题；`→ 接入…` → 动作行；
+    // `出处：…` → 出处行。不认这三层的话，每条都摊成四段同样大小的字，读起来一片平。
+    const html = inline(line)
+    const strongOnly =
+      /^<strong>[\s\S]*<\/strong>$/.test(html) && (html.match(/<strong>/g) || []).length === 1
+    const cls = strongOnly
+      ? ' class="h"'
+      : line.startsWith('→')
+        ? ' class="act"'
+        : /^出处[：:]/.test(line)
+          ? ' class="ref"'
+          : ''
+    out.push(`<p${cls}>${html}</p>`)
   }
   flush()
   return out.join('\n')
@@ -179,61 +192,20 @@ const HTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${LABEL} · ${blocks.length} ${UNIT}</title>
-<style>
-  :root{--bg:#faf9f7;--panel:#f3f1ec;--ink:#242220;--dim:#6b6660;--line:#e2ded6;--accent:#8a5a2b;--mark:#fff3d6}
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{display:flex;background:var(--bg);color:var(--ink);
-    font:16px/1.85 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
-  aside{width:300px;flex:none;height:100vh;overflow:auto;background:var(--panel);
-    border-right:1px solid var(--line);padding:18px 14px 60px}
-  aside h1{font-size:15px;margin:0 0 4px;letter-spacing:.02em}
-  aside .meta{font-size:12px;color:var(--dim);margin-bottom:14px;line-height:1.6}
-  #q{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;
-    background:#fff;font:inherit;font-size:13px;margin-bottom:14px}
-  #q:focus{outline:2px solid #d9c9ad;border-color:#d9c9ad}
-  .grp{font-size:12px;color:var(--dim);margin:16px 0 6px;letter-spacing:.06em;
-    text-transform:uppercase;font-weight:600}
-  .item{display:block;padding:5px 8px;border-radius:5px;color:var(--ink);text-decoration:none;
-    font-size:13.5px;line-height:1.45;cursor:pointer;border-left:2px solid transparent}
-  .item:hover{background:#eae6dd}
-  .item.on{background:#e6dfd0;border-left-color:var(--accent);font-weight:600}
-  .item .n{color:var(--dim);font-variant-numeric:tabular-nums;margin-right:6px;font-size:11.5px}
-  main{flex:1;height:100vh;overflow:auto;scroll-behavior:smooth}
-  .wrap{max-width:760px;margin:0 auto;padding:48px 40px 140px}
-  article{padding:26px 0 34px;border-bottom:1px solid var(--line);scroll-margin-top:24px}
-  article:last-child{border-bottom:0}
-  article h2{font-size:21px;margin:0 0 6px;letter-spacing:.01em}
-  .src{font-size:11.5px;color:var(--dim);margin-bottom:16px;word-break:break-all}
-  article h3{font-size:17px;margin:26px 0 10px;color:#3a342e}
-  article h4{font-size:15px;margin:20px 0 8px;color:#4a443d}
-  article blockquote{margin:0 0 16px;padding:2px 0 2px 14px;border-left:3px solid #d9c9ad;
-    color:#5a544c;font-size:14.5px;line-height:1.7}
-  article blockquote p{margin:0 0 6px}
-  article hr{border:0;border-top:1px solid var(--line);margin:22px 0}
-  article p{margin:0 0 12px}
-  article ul,article ol{margin:0 0 14px;padding-left:22px}
-  article li{margin:0 0 7px}
-  article strong{color:#1c1a18}
-  code{background:#efece5;padding:1px 5px;border-radius:4px;font-size:.9em;
-    font-family:ui-monospace,Consolas,monospace}
-  .long{font-size:12px;color:var(--accent);margin-bottom:10px}
-  details summary{cursor:pointer;font-size:13px;color:var(--accent);margin-bottom:12px}
-  mark{background:var(--mark);padding:0 2px}
-  .hint{position:fixed;right:20px;bottom:16px;font-size:12px;color:var(--dim);
-    background:#fff;border:1px solid var(--line);border-radius:20px;padding:6px 14px}
-  @media(max-width:860px){aside{display:none}.wrap{padding:28px 20px 100px}}
-</style>
+<style>${BOOK_CSS}</style>
 </head>
 <body>
 <aside>
-  <h1>${LABEL}</h1>
-  <div class="meta">${blocks.length} ${UNIT} · ${(totalChars / 10000).toFixed(1)} 万字<br>${grouped.length} 个主题</div>
-  <input id="q" placeholder="搜索标题…" autocomplete="off">
+  <div class="brand">
+    <div class="kicker">Library</div>
+    <h1>${LABEL}</h1>
+    <div class="meta">${blocks.length} ${UNIT} · ${(totalChars / 10000).toFixed(1)} 万字 · ${grouped.length} 个主题</div>
+  </div>
+  <div class="search"><input id="q" placeholder="搜索标题或编号" autocomplete="off"></div>
   <nav id="tree"></nav>
+  <div class="aside-foot">点目录跳章<br>滚轮连续读</div>
 </aside>
-<main><div class="wrap" id="book"></div></main>
-<div class="hint">← 点目录翻页 · 滚轮连续读</div>
+<main><div id="bar"><i></i></div><div class="wrap" id="book"></div></main>
 <script>
 const DATA = ${JSON.stringify(grouped).replace(/</g, '\\u003c')};
 const LONG = 6000;
@@ -242,6 +214,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 
 const tree = document.getElementById('tree');
 const book = document.getElementById('book');
+const TOTAL = DATA.reduce((a, g) => a + g.blocks.length, 0);
 let n = 0;
 for (const g of DATA) {
   const h = document.createElement('div');
@@ -254,7 +227,7 @@ for (const g of DATA) {
     a.className = 'item';
     a.dataset.id = b.id;
     a.dataset.title = (b.title + ' ' + b.id).toLowerCase();
-    a.innerHTML = '<span class="n">' + String(n).padStart(2, '0') + '</span>' + esc(b.title);
+    a.innerHTML = '<span class="n">' + String(n).padStart(2, '0') + '</span><span class="t">' + esc(b.title) + '</span>';
     a.onclick = () => {
       document.getElementById('blk-' + b.id).scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -263,14 +236,32 @@ for (const g of DATA) {
     const art = document.createElement('article');
     art.id = 'blk-' + b.id;
     art.innerHTML =
-      '<h2>' + esc(b.title) + '</h2>' +
-      '<div class="src">' + esc(b.id) + (b.source ? ' · ' + esc(b.source) : '') + ' · ' + b.chars + ' 字</div>' +
-      (b.chars > LONG
-        ? '<details><summary>这块很长（' + b.chars + ' 字），点击展开</summary>' + b.html + '</details>'
-        : b.html);
+      '<header class="ch">' +
+        '<div class="no">' + String(n).padStart(2, '0') + ' / ' + String(TOTAL).padStart(2, '0') + '</div>' +
+        '<h2>' + esc(b.title) + '</h2>' +
+        '<div class="src">' + esc(b.id) +
+          (b.source ? ' · ' + esc(String(b.source).split('#')[0]) : '') +
+          ' · ' + b.chars + ' 字</div>' +
+      '</header>' +
+      '<div class="body">' +
+        (b.chars > LONG
+          ? '<details><summary>' + b.chars + ' 字</summary>' + b.html + '</details>'
+          : b.html) +
+      '</div>';
     book.appendChild(art);
   }
 }
+
+// 阅读进度：细线贴顶，只在 main 里滚时变。
+const mainEl = document.querySelector('main');
+const barEl = document.querySelector('#bar i');
+const paint = () => {
+  const max = mainEl.scrollHeight - mainEl.clientHeight;
+  barEl.style.width = (max > 0 ? (mainEl.scrollTop / max) * 100 : 0) + '%';
+};
+mainEl.addEventListener('scroll', paint, { passive: true });
+window.addEventListener('resize', paint);
+paint();
 
 // 目录高亮：用 IntersectionObserver，比 scroll 事件省。
 const links = new Map([...document.querySelectorAll('.item')].map((a) => [a.dataset.id, a]));

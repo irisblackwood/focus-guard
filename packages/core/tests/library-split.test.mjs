@@ -96,6 +96,23 @@ test("书渲染：`a > b` 这类正文比较符不该被当成引用块", () => 
   assert.equal(mdToHtml("优先级 a > b"), "<p>优先级 a &gt; b</p>");
 });
 
+test("书渲染：认笔记体例的三层——条目名 / 动作行 / 出处行", () => {
+  // 整行只有一句粗体 → 小标题（sans、更大、上方留白）
+  assert.equal(mdToHtml("**1. 漂移三问**"), '<p class="h"><strong>1. 漂移三问</strong></p>');
+  // `→` 开头 → 动作行
+  assert.equal(mdToHtml("→ 接入：FG 会话注入"), '<p class="act">→ 接入：FG 会话注入</p>');
+  // `出处：` 开头 → 出处行（小字、灰、贴在条目尾部）
+  assert.equal(mdToHtml("出处：Anthropic.md §3"), '<p class="ref">出处：Anthropic.md §3</p>');
+});
+
+test("书渲染：粗体只在句中（不是整行）时不升级为小标题", () => {
+  // 「**加粗** — 后接解释」是条目内的强调，不是条目名；误判会把正文切成假标题
+  assert.equal(
+    mdToHtml("**双层行为模型** — 宪法把行为分为两类"),
+    "<p><strong>双层行为模型</strong> — 宪法把行为分为两类</p>",
+  );
+});
+
 test("parseBlock：有 frontmatter 时拆出 meta，没有时整体当正文", () => {
   const withFm = parseBlock("---\nid: B001\ntitle: 标题\n---\n正文");
   assert.deepEqual(withFm.meta, { id: "B001", title: "标题" });
