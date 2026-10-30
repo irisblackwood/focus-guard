@@ -61,10 +61,15 @@ export function isHiddenTag(text) {
   return t === 'done' || t === 'note'
 }
 
-/** 条目上限：每类最多 10 条、每条 ≤200 字、注入正文 ≤1200 字。 */
+/**
+ * 条目上限：每类最多 10 条、每条 ≤200 字。
+ *
+ * 2026-10-30 人类批示：删除原先的渲染闸（1200 字）——超预算不再裁剪。
+ * 「半句比不写危害大得多」：切半句会让模型把半截指令当真，丢整条等于那条对新会话不存在。
+ * 真正的上限由 10 × 200 = 2000 字兜底。
+ */
 const MAX_ITEMS = 10
 const MAX_CHARS = 200
-const MAX_RENDER = 1200
 
 /** 工作区身份：realpath 的 sha256 前 16 位。路径不存在时退回 cwd 原样。 */
 export function workspaceHash(cwd) {
@@ -207,18 +212,11 @@ export function renderWorkspaceSection(record, opts = {}) {
     return snap ? `${head}\n${snap}\n${body}` : `${head}\n${body}`
   }
   let text = compose()
-  // 超预算时**丢整条**，绝不切半句——切半句比丢整条更糟：模型会把半截指令当真。
-  // 淘汰顺序：决策最老 → 下一步最老 → 其余最老；约束是安全信息，最后才动。
-  while (text.length > MAX_RENDER) {
-    const target =
-      parts.find((p) => p.label === '决策' && p.shown.length > 1) ||
-      parts.find((p) => p.label === '下一步' && p.shown.length > 1) ||
-      parts.find((p) => p.shown.length > 1)
-    if (!target) break
-    target.shown.shift()
-    text = compose()
-  }
-  return text.slice(0, MAX_RENDER)
+  // 超预算**不裁剪**（2026-10-30 人类批示）：半句比不写危害大得多。
+  // 原先按 MAX_RENDER 切，会把最老的决策腰斩成半句，模型读到半截指令会当真；
+  // 改成"丢整条"也只是换一种丢法——被丢的那条对新会话就是"不存在"。
+  // 真正的上限由 MAX_ITEMS × MAX_CHARS 兜底（10 × 200 = 2000 字），不再另设渲染闸。
+  return text
 }
 
 /**

@@ -87,11 +87,14 @@ test("上限淘汰：11 条时先丢最老的非 goal，goal 不被挤掉", () =
   }
 });
 
-test("超预算：丢整条，绝不切半句", () => {
-  // 8 条 × 190 字 ≈ 1520 字 > 1200
+test("超预算：不裁剪，全部保留（半句比不写危害大）", () => {
+  // 8 条 × 190 字 ≈ 1520 字，超过旧阈值 1200
   const long = (i) => `第${i}条${"补".repeat(185)}`;
-  const text = ws.renderWorkspaceSection(rec({ decisions: Array.from({ length: 8 }, (_, i) => long(i)) }));
-  assert.ok(text.length <= 1200, `渲染必须 ≤1200，实际 ${text.length}`);
+  const items = Array.from({ length: 8 }, (_, i) => long(i));
+  const text = ws.renderWorkspaceSection(rec({ decisions: items }));
+  // 2026-10-30 人类批示：超预算允许留着——不切半句，也不丢整条。
+  assert.ok(text.length > 1200, `应允许超过旧阈值 1200，实际 ${text.length}`);
+  for (const t of items) assert.ok(text.includes(t), "每条都必须完整出现，不许丢整条");
   const open = (text.match(/「/g) || []).length;
   const close = (text.match(/」/g) || []).length;
   assert.equal(open, close, "引号必须成对——出现未闭合说明切了半句");
