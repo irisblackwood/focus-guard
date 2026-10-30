@@ -32,6 +32,7 @@
 | [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 | 权威 | 3.2.1 | 2026-10-22 |
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-29 |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 | 参考 | 4.0 前置 | 2026-10-19 |
+| [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 | 参考 | 4.5 前置 | 2026-10-30 |
 | [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 | 参考 | 3.2.1 | 2026-10-27 |
 | [packages/core/README.md](../packages/core/README.md) | 核心包英文说明 | 参考 | 3.2.1 | 2026-10-27 |
 | [packages/core/README.zh-CN.md](../packages/core/README.zh-CN.md) | 核心包中文说明 | 参考 | 3.2.1 | 2026-10-27 |
