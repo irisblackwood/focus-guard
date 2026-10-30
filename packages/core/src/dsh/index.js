@@ -277,7 +277,8 @@ export function apply(ctx) {
   )
   // 钩子顺序自检（2026-10-29）：Cordis 的 waterfall 按注册顺序派发，互不相关的插件之间
   // 顺序不确定。**不能**用 @zfdx123/dsh-hooks-ordering 的 participant 接口解决——它的
-  // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（实测见 CHANGELOG「FG 自己做定序者」条目）。
+  // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（核查全文见
+  // `packages/core/docs/HOOK-ORDERING.md`；实测数据见 CHANGELOG「FG 自己做定序者」条目）。
   // 这里只观测：协调器在不在、FG 在不在参与者列表里。只报不改，与 policy-audit 同纪律。
   register(
     'agent/created',

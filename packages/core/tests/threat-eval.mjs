@@ -129,9 +129,15 @@ for (let i = 0; i < engines.length; i++) {
 
 // 闸门看最后一个引擎（受测引擎）：有漏检或误报即失败
 const gate = results[results.length - 1];
+// 把"测的是谁"写进结论行（3.3 C）。否则 `[PASS] 61 条全部拦截` 会被读成
+// "整条链路都拦得住"——而实际被测的只是**命令行钩子这一层**。测的与跑的必须写明。
+const tested = engines[engines.length - 1];
+const hostNote = /hooks[\\/]guard\.mjs$/.test(tested)
+  ? "（被测对象是命令行钩子层；DSH 的 src/dsh/ 路径不在本评测覆盖内）"
+  : "";
 if (gate.leaked.length || gate.fp.length) {
-  console.error(`\n[FAIL] 漏检 ${gate.leaked.length} 条 / 误报 ${gate.fp.length} 条`);
+  console.error(`\n[FAIL] 漏检 ${gate.leaked.length} 条 / 误报 ${gate.fp.length} 条｜被测引擎 ${tested}`);
   process.exitCode = 1;
 } else {
-  console.log(`\n[PASS] ${DENY.length} 条高危全部拦截，${ALLOW.length} 条良性零打扰`);
+  console.log(`\n[PASS] ${DENY.length} 条高危全部拦截，${ALLOW.length} 条良性零打扰｜被测引擎 ${tested}${hostNote}`);
 }

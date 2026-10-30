@@ -8,7 +8,9 @@
  * 为什么不用 `@zfdx123/dsh-hooks-ordering` 的 participant 接口来解决：**它不消费返回值**。
  * 协调器的 `runPhase` 是 `for (const e of topoSort(entries)) await e.run(...payload)`，
  * 返回值被丢弃，而 FG 的拦截正是靠 `return {kind:'deny'}`。接上去的后果是
- * 「plan() 显示排第一，实际一次都没拦住」——比不装更糟。完整核查见 CHANGELOG 里「FG 自己做定序者」那条的实测记录（真包 1.0.15 + 最小 ctx：FG 排第一、run 返回 deny，派发结果仍是 HOST-DEFAULT）。
+ * 「plan() 显示排第一，实际一次都没拦住」——比不装更糟。完整核查（四条路与各自的代价）见
+ * `packages/core/docs/HOOK-ORDERING.md`；实测数据（真包 1.0.15 + 最小 ctx：FG 排第一、
+ * run 返回 deny，派发结果仍是 HOST-DEFAULT）见 CHANGELOG 里「FG 自己做定序者」那条。
  *
  * 所以这里只做**观测**：探测协调器在不在、FG 在不在参与者列表里，如实报出去。
  * 与 `policy-audit.mjs` 同纪律：只报不改，不改任何判定。
