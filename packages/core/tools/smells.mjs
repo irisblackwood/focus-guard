@@ -94,9 +94,8 @@ const DUP_BUDGET = 29
 
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])
-const ROOTS = ['packages/core/src', 'packages/core/tools', 'packages/core/tests', 'packages/core/hooks', 'packages/extended/src'].map(
-  (d) => resolve(REPO, d),
-)
+// 导出给 gate-inputs.mjs 复用：同口径才叫对账，那边再写一份目录列表就是两个真相源。
+export const ROOTS = ['packages/core/src', 'packages/core/tools', 'packages/core/tests', 'packages/core/hooks', 'packages/extended/src'].map((d) => resolve(REPO, d))
 
 function walk(dir, out = []) {
   let entries
