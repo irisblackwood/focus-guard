@@ -12,7 +12,7 @@
  *
  * 硬纪律：**自检永远只写 tmpdir()，绝不碰真实工作区**（FG_CASE_FILE 重定向 + 真实卷宗未触碰断言）。
  */
-import { writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -37,10 +37,36 @@ process.env.FG_STATUS_FILE = TEST_STATUS_FILE
 // 这次是第三个面——`rm -rf` 类用例会触发 createApprovalRequest 写真实 approvals/。
 process.env.FG_APPROVAL_DIR = join(tmpdir(), `fg-selftest-${Date.now()}-approvals`)
 
-// 隔离的兜底断言：跑完比对真实审计文件大小，涨了就是漏了。
+// 隔离的兜底断言：跑完比对真实审计里**本链那个 action** 的条数。
 // 2026-10-18：本文件从 src/dsh/ 移到 tools/（自检是工具不是宿主缝），相对深度少一级。
 const REAL_AUDIT = fileURLToPath(new URL('../../../.focus-guard/AUDIT.log', import.meta.url))
-const realAuditSizeBefore = existsSync(REAL_AUDIT) ? statSync(REAL_AUDIT).size : -1
+
+/**
+ * 数某个 action 在审计文件里出现了几次。
+ *
+ * **逐行 parse 读字段，不匹配 JSON 字面形态**：写成 `includes('"action":"x"')` 就是硬编码
+ * 序列化结果——字段顺序一变、冒号后多个空格，匹配静默失效，而失效的方向是"永远数到 0"，
+ * 也就是**判据恒绿**。
+ *
+ * 为什么判 action 而不是判 `run` 批次号（2026-10-31 踩过）：`run` 字段只有
+ * `core/audit.mjs::audit()` 那条写路径带，`compactionWatch` 走的是
+ * `core/audit-writer.mjs::appendAudit()`，**根本不出 run**。按 run 匹配 = 恒为 0 = 假绿。
+ */
+function countAction(file, action) {
+  if (!existsSync(file)) return 0
+  let n = 0
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue
+    try {
+      if (JSON.parse(line).action === action) n += 1
+    } catch {
+      /* 坏行不计：审计行本该是合法 JSON，坏行由 audit-row-contract 那侧负责抓 */
+    }
+  }
+  return n
+}
+
+const realReadyBefore = countAction(REAL_AUDIT, 'compaction-watch-ready')
 
 // —— 会话状态隔离（2026-10-18）——
 // 病根：自检的 fake exec 没有 `agent.session.header.id`，`sessionIdOf()`（pipeline.mjs:296）退化为
@@ -411,11 +437,19 @@ console.warn('== 测试 B3：tools/post-execute（真实三参 exec,result,next�
 
 // 审计隔离兜底（2026-10-18）：apply() 会写启动自证，这里必须证明它写进了 tmp 而不是真台账。
 {
-  const afterSize = existsSync(REAL_AUDIT) ? statSync(REAL_AUDIT).size : -1
+  // 2026-10-31 换判据，两次都错在同一个地方，记下来免得第三次：
+  //   ① 原判据比「文件大小不变」——那个量会被**任何**并发进程污染。两个 AI 同跑时必红，
+  //      红的原因是对方写的，与本测试无关。假阳性会训练人加环境变量绕过。
+  //   ② 改成比 `run` 批次号——`run` 只有 `core/audit.mjs::audit()` 带，
+  //      而 `compactionWatch` 走 `appendAudit()`，**压根不出 run**。判据恒为 0，恒绿。
+  //      **假绿比假红更糟：假红至少有人去看，假绿没人看。**
+  // 现在判「本链那个 action 的条数有没有涨」：并发进程写别的 action 不影响，
+  // 而 apply() 真漏了重定向就必然多一条 compaction-watch-ready。
+  const readyAfter = countAction(REAL_AUDIT, 'compaction-watch-ready')
   check(
-    '真实 .focus-guard/AUDIT.log 未被触碰',
-    afterSize === realAuditSizeBefore,
-    `before=${realAuditSizeBefore} after=${afterSize}`,
+    '真实 .focus-guard/AUDIT.log 没多出本链的启动自证',
+    readyAfter === realReadyBefore,
+    `compaction-watch-ready ${realReadyBefore} → ${readyAfter}`,
   )
   const own = existsSync(TEST_AUDIT_FILE) ? readFileSync(TEST_AUDIT_FILE, 'utf8') : ''
   check(
