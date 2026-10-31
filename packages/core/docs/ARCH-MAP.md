@@ -111,15 +111,18 @@ L6 处置结果与伪 RLHF 反馈闭环
 
 ---
 
-## 版本路线（2026-10-19 人类定；执行清单见 [`VERSION-PLAN.md`](VERSION-PLAN.md)）
+## 版本路线（2026-10-31 重排；执行清单见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §1.1）
 
-| 版本 | 目标 | 前置 |
-|---|---|---|
-| **3.3**（已切，2026-10-30） | **校验链补漏**：A 行内路径校验、A′ 引用修复、B 棘轮台账、C 评估口径；E/F/D 见 §1.3 | 见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §1.2 的执行台账 |
-| **近程**（3.0.9 候选） | 面板基线 → 重启验证 turn/step 与 fuse-waste → 抽查B 观测 → 契约探针（需批） → 20:00 推送；发版另行决定 | 见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §1 的 N1–N6 |
-| **3.5** | 文档重置：D1 README 瘦身（402→≤160 行）、D2 `docs/INDEX.md`、D3 旧交接归档、D4 数字单点化、D5 `docs:lint` 并入 check、D6 `RULES` 技术映射表核对 | 面板基线（缺口 #5）先有，否则文档里的成本口径仍是条件性 |
-| **4.0** | 废除外挂脚本 Hook（`hooks/guard.mjs`），内核迁入 **MCP 常驻进程**，Hook 降级为 HTTP 触发线（方案 [`MCP-4.0-PLAN.md`](MCP-4.0-PLAN.md)） | 3.5 文档重置完成；P0 spike 先实测 deny / `updatedInput` / turn-step 三件事 |
-| **4.5** | 记忆系统独立（`src/memory/`）+ 静态知识库索引 + 伪 RLHF 联动；情感训练档 1–3（**档 4 critic 不排进 4.5**，见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §4.5.2） | M1/M2 完成；档 3 需先定「人格档存什么」（[`MEMORY-4.5-PLAN.md`](MEMORY-4.5-PLAN.md) §六 D） |
+| 序 | 版本/批次 | 目标 | 前置 |
+|---|---|---|---|
+| 0 | **3.3.1**（已标记，待推） | 文档收口 D3/D4/D6 + sessionScope 去重 + 回合出口 | 无 |
+| 1 | **4.0 P0 spike**（无版本号） | deny / `updatedInput` / turn-step 三件实测，失败也记录 | 无 |
+| 2 | **3.4.0** | P0 结论 + N1 面板基线 + N2 重启验证 + N4 契约探针 + 文档稳定标记 | spike |
+| 3 | **3.5.0** | 文档完成态交付（内容已就绪，只验收与发版） | 3.4.0 |
+| 4 | **4.0.0** | 废除外挂 Hook，内核迁 **MCP 常驻进程**（[`MCP-4.0-PLAN.md`](MCP-4.0-PLAN.md)） | spike + 3.4.0 |
+| 5 | **4.5** | 记忆独立 + 静态知识库索引 + 伪 RLHF；档 4 不排进 4.5 | 档 3 需先定「人格档存什么」 |
+
+> 3.3.0 已推 `cb44c57`；3.4.0/3.5.0 的版本号受「满 10 条才升次版本」约束，例外与否见 VERSION-PLAN §1.1 待裁决。
 
 ## 成本事实（结论版；数字唯一源见 [BENCH.md](BENCH.md)「数据快照」）
 
