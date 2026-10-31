@@ -25,8 +25,9 @@
  *   node tools/library-index.mjs           重建 index.json
  *   node tools/library-index.mjs --check   只比对，不写；漂移则退 1
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { diffKeys, runIndexTool } from './lib/index-io.mjs'
 
 const DIR = '.ai/output/library'
 const OUT = join(DIR, 'index.json')
@@ -64,41 +65,27 @@ export function buildIndex(dir = DIR) {
 }
 
 /** 零漂移判据：id/file/chars 三者全等。少一块、多一块、改一个字都算。 */
+const KEY = (b) => `${b.id}|${b.file}|${b.chars}`
 export function diffIndex(expected, actual) {
-  const key = (b) => `${b.id}|${b.file}|${b.chars}`
-  const a = new Set((expected.blocks || []).map(key))
-  const b = new Set((actual.blocks || []).map(key))
-  return {
-    missing: [...a].filter((k) => !b.has(k)),
-    extra: [...b].filter((k) => !a.has(k)),
-  }
+  return diffKeys(expected, actual, KEY, 'blocks')
 }
 
 function main() {
-  const argv = process.argv.slice(2)
-  const index = buildIndex()
-  if (!index.blocks.length) {
-    console.error(`[library-index] ${DIR} 下没有积木，先跑 library-build`)
-    process.exit(2)
-  }
-  if (argv.includes('--check')) {
-    if (!existsSync(OUT)) {
-      console.error('[library-index] index.json 不存在，先跑一次不带 --check 的')
-      process.exit(1)
-    }
-    const { missing, extra } = diffIndex(index, JSON.parse(readFileSync(OUT, 'utf8')))
-    if (missing.length || extra.length) {
-      console.error(`[library-index] 漂移：积木侧新增 ${missing.length} 条、索引侧多余 ${extra.length} 条`)
-      for (const k of [...missing, ...extra].slice(0, 10)) console.error(`  ${k}`)
-      process.exit(1)
-    }
-    console.log(`[library-index] 零漂移，${index.blocks.length} 块`)
-    return
-  }
-  writeFileSync(OUT, JSON.stringify({ generated: new Date().toISOString(), ...index }, null, 2) + '\n')
-  const graded = index.blocks.filter((b) => b.grade).length
-  const total = index.blocks.reduce((n, b) => n + b.chars, 0)
-  console.log(`[library-index] ${index.blocks.length} 块（分级结论 ${graded}）/ ${total} 字 → ${OUT}`)
+  runIndexTool({
+    argv: process.argv.slice(2),
+    build: buildIndex,
+    field: 'blocks',
+    out: OUT,
+    label: 'index.json',
+    keyOf: KEY,
+    prefix: '[library-index]',
+    empty: `${DIR} 下没有积木，先跑 library-build`,
+    summary: (i) => {
+      const graded = i.blocks.filter((b) => b.grade).length
+      const total = i.blocks.reduce((n, b) => n + b.chars, 0)
+      return `${i.blocks.length} 块（分级结论 ${graded}）/ ${total} 字 → ${OUT}`
+    },
+  })
 }
 
 if (process.argv[1] && process.argv[1].endsWith('library-index.mjs')) main()
