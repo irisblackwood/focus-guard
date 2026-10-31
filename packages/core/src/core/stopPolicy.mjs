@@ -76,14 +76,21 @@ const CUT_SHORT_NOTICE =
  * 所以本仓的「出口」降一档：**不要求怎么结束，要求承认怎么结束的**。
  * 被熔断/拦截掐断的回合，收尾必须有一句「剩下什么没做」；说不出来就是烂尾。
  *
+ * ## 两个宿主缝的信号不一样，所以判定收两个入口
+ *
+ *   DSH（`stopGuard.mjs`）        → `state.stopBlocked`：本回合有未收口的事
+ *   Claude Code（`guard.mjs`）    → `cutShort: stopReentry`：`stop_hook_active` 说明刚被打回过
+ *
+ * 前者没有协议信号，只能靠自己的状态位；后者有宿主给的一次性信号，更准。
+ * 母版不替任何一方代言，两个都收，取或。
+ *
  * ## 判定
  *
- * 只在 `stopBlocked` 时触发——那是「本回合有未收口的事」的状态位，由
- * `handleFuseDeclaration` / `handleNoAccount` 置位、listener 末尾清零。
- * 已经声明熔断（`declaresFuse`）或已说明未完成的，不算无出口。
+ * 被掐断过（任一信号），且收尾没交代 → true。
+ * 已声明熔断（`declaresFuse`）或已说明未完成的，放行——**能不说就不说**。
  */
-export function needsCutShortNotice({ text, state = {} } = {}) {
-  if (!state.stopBlocked) return false
+export function needsCutShortNotice({ text, state = {}, cutShort = false } = {}) {
+  if (!cutShort && !state.stopBlocked) return false
   const t = String(text || '')
   if (declaresFuse(t)) return false
   return !CUT_SHORT_NOTICE.test(t)

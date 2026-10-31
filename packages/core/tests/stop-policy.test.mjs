@@ -63,4 +63,10 @@ test("needsCutShortNotice：没被掐断就不提，被掐断且没交代才提"
     false,
     "已声明熔断，不再要求重复交代"
   );
+  // 两个宿主缝信号不同：DSH 用 stopBlocked（无协议信号），Claude Code 用 stop_hook_active。
+  assert.equal(
+    sp.needsCutShortNotice({ text: "做完了", cutShort: true }),
+    true,
+    "Claude Code 侧靠 stop_hook_active，不依赖 state.stopBlocked"
+  );
 });

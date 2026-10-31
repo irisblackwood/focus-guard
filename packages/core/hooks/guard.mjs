@@ -40,7 +40,7 @@ import { judgeReadGate, judgeGrepGate, judgeCatGate } from "../src/core/outputGa
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail, setProjectDirProvider } from "../src/core/audit.mjs";
 // 2026-10-25 分层：收尾判定搬到母版 `core/stopPolicy.mjs`，本文件只做"取结果 → 打回/审计"。
-import { declaresFuse, needsDowngrade, needsAccount, needsAnchorCheck } from "../src/core/stopPolicy.mjs";
+import { declaresFuse, needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from "../src/core/stopPolicy.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize, registerToolKind } from "../src/core/risk.mjs";
 import { gradeOfKpi } from "../src/core/kpi.mjs";
 import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
@@ -1131,6 +1131,19 @@ if (mode === "stop") {
         `确有授权→【授权识别】引原文+法条，未明→【授权待确认】。${ladderNote(level)}`
     );
     process.exit(0);
+  }
+
+  // 3.4 回合出口：被打回后重入（stop_hook_active），收尾仍未说明「剩下什么没做」。
+  // **只审计，不出声，不再 block**：
+  //   · 不再 block —— 走到这里已是第二次机会，再打回就是震荡（2.5.2 在 reject-no-form 上踩过，
+  //     实测 3/3 重复）；
+  //   · 不出声 —— 打回那次已经把话说过了，重入再提示一遍就是重复。
+  // 验收测试当场抓到这一条（断言第二次 stderr 为空）。
+  // DSH 桥接没有收尾文本，排除。
+  if (needsCutShortNotice({ text, state, cutShort: stopReentry }) && !dshBridge) {
+    state.turnCount = 0;
+    saveState(path, state);
+    audit(sid, "turn-cut-short", { level: null, evidence: "被打回后重入，收尾仍未说明剩余什么没做（只审计）" });
   }
 
   state.stopBlocked = false;
