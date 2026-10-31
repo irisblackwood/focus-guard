@@ -1,6 +1,6 @@
 # 文档索引（docs/INDEX.md）
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.3.1 · 最后核对 2026-10-31
 
 > 3.3 D2：新会话按本页在 **10 分钟**内定位到该读的那份文档。
 > 状态口径：**权威** = 与实现同步、可据此裁决；**参考** = 有价值但可能滞后；**台账** = 过程记录，读取前先看日期；**归档** = 已过期，仅作历史。
@@ -42,14 +42,24 @@
 
 ## 三、过程台账（读前看日期，不作裁决依据）
 
+> **出口规则**（2026-10-31 补）：满足任一条即移入第四节归档——
+> ① 超过 30 天未更新；② 它对应的版本/里程碑已发布；③ 已被更新的同类文件取代。
+>
+> 补这条的理由：原先只有「读前看日期」，没有**什么时候该走**。结果是台账只进不出——
+> HANDOFF 攒到第 6 份，前 5 份都归档了，最新那份永远留在原地；历史计划也从没被移走。
+> **有入口、没出口，是这一类问题的通病**（同日发现的棘轮台账、豁免清单同理）。
+
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md) | 审计工具三连跑 → 分层拆分 → 健康分 | 台账（最新） |
-| [AB-PROMPTS.md](../packages/core/docs/AB-PROMPTS.md) | A/B 采集协议 | 台账 |
-| [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账 |
-| [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账 |
-| [MASTER-PLAN-2.0.0.md](../packages/core/docs/MASTER-PLAN-2.0.0.md) | 2.0 重构骨架 | 台账 |
-| [MASTER-PLAN-3.0.0.md](../packages/core/docs/MASTER-PLAN-3.0.0.md) | 3.0 迁移计划 | 台账 |
+| [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md) | 审计工具三连跑 → 分层拆分 → 健康分 | 台账（最新，2026-10-27） |
+| [AB-PROMPTS.md](../packages/core/docs/AB-PROMPTS.md) | A/B 采集协议 | 台账（测量协议，可复用） |
+| [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账（一次记录，属证据） |
+| [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账（外部事实，带日期可追溯） |
+| [MASTER-PLAN-2.0.0.md](../packages/core/docs/MASTER-PLAN-2.0.0.md) | 2.0 重构骨架 | **已结束：2.0 已发布 → 待归档**（命中②） |
+| [MASTER-PLAN-3.0.0.md](../packages/core/docs/MASTER-PLAN-3.0.0.md) | 3.0 迁移计划 | **已结束：3.0 已完成 → 待归档**（命中②） |
+
+> 「待归档」两份**物理未搬**：各被 6 处引用（含 `changelog-format` 测试），搬一份要同步改 6 处，
+> 改漏就断链。先标状态、不搬文件——**标记是判据，搬运是动作，判据可以先落地**。
 
 ## 四、归档（勿引用）
 
