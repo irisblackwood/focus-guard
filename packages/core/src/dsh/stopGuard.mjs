@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { statePath, loadState, saveState } from '../core/state.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
-import { needsDowngrade, needsAccount, needsAnchorCheck } from '../core/stopPolicy.mjs'
+import { needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from '../core/stopPolicy.mjs'
 import {
   AUTH_SEMANTICS_RE,
   BUDGET_CAP,
@@ -253,6 +253,31 @@ function handleNoAnchor(ctx) {
   return true
 }
 
+/**
+ * 回合出口（3.4）：被掐断的回合必须承认。
+ *
+ * 走到这里的条件是：`stopBlocked` 为真（本回合有未收口的事），但既没触发
+ * 「双规后未交代」也没触发「无锚点」——即**被拦了却没说明**。
+ *
+ * 只审计 + 提示一次，报完清 `stopBlocked`：再提醒就是重复，那正是要避免的。
+ * 不打回——DSH 的 `agent/turn-stopping` 没有 `stop_hook_active`，打回会强制续跑死循环。
+ */
+function handleCutShort(ctx) {
+  const { sid, file, state, text, noText, warn } = ctx
+  if (noText || !needsCutShortNotice({ text, state })) return false
+  state.stopBlocked = false
+  state.turnCount = 0
+  saveState(file, state)
+  audit(sid, 'turn-cut-short', {
+    level: 2,
+    evidence: '本回合被熔断/拦截止住，收尾未说明剩余什么没做',
+  })
+  if (typeof warn === 'function') {
+    warn(advisory('本回合被掐断（熔断/拦截/预算），收尾需一句说明剩下什么没做；说不出来就是烂尾。'))
+  }
+  return true
+}
+
 /** DSH 无收尾文本 → 降级审计（与原 dshBridge 口径一致，供人类复核）。 */
 function auditNoTextDegrade({ sid, state, noText }) {
   if (!noText) return
@@ -287,6 +312,7 @@ export function stopGuardListener({ warn } = {}) {
       state.unknownStreak = 0
 
       if (handleNoAnchor(ctx)) return
+      if (handleCutShort(ctx)) return
 
       auditNoTextDegrade(ctx)
 

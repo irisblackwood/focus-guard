@@ -58,3 +58,33 @@ export function needsAnchorCheck({ text, state = {}, min = 5 } = {}) {
 export function hasAnchor(text) {
   return EVIDENCE_ANCHORS.test(String(text || ''))
 }
+
+/** 收尾里承认「这轮没做完」的写法，任一种即可。 */
+const CUT_SHORT_NOTICE =
+  /(未完成|没做完|没跑完|被打断|中断了|提前结束|未收口|待续|下一步|下次继续|剩[下余].{0,8}未)/
+
+/**
+ * 回合出口（3.4）：被掐断的回合必须自己说出来。
+ *
+ * ## 为什么不是「必须调用某个工具才能结束」
+ *
+ * Claude Code 的 plan mode 用的是封闭集合：
+ *   `your turn should only end with either using the AskUserQuestion tool OR calling ExitPlanMode`
+ * 那套在 DSH 里做不到——`agent/turn-stopping` 不提供 `stop_hook_active` 信号，
+ * 打回会变成强制续跑死循环（`stopGuard.mjs` 头注释取舍①已记，本人被自家熔断拦过）。
+ *
+ * 所以本仓的「出口」降一档：**不要求怎么结束，要求承认怎么结束的**。
+ * 被熔断/拦截掐断的回合，收尾必须有一句「剩下什么没做」；说不出来就是烂尾。
+ *
+ * ## 判定
+ *
+ * 只在 `stopBlocked` 时触发——那是「本回合有未收口的事」的状态位，由
+ * `handleFuseDeclaration` / `handleNoAccount` 置位、listener 末尾清零。
+ * 已经声明熔断（`declaresFuse`）或已说明未完成的，不算无出口。
+ */
+export function needsCutShortNotice({ text, state = {} } = {}) {
+  if (!state.stopBlocked) return false
+  const t = String(text || '')
+  if (declaresFuse(t)) return false
+  return !CUT_SHORT_NOTICE.test(t)
+}

@@ -42,3 +42,25 @@ test("hasAnchor：识别 [文件:行号] 形态", () => {
   assert.equal(sp.hasAnchor("见 packages/core/tests/x.test.mjs:10-20"), true);
   assert.equal(sp.hasAnchor("改完了，应该没问题"), false);
 });
+
+// 回合出口（3.4）：被掐断的回合必须承认。
+// 判据不是「必须调某工具才允许结束」（DSH 无 stop 拦截口，打回会死循环），
+// 而是「必须承认怎么结束的」——所以只在 stopBlocked 时触发。
+test("needsCutShortNotice：没被掐断就不提，被掐断且没交代才提", () => {
+  assert.equal(sp.needsCutShortNotice({ text: "做完了", state: {} }), false);
+  assert.equal(
+    sp.needsCutShortNotice({ text: "做完了", state: { stopBlocked: true } }),
+    true,
+    "被拦住却声称做完了——这是烂尾"
+  );
+  assert.equal(
+    sp.needsCutShortNotice({ text: "预算耗尽，剩下三个文件未改", state: { stopBlocked: true } }),
+    false,
+    "说明了剩余什么没做，算有出口"
+  );
+  assert.equal(
+    sp.needsCutShortNotice({ text: "【熔断】无法定位核心问题", state: { stopBlocked: true } }),
+    false,
+    "已声明熔断，不再要求重复交代"
+  );
+});
