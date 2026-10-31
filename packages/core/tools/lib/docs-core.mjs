@@ -43,7 +43,9 @@ export const AUTHORITATIVE_DOCS = [
 
 // `HANDOFF.md` 是本机私有备忘（在 .git/info/exclude 里），不属于公开文档面，
 // 混进来会让"文档口径"这个数字同时反映私有文件——口径不纯。
-const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', 'self-improvement', 'archived', 'backup', 'HANDOFF.md'])
+const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', 'self-improvement', 'archived', 'archive', 'backup', 'HANDOFF.md'])
+// 2026-10-31（3.4 D3）：`docs/archive/` 是历史证据，链接按旧路径原样保留才不失真，
+// 因此归档文档整体不进 lint（不查链接/状态头）；INDEX 仍负责列出它们。
 
 /** 遍历仓库内 Markdown（排除运行产物与归档）。 */
 export function listMarkdownFiles(root) {

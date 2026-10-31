@@ -175,6 +175,16 @@ D1/D3/D4/D6 留给 3.4（见 §1.1），3.3 只做 D5 + D2 这两件"先立尺�
 - 不做「只留 6 份文档、其余全删」的激进方案（过程材料靠 git 可回溯，但当前无必要）。
 - 不改 `ARCH-MAP` 的能力状态语义（只加链接，不重写状态）。
 
+### 3.4 执行台账（2026-10-31）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| D1 README 瘦身 | ✅ | 413 → **81 行**；机制正文迁 `docs/ARCHITECTURE.md`；`docs:lint` 硬指标在闸 |
+| D3 旧交接归档 | ✅ | 5 份旧 HANDOFF + `HANDOFF-TO-EXTERNAL.md` 移入 `docs/archive/` 并加「已归档，勿引用」头；归档目录整体不进 `docs:lint`（旧链接按旧路径保留才不失真）；根 `HANDOFF.md` 保留——`hooks/guard.mjs:142` 运行时读取，不能移 |
+| D4 数字单点 | ✅ | `ARCH-MAP.md` 成本段改为结论 + 指回 `BENCH.md`；`BENCH.md` 为唯一数字源。早期两次 A/B **未记录 session id**，如实标注「未记录」不补编号；`CHANGELOG`（历史）/`PROFILE-TUNING`（台账）为白名单 |
+| D6 技术映射核对 | ✅ | `RULES.md` 第三部分末尾新增「实现位置索引」35 条（file:line）；抽查 5 条与代码逐字一致 |
+| 4.0 P0 spike | ⬜ | 待做：deny / `updatedInput` / turn-step 三件实测 |
+
 ---
 
 ## 3. 4.0 · Hook 完全态（MCP 常驻内核）

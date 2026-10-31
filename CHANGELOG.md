@@ -993,7 +993,7 @@
   - **INSTALL**：新增「2A. 原生插件（推荐）」节、卸载命令区分原生插件/官方桥。
   - **SKILL**：`skills/focus-thinking/SKILL.md` 的"生效版本"从 `hooks/guard.mjs v3.0.0` **修正为** `ENGINE_VERSION`。
   - **SKILL 理由**：guard.mjs 已封存，不该再代表生效版本；并修正 monorepo 后的 `docs/RULES.md` 路径。
-  - **HANDOFF**：`docs/HANDOFF-TO-EXTERNAL.md` 补交付验证与 ENOENT 踩坑记录。
+  - **HANDOFF**：`docs/archive/HANDOFF-TO-EXTERNAL.md`（当时在 `docs/`）补交付验证与 ENOENT 踩坑记录。
 
 - feat: **审计日志体积轮转**
   - **原状**：`AUDIT.log` 此前 append-only 且无轮转，长期运行无限膨胀（本次事故即累积到 2997 行）。

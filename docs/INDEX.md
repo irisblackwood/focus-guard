@@ -45,11 +45,6 @@
 | 文档 | 内容 | 状态 |
 |---|---|---|
 | [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md) | 审计工具三连跑 → 分层拆分 → 健康分 | 台账（最新） |
-| [HANDOFF-2026-10-26.md](../packages/core/docs/HANDOFF-2026-10-26.md) | 3.1.0 新功能与分层前夜 | 台账 |
-| [HANDOFF-2026-10-22.md](../packages/core/docs/HANDOFF-2026-10-22.md) | L1 画像与审批缝 | 台账 |
-| [HANDOFF-2026-10-19.md](../packages/core/docs/HANDOFF-2026-10-19.md) | 审计元数据 / 画像回流 | 台账 |
-| [HANDOFF-2026-10-19-evening.md](../packages/core/docs/HANDOFF-2026-10-19-evening.md) | 抽查B / 口径对账 | 台账 |
-| [HANDOFF-2026-10-18.md](../packages/core/docs/HANDOFF-2026-10-18.md) | 孤儿机制移植批 | 台账 |
 | [AB-PROMPTS.md](../packages/core/docs/AB-PROMPTS.md) | A/B 采集协议 | 台账 |
 | [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账 |
 | [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账 |
@@ -60,7 +55,12 @@
 
 | 文档 | 原因 |
 |---|---|
-| [docs/HANDOFF-TO-EXTERNAL.md](HANDOFF-TO-EXTERNAL.md) | 2026-10-09 对外说明，已过期 |
+| [archive/HANDOFF-TO-EXTERNAL.md](archive/HANDOFF-TO-EXTERNAL.md) | 2026-10-09 对外说明，已过期 |
+| [archive/HANDOFF-2026-10-18.md](archive/HANDOFF-2026-10-18.md) | 2026-10-18 交接，已过期（现行台账是 10-27） |
+| [archive/HANDOFF-2026-10-19.md](archive/HANDOFF-2026-10-19.md) | 2026-10-19 交接，已过期 |
+| [archive/HANDOFF-2026-10-19-evening.md](archive/HANDOFF-2026-10-19-evening.md) | 2026-10-19 晚间交接，已过期 |
+| [archive/HANDOFF-2026-10-22.md](archive/HANDOFF-2026-10-22.md) | 2026-10-22 交接，已过期 |
+| [archive/HANDOFF-2026-10-26.md](archive/HANDOFF-2026-10-26.md) | 2026-10-26 交接，已过期 |
 | [docs/vault-notes/README.md](vault-notes/README.md) | 外部资料摘录，非项目事实源 |
 | [packages/core/skills/focus-thinking/SKILL.md](../packages/core/skills/focus-thinking/SKILL.md) | 旧技能入口，技能目录已迁到 `.agents/skills-core/` |
 

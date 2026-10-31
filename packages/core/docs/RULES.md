@@ -329,6 +329,50 @@
 
 ---
 
+### 实现位置索引（2026-10-31，D6 核对）
+
+> 上表是「条款 → 判据」的叙述；本表给**每条映射的落点**，供抽查与过期告警。
+> 行号是 2026-10-31 的锚点，代码移动后会漂移——**以 `rg` 符号为准**，行号只用于快速跳转。
+
+| 条款/项 | 实现位置 |
+|---|---|
+| 第七条 取证 / 第三十三条 盲写 | `packages/core/src/dsh/guard/evidence.mjs:290` |
+| 第十一条(三) 整读 / Grep 收窄 / 裸 cat | `guard/wholeFile.mjs:77`、`guard/volume.mjs:92`、`core/constants.mjs:91` |
+| 第十三条(三) 停职只读放行 | `packages/core/src/dsh/pipeline.mjs`（`layer3Check`） |
+| 第十三条(二)(五) 取证解除 | `guard/evidence.mjs:290` |
+| 第四十八条 子代理处分移交 | `packages/core/src/dsh/preGuard.mjs:35` |
+| 第五十六条 停职禁绕子代理 | `packages/core/src/dsh/preGuard.mjs:39` |
+| 第七十五条(三) 高危资格审核 | `guard/authz.mjs:4` |
+| 2.4.0 脚本包装检测 | `core/redlines.mjs:75` |
+| 2.2.0 三.1 污染核实 | `guard/volume.mjs:173`（`basis: risk-audit`） |
+| 总纲四 卷宗免重读 | `packages/core/src/dsh/preGuard.mjs:244` |
+| 总纲六 平台差异 | `guard/hardCheck.mjs:53` |
+| 第八十二条 资料分层 | `core/constants.mjs:33`、`preGuard.mjs:5` |
+| 第八十三条 哨兵 | `guard/risk.mjs:90` |
+| R5-3 解释器黑名单 | `packages/core/src/core/risk.mjs`（`isInvestigation` / `INTERP_EVAL_RE`） |
+| 第十八条 停滞熔断 / 续杯 | `postProgress.mjs:242`、`postProgress.mjs:224` |
+| 第三十五条 全量审计 | `postProgress.mjs:405`（`writeOps`） |
+| 第三十五条(二) 抽查B | `guard/evidence.mjs:215`（`trigger: random-fuse`） |
+| 第三十四条 核心文件风险审计 | `guard/volume.mjs:173`（`basis: risk-audit`） |
+| 第二十八~二十九条 摘要/委派 KPI | `postProgress.mjs:383`（`kpi-delegated`） |
+| 第二十条 侦查池 | `postProgress.mjs:231` |
+| 第五十八条 / 第七十六条 污染 | `postProgress.mjs:284`、`postProgress.mjs:304` |
+| 第八十条 中心调度（仅(一)(五)） | `postProgress.mjs:383` |
+| 第八条 证据锚点 | `packages/core/src/core/stopPolicy.mjs:49` |
+| 第二十三条 授权识别 | `packages/core/src/dsh/stopGuard.mjs`、`core/constants.mjs:49` |
+| 第七十五条(三) 审批单 | 已废止（2026-10-10），无实现 |
+| 触发⑤ 熔断声明 | `core/constants.mjs:65`、`packages/core/src/dsh/stopGuard.mjs:6` |
+| 第八十四条 KPI 兑现 | `packages/core/src/dsh/seams.mjs:121`（`kpi-settle`） |
+| 第四十二条 DSH 桥接 | `packages/core/src/dsh/stopGuard.mjs:285`（`dsh-stop-observe`） |
+| 第二十四条 特赦 | `packages/core/src/dsh/seams/pre-step.mjs:63` |
+| 第二十五条 预算 | `packages/core/src/dsh/seams/pre-step.mjs:55` |
+| 第四十三条 残留核验 | `packages/core/src/dsh/seams/pre-step.mjs:132` |
+| 第七十四条 环境适配 | `packages/core/src/core/env.mjs` |
+| 第七十八条 人类交互（仅(三)） | `guard/authz.mjs:4` |
+| 第八十六条 因果链 | `packages/core/src/core/audit-writer.mjs:63` |
+
+**抽查记录（2026-10-31）**：`evidence.mjs:290`、`postProgress.mjs:242`、`wholeFile.mjs:77`、`hardCheck.mjs:53`、`audit-writer.mjs:63` 五条与代码逐字核对一致。
+
 ## 第四部分：常驻提示词（逐字镜像，注入 System Prompt）
 
 > 生效版本 = `packages/core/src/core/constants.mjs` 的 `SESSION_RULES` 常量，**逐字一致**，由验收用例锁定。
