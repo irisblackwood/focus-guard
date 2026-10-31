@@ -48,7 +48,8 @@
     "health:brief": "node packages/core/tools/health.mjs --brief",
     "prefix:drift": "node packages/core/tools/prefix-drift.mjs",
     "prefix:audit": "node packages/core/tools/prefix-audit.mjs",
-    "eval:dsh": "node packages/core/tests/threat-eval-dsh.mjs"
+    "eval:dsh": "node packages/core/tests/threat-eval-dsh.mjs",
+    "case:audit": "node packages/core/tools/case-audit.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

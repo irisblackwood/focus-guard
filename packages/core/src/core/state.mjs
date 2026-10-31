@@ -9,7 +9,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { BUDGET_DEFAULT, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_RECENT, TTL_WEEK, TTL_STABLE, DELEGATE_DEFAULT, CASE_TEMPLATE } from "./constants.mjs";
+import { BUDGET_DEFAULT, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_FLOOR, TTL_CEIL, TTL_GAIN, DELEGATE_DEFAULT, CASE_TEMPLATE } from "./constants.mjs";
 import { noteFail, audit } from "./audit.mjs";
 import { sid } from "./session.mjs";
 
@@ -265,11 +265,45 @@ export function resolveTTL(projDir, rec, filePath) {
     const d = parseDur(rec.ttlOverride);
     if (d) return { ms: d, src: "人工标注" };
   }
-  if (!rec || !rec.lastChange) return { ms: TTL_FIRST, src: "自适应:首次4h" };
-  const age = Date.now() - rec.lastChange;
-  if (age >= 30 * 86400e3) return { ms: TTL_STABLE, src: "自适应:30天未变" };
-  if (age >= 7 * 86400e3) return { ms: TTL_WEEK, src: "自适应:7-30天未变" };
-  return { ms: TTL_RECENT, src: "自适应:7天内有变" };
+  return adaptiveHalfLife(rec);
+}
+
+/**
+ * 半衰期 S（3.4.0，判据变更经用户批示）
+ *
+ * 原先是四档阶梯：首次 4h / 7天内有变 2h / 7-30天 24h / 30天未变 7天。
+ * 阶梯的问题不是数值，是**边界上跳变**——age 从 6.99 天跨到 7.01 天，
+ * 重读期限从 2h 跳到 24h，12 倍。而且四档都是拍出来的常数，跟"这个文件到底稳不稳"无关。
+ *
+ * 半衰期把 S 定义成**可观测的量**：该文件最近多久没变过。
+ * 语义是「已观察到多久没变，就假设还能保持多久」——不是估的，是量的。
+ * 两端夹住：刚变过的（S→0）按 2h 兜底，长期不动的按 7 天封顶。
+ * 变更次数 n 给温和增益（每次 +10%，n 封顶 5）：n=5 的文件是长期稳定样本，
+ * 比 n=1 的单点观测可信，半衰期可放宽到 1.5 倍。
+ */
+export function halfLifeOf(rec, now = Date.now()) {
+  if (!rec || !rec.lastChange) return TTL_FIRST;
+  const quiet = Math.max(0, now - rec.lastChange);
+  const gain = 1 + Math.min(rec.changes || 0, 5) * TTL_GAIN;
+  return Math.min(TTL_CEIL, Math.max(TTL_FLOOR, quiet * gain));
+}
+
+/**
+ * 保持度 R = 0.5^(已读时长 / S)，值域 (0,1]。
+ * R < 0.5 即半衰期已过——这条记录还在卷宗里，但已不该被当作有效结论复用。
+ * 体检命令（`npm run case:audit`）用的就是这条判据。
+ */
+export function retention(rec, now = Date.now()) {
+  const s = halfLifeOf(rec, now);
+  const age = Math.max(0, now - (rec?.readAt || 0));
+  return Math.pow(0.5, age / s);
+}
+
+function adaptiveHalfLife(rec) {
+  const ms = halfLifeOf(rec);
+  if (!rec || !rec.lastChange) return { ms, src: "半衰期:首次4h" };
+  const n = rec.changes || 0;
+  return { ms, src: `半衰期:S=${(ms / 3600e3).toFixed(1)}h(n=${n})` };
 }
 
 // ============ 2.0 平台命令规则（总纲六：按检出 shell 适配） ============

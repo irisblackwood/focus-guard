@@ -19,10 +19,14 @@ export const ENGINE_VERSION = "3.3.0"; // 42条：部署版本核验基准（须
 export const INV_POOL_DEFAULT = 15; // 20条：侦查池独立额度（批示可追加；放宽靠 REFILL 20）
 export const SHA_LIMIT = 200 * 1024; // 总纲四：SHA-256 校验上限（≤200KB）
 export const CASE_MAX_ROWS = 200; // 卷宗【三】最大行数（超出淘汰最旧）
-export const TTL_FIRST = 4 * 3600e3; // 自适应：首次 4h
-export const TTL_RECENT = 2 * 3600e3; // 自适应：7天内有变 2h
-export const TTL_WEEK = 24 * 3600e3; // 自适应：7-30天未变 24h
-export const TTL_STABLE = 7 * 86400e3; // 自适应：30天未变 7天
+// 3.4.0 半衰期（判据变更，2026-10-31 用户批示）：原先是四档阶梯（4h/2h/24h/7d），
+// 在档位边界上跳变——age 从 6.99 天跨到 7.01 天，重读期限从 2h 跳到 24h，12 倍。
+// 改成连续衰减：S = 该文件最近多久没变（夹在两端点内），R = 0.5^(已读时长/S)，
+// 到期即 R < 0.5。语义是「已观察到多久没变，就假设还能保持多久」，不是拍脑袋分档。
+export const TTL_FIRST = 4 * 3600e3; // 无变更历史（首次侦查）兜底 4h
+export const TTL_FLOOR = 2 * 3600e3; // 半衰期下限：刚变过的文件，最多 2h 就要重读
+export const TTL_CEIL = 7 * 86400e3; // 半衰期上限：长期不动的文件，7 天重读一次
+export const TTL_GAIN = 0.1; // 变更次数增益：n 次变更各 +10% 半衰期（n 封顶 5 → 最多 +50%）
 
 export const FUSE_PHRASE = "【熔断】无法通过现有资料定位核心问题";
 export const FUSE_HINT = "1【最小复现】步骤/实验 2【联网证据】链接+原文 3【卡点记录】写HANDOFF.md"; // 各一行
