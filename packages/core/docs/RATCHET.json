@@ -11,6 +11,14 @@
       "smells": 8,
       "duplicates": 29,
       "note": "首版记账于 2026-10-30（57565dc）为 8/41，当时未发布（CHANGELOG：未推送）。2026-10-31 在发布前还掉 12 条重复块——四个工具各自复制了一份 decode()，逐字相同只差注释，收成 lib/sessionDump.mjs 一份。因 3.3.0 尚未发布，此处按偿还后的实测值重新记账并重置规则④的计时；原值 41 留在这条 note 里，不抹。"
+    },
+    {
+      "version": "3.3.1",
+      "date": "2026-10-31",
+      "commit": "d293f25",
+      "smells": 8,
+      "duplicates": 27,
+      "note": "还债 1 条类别：sidOf / projDirOf / normalize 在 postProgress 与 preGuard 各有一份 12 行逐字相同实现，收进 src/dsh/sessionScope.mjs；重复块 29 → 27。3.3.1 其余条目为回合出口、知识索引与文档收口（D3/D4/D6），无新增结构债。"
     }
   ]
 }
