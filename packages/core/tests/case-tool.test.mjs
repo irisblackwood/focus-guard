@@ -4,6 +4,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// 2026-10-31：`dropEntry` / `tagEntry` 现在会写审计（case-drop / case-tag）。
+// 必须**文件级**重定向，不能只在个别测试里设——本文件有 5 处调用，只在其中一处设环境变量，
+// 其余四处照样写进真实 `.focus-guard/AUDIT.log`。
+// 实测：`npm run check` 被 audit-isolation 抓到 4 行泄漏；而在判据修好之前它数到 0、报 PASS——
+// **这条泄漏一直存在，是假绿把它藏住的。**
+process.env.FG_AUDIT_FILE = join(tmpdir(), `fg-case-tool-${process.pid}-AUDIT.log`);
+
 // 卷宗人工维护（2026-10-30）
 //
 // 背景：真实卷宗 10 条里 4 条是口语碎片（「哦！遵循它」「我是说新功能」），

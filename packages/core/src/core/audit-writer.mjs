@@ -83,6 +83,7 @@ const CANONICAL = new Set([
   'level',
   'evidence',
   'pardon',
+  'run',
   'evidenceLimit',
   'extra',
 ])
@@ -156,6 +157,13 @@ function normalizeRow(row) {
   if (out.evidence === undefined) out.evidence = ''
   if (out.pardon === undefined) out.pardon = false
   if (!out.seq) out.seq = nextSeq()
+  // 2026-10-31：运行批次号。原先只有 `core/audit.mjs::audit()` 那条写路径自己 stringify 时
+  // 带了 run，走 `buildAuditRow`/`appendAudit` 的写入（compactionWatch、case-tool…）全都没有。
+  // 后果：`audit-isolation` 的隔离判据按 run 认"测试链写的行"，在这条路径上恒数到 0 ——
+  // 报「本批次 0 条」= 隔离通过，**假绿**。补在 normalizeRow 而不是 buildAuditRow：
+  // 这里是**落盘前**的兜底，绕开 buildAuditRow 直传裸行的写点也一并覆盖。
+  // 宿主进程没有 FG_RUN_ID → 值为 null，与 `audit()` 同口径。
+  if (out.run === undefined) out.run = process.env.FG_RUN_ID || null
   return out
 }
 

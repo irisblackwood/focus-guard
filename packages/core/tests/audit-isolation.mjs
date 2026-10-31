@@ -144,7 +144,17 @@ const run = wrapped
   : spawnSync('node', ['--test', ...files], { cwd: repoRoot, stdio: 'inherit', env: childEnv })
 const after = snapshot(realAudit)
 const added = linesAfter(realAudit, before.lines)
-const mine = added.filter((l) => l.includes(`"run":"${runId}"`))
+// 2026-10-31：原先是 `l.includes('"run":"' + runId + '"')` —— **硬编码了审计行的 JSON
+// 字面形态**。字段顺序一变、冒号后多一个空格，匹配就静默失效，而失效方向是"永远数到 0"，
+// 也就是**判据恒绿**。改成解析后读字段：形态变了会 parse 失败，不是静默认不出。
+const runOf = (line) => {
+  try {
+    return JSON.parse(line).run
+  } catch {
+    return undefined
+  }
+}
+const mine = added.filter((l) => runOf(l) === runId)
 const foreign = added.length - mine.length
 const hardChanged = diffHash(beforeHard, hashAll(RECORD_HARD))
 const softChanged = diffHash(beforeSoft, hashAll(RECORD_SOFT))
