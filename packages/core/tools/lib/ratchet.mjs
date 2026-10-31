@@ -104,9 +104,18 @@ export function checkRatchet(ledger, version, actual, opts = {}) {
 
   // ④ 还款期限：不发新版也要还债。只看「当前版本还没降」这一种情形——
   //    已经降过的（② 满足）不该再被催。
+  //
+  // 2026-10-31 修：原先写的是 `idx === 0 || total >= prevTotal`，首版（idx===0）恒为 stalled，
+  // 于是「实测 29 < 记账 41、已经还了 12 条」照样被催债。注释里那句「已经降过的不该再被催」
+  // 代码根本没实现——**判据与它自己声明的语义断线**，正是本轮一直在修的那个病。
+  // 改为先看「实测是否低于本版记账值」，降过就不催；没降才按上一版比。
   const n = opts.commitsSinceLast
   if (typeof n === 'number' && n >= COMMITS_PER_PAYBACK) {
-    const stalled = idx === 0 || total >= prevTotal
+    // 「降」看的是**实测**，不是台账。第一版这里写成了 `total < booked`——而 total 就是
+    // cur 的和、booked 也是 cur 的和，两边同一个数，恒为 false：判据又一次和自己的语义断线。
+    const booked = (cur.smells || 0) + (cur.duplicates || 0)
+    const lowered = (actual.smells || 0) + (actual.duplicates || 0) < booked
+    const stalled = !lowered && (idx === 0 || total >= prevTotal)
     if (stalled) {
       findings.push({
         rule: 'ratchet-overdue',

@@ -14,11 +14,11 @@
  * 无会话可读（如 CI 无 sessions 目录）时退出 0 并说明「跳过」，不制造假失败。
  */
 
+import { decodeSession as decode } from './lib/sessionDump.mjs'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { zstdDecompressSync } from 'node:zlib'
 import { judgeDrift } from '../src/core/schemaDrift.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -49,34 +49,6 @@ function walk(dir, out = []) {
     else if (e === 'session.v4.jsonl.zstd') out.push({ f: p, m: st.mtimeMs, size: st.size })
   }
   return out
-}
-
-function decode(file) {
-  const buf = readFileSync(file)
-  const starts = []
-  for (let i = 0; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) starts.push(i)
-  }
-  let text = ''
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = k + 1 < starts.length ? starts[k + 1] : buf.length
-    try {
-      text += zstdDecompressSync(buf.subarray(starts[k], end)).toString('utf8')
-    } catch {
-      /* 坏帧跳过 */
-    }
-  }
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l)
-      } catch {
-        return null
-      }
-    })
-    .filter(Boolean)
 }
 
 const files = walk(SESSIONS)

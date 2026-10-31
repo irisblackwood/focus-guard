@@ -86,8 +86,11 @@ const BUDGET = 8
  * 在 6 个 tools 文件里各有一份（`prefix-audit` / `schema-fingerprint` / `capture-fixtures` /
  * `gate-audit` / `collect-panel` / `module-audit`）。清掉它能一次性降到 20 上下，但那是
  * 另一件事——这里先立棘轮，不许再往上。
+ *
+ * 2026-10-31 下调 41 → 29：四个工具各复制一份 `decode()`，收成 `lib/sessionDump.mjs`。降了就要下调，
+ * 否则棘轮记的是旧高度，等于把还掉的债又借回来。（补这行注释把本文件顶到 401 行，自己踩了自己的线。）
  */
-const DUP_BUDGET = 41
+const DUP_BUDGET = 29
 
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])

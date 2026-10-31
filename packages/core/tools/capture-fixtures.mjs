@@ -13,10 +13,10 @@
  *   node packages/core/tools/capture-fixtures.mjs --since 24h   # 只取最近 24h
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
+import { decodeSession as decode } from './lib/sessionDump.mjs'
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { zstdDecompressSync } from 'node:zlib'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
@@ -55,34 +55,6 @@ function walk(dir, out = []) {
     else if (e === 'session.v4.jsonl.zstd') out.push({ f: p, m: st.mtimeMs, size: st.size })
   }
   return out
-}
-
-function decode(file) {
-  const buf = readFileSync(file)
-  const starts = []
-  for (let i = 0; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) starts.push(i)
-  }
-  let text = ''
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = k + 1 < starts.length ? starts[k + 1] : buf.length
-    try {
-      text += zstdDecompressSync(buf.subarray(starts[k], end)).toString('utf8')
-    } catch {
-      /* 坏帧 */
-    }
-  }
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l)
-      } catch {
-        return null
-      }
-    })
-    .filter(Boolean)
 }
 
 /** 截断过长的参数值（content/command 可能上千字），只保留形状。 */

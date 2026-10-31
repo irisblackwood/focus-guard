@@ -15,10 +15,10 @@
  * 用法：node packages/core/tools/gate-audit.mjs [--limit 20] [--json]
  */
 
+import { decodeSession as decode } from './lib/sessionDump.mjs'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { zstdDecompressSync } from 'node:zlib'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
@@ -50,33 +50,6 @@ function walk(dir, out = []) {
 }
 
 /** 多帧 zstd：按魔数 0x28B52FFD 分帧解压（单帧 API 只解第一帧）。 */
-function decode(file) {
-  const buf = readFileSync(file)
-  const starts = []
-  for (let i = 0; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) starts.push(i)
-  }
-  let text = ''
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = k + 1 < starts.length ? starts[k + 1] : buf.length
-    try {
-      text += zstdDecompressSync(buf.subarray(starts[k], end)).toString('utf8')
-    } catch {
-      /* 跳过坏帧 */
-    }
-  }
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l)
-      } catch {
-        return null
-      }
-    })
-    .filter(Boolean)
-}
 
 /** 从会话里取真实工具表：{ 工具名: Set(参数键) }。 */
 function realToolSchema(limit) {

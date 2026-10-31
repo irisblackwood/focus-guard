@@ -22,10 +22,10 @@
  *   node packages/core/tools/collect-panel.mjs panel.json --json
  */
 
+import { decodeSession as decode } from './lib/sessionDump.mjs'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { zstdDecompressSync } from 'node:zlib'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
@@ -71,34 +71,6 @@ function walk(dir, out = []) {
 }
 
 const FILES = walk(SESSIONS)
-
-function decode(file) {
-  const buf = readFileSync(file)
-  const starts = []
-  for (let i = 0; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) starts.push(i)
-  }
-  let text = ''
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = k + 1 < starts.length ? starts[k + 1] : buf.length
-    try {
-      text += zstdDecompressSync(buf.subarray(starts[k], end)).toString('utf8')
-    } catch {
-      /* 跳坏帧 */
-    }
-  }
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l)
-      } catch {
-        return null
-      }
-    })
-    .filter(Boolean)
-}
 
 /** 从会话记录取结构指标：steps / denies / 工具调用 / 时长。 */
 function structureOf(sidPrefix) {
