@@ -25,8 +25,23 @@ import { dirname, join } from 'node:path'
 // 解析函数只在 workspace.mjs 定义一份：那边负责"注入时怎么用"，这边负责"人怎么改"，
 // 两边共用一个正则，免得 `[Goal]` 在一边认、在另一边不认。
 import { CASE_TAGS, parseTag, stripTag, workspaceFilePath } from '../../src/dsh/workspace.mjs'
+import { appendAudit, buildAuditRow } from '../../src/core/audit-writer.mjs'
 
 export { CASE_TAGS, parseTag, stripTag }
+
+/**
+ * 使用审计（2026-10-31）：人工维护动作必须留痕，否则"这个功能有没有人用"只能靠猜。
+ * 审计写失败不阻断文件操作——人已经按下确认，记账不能反过来把改动吞掉。
+ */
+export function auditCase(action, evidence) {
+  try {
+    appendAudit(buildAuditRow('dsh-native', action, { trigger: 'cli', level: null, evidence }))
+  } catch {
+    /* 记账失败不影响人工操作 */
+  }
+}
+
+const brief = (text, n = 60) => String(text ?? '').slice(0, n)
 
 /** 给文本加/换标签；tag 为 null 表示清除。 */
 export function withTag(text, tag) {
@@ -153,6 +168,7 @@ export function dropEntry(record, locator, file = workspaceFilePath()) {
   const backup = backupCase(record, file)
   const next = { ...record, [hit.field]: record[hit.field].filter((_, i) => i !== hit.index) }
   saveCase(next, file)
+  auditCase('case-drop', `${hit.field}:${hit.index + 1} 删除「${brief(hit.text)}」备份 ${backup}`)
   return { ok: true, removed: hit.text, backup }
 }
 
@@ -165,5 +181,6 @@ export function tagEntry(record, locator, tag, file = workspaceFilePath()) {
   list[hit.index] = withTag(hit.text, tag)
   const next = { ...record, [hit.field]: list }
   saveCase(next, file)
+  auditCase('case-tag', `${hit.field}:${hit.index + 1} ${tag || '清除'}｜${brief(hit.text, 40)} → ${brief(list[hit.index], 40)}`)
   return { ok: true, before: hit.text, after: list[hit.index] }
 }

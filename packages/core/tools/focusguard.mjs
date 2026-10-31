@@ -81,7 +81,7 @@ if (cmd === 'status') {
 
 if (cmd === 'case') {
   // 卷宗人工维护（2026-10-30）：只读打分 + 人工删改，**不做自动淘汰**。
-  const { loadCase, entriesOf, scoreEntry, dropEntry, tagEntry, parseTag, stripTag, CASE_TAGS } = await import('./lib/case-tool.mjs')
+  const { loadCase, entriesOf, scoreEntry, dropEntry, tagEntry, parseTag, stripTag, CASE_TAGS, auditCase } = await import('./lib/case-tool.mjs')
   const { record, file, error } = loadCase()
   if (error) {
     console.error(`卷宗读不了：${error}`)
@@ -146,6 +146,8 @@ if (cmd === 'case') {
     }
   }
   console.log(`\n共 ${all.length} 条。--score 看打分（仅参考，不作判决）；--drop <序号> 删除；--tag <序号> <goal|done|note> 打标签。`)
+  // 只读浏览也算"这个功能有没有人用"的证据：留一条 case-list，内容只记条数与是否打分。
+  auditCase('case-list', `entries=${all.length} score=${withScore}`)
   process.exit(0)
 }
 

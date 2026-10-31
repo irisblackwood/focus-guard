@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -164,4 +164,33 @@ test("loadCase：文件不存在返回 record=null，损坏返回 error", () => 
   const bad = join(TMP, "bad.json");
   writeFileSync(bad, "{ 不是 json");
   assert.ok(loadCase(bad).error, "损坏要报 error，不能静默当空");
+});
+
+// 使用审计（2026-10-31）：人工维护动作必须留痕，否则"功能有没有人用"只能靠猜。
+test("使用审计：drop/tag 各写一条 case-*，失败动作不写", () => {
+  const TMP = mkdtempSync(join(tmpdir(), "fg-case-audit-"));
+  const file = join(TMP, "workspace.json");
+  const audit = join(TMP, "AUDIT.log");
+  const saved = process.env.FG_AUDIT_FILE;
+  process.env.FG_AUDIT_FILE = audit;
+  const rows = () =>
+    existsSync(audit) ? readFileSync(audit, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  try {
+    const record = rec({ decisions: ["甲条", "乙条"], constraints: ["丙条"] });
+    writeFileSync(file, JSON.stringify(record));
+    assert.equal(dropEntry(record, "1", file).ok, true);
+    assert.equal(tagEntry(record, "constraints:1", "goal", file).ok, true);
+    assert.equal(tagEntry(record, "9", "goal", file).ok, false, "越界条目应失败");
+    const r = rows();
+    const drop = r.filter((x) => x.action === "case-drop");
+    const tag = r.filter((x) => x.action === "case-tag");
+    assert.equal(drop.length, 1, "删除要留一条 case-drop");
+    assert.equal(tag.length, 1, "失败动作不得写审计");
+    assert.match(drop[0].evidence, /删除「甲条」/);
+    assert.match(tag[0].evidence, /constraints:1 goal/);
+  } finally {
+    if (saved === undefined) delete process.env.FG_AUDIT_FILE;
+    else process.env.FG_AUDIT_FILE = saved;
+    rmSync(TMP, { recursive: true, force: true });
+  }
 });
