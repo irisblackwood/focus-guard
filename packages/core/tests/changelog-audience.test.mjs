@@ -31,7 +31,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** 对外已分发的最高版本（各渠道取最高者，见文件头） */
-const PUBLISHED_MAX = "3.2.1";
+const PUBLISHED_MAX = "3.3.0";
 
 const CHANGELOG = fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url));
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
