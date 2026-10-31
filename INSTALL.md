@@ -16,7 +16,7 @@ node -v
 | **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的 8 个宿主事件 | **8 事件 / 12 监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add <本仓库 packages/core 目录>`（见下文） |
 | **DSH·官方桥** | 桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步。但**不含**原生插件独有的资格审核与申辩 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
 
-⚠ **DSH 的两条路互斥**——原生插件与官方桥监听同一条 pre-execute 缝，**同时挂载即双跑**。二选一。
+注意 **DSH 的两条路互斥**——原生插件与官方桥监听同一条 pre-execute 缝，**同时挂载即双跑**。二选一。
 
 版本必须全链一致（**8 处版本面**）：根 `package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`packages/core/package.json`、`packages/extended/package.json` 的 `version`，与 `packages/core/src/core/constants.mjs` 的 `ENGINE_VERSION`——由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`packages/core/hooks/guard.mjs` **已封存**、版本号独立，断言只锁"封存标注存在"。不一致时 SessionStart 会注入"部署版本核验 deploy-mismatch"警告；本地验收有专门用例锁定该一致性（`node --test packages/core/tests/acceptance.test.mjs`）。
 

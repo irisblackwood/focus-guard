@@ -21,7 +21,7 @@ dsh plugin --profile <你的 profile> add github:irisblackwood/focus-guard#path:
 
 > **npm 上已发布**：`npm install focus-guard` 可直接安装——registry 当前为 **3.0.7**，本仓为 **3.0.8**（尚未发版）。上面那条 GitHub 路径仍可用，跟的是仓库最新代码。
 
-⚠ 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路同时挂载会双跑（同一条缝双监听），**二选一**。
+注意 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路同时挂载会双跑（同一条缝双监听），**二选一**。
 
 ### ZCode（并存，非首选）
 

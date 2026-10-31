@@ -89,10 +89,10 @@ plan(front) = [ 'focus-guard' ]
 
 | 方案 | 做法 | 代价 | 结论 |
 |---|---|---|---|
-| **A 顺序自检** | FG 启动时探测 `hooksOrdering`，报自己是否受控、在不在场 | 零依赖、零行为变更 | ✅ **已落地** |
-| **B FG 当控制者** | 用户配 `hooks: []` 让 dsh 层不接管 `pre-execute`；FG 自己 `control()` 并装 bracket，bracket 里跑判定后 `return decision` | FG 必须依赖该包；要改 profile 配置 | ⏸ 待批示 |
-| **C 两阶段** | front 阶段算好判定存进 `WeakMap<exec, decision>`，原生链监听器只读结果并返回 | 顺序确定 + 语义正确，但装包 + 复杂度上升 | ⏸ 待批示 |
-| **D 等上游** | 让 `runPhase` 消费返回值（`if (result) return result`） | 改别人的包 | ⏸ 可提 issue |
+| **A 顺序自检** | FG 启动时探测 `hooksOrdering`，报自己是否受控、在不在场 | 零依赖、零行为变更 | 已 **已落地** |
+| **B FG 当控制者** | 用户配 `hooks: []` 让 dsh 层不接管 `pre-execute`；FG 自己 `control()` 并装 bracket，bracket 里跑判定后 `return decision` | FG 必须依赖该包；要改 profile 配置 | 停 待批示 |
+| **C 两阶段** | front 阶段算好判定存进 `WeakMap<exec, decision>`，原生链监听器只读结果并返回 | 顺序确定 + 语义正确，但装包 + 复杂度上升 | 停 待批示 |
+| **D 等上游** | 让 `runPhase` 消费返回值（`if (result) return result`） | 改别人的包 | 停 可提 issue |
 
 **B 是唯一能真正做到「拓扑必然在前」的路**，因为控制者自己就是那个 bracket，
 它可以把判定放在 `next()` 之前并直接 `return`。代价是 FG 从「零依赖」变成

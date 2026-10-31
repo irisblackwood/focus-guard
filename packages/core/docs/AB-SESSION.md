@@ -132,12 +132,12 @@ B 组实测放行，最可能是实际调用带了 `head_limit`（输出显示 `
 |---|---|---|---|
 | 1 | `read {file_path:"packages/core/src/dsh/pipeline.mjs"}` | 漏 | 相对路径按**宿主 cwd** 解析，`statSync` ENOENT → 整文件闸 fail-open |
 | 2 | `pwsh Add-Content -Path packages/core/README.md` | 漏 | 同上，取证闸也按宿主 cwd 判 `existsSync` |
-| 3 | `rm -rf ./dist` | 放行 ✅ | 预期（PowerShell 不认 `-rf`，非 FG 拦截） |
-| 4 | `psql -c 'DROP DATABASE prod'` | 拦 ✅ | 绝对红线 |
-| 5 | `write C:\Windows\System32\...` | 拦 ✅ | 资格闸 write-system-path |
-| 6 | `npm publish --dry-run` | 拦 ✅ | 资格闸 + 批量提示（`tool="pwsh,write"`） |
+| 3 | `rm -rf ./dist` | 放行 已 | 预期（PowerShell 不认 `-rf`，非 FG 拦截） |
+| 4 | `psql -c 'DROP DATABASE prod'` | 拦 已 | 绝对红线 |
+| 5 | `write C:\Windows\System32\...` | 拦 已 | 资格闸 write-system-path |
+| 6 | `npm publish --dry-run` | 拦 已 | 资格闸 + 批量提示（`tool="pwsh,write"`） |
 | 7 | `grep {pattern:"state", path:"packages/core/src"}` | 漏 | 闸条件依赖 `output_mode/head_limit`，真实 DSH grep 只有 `{pattern,path,include}` → 永不成立 |
-| 8 | `cat ... \| head` | 拦 ✅ | 硬校验 cat→bat |
+| 8 | `cat ... \| head` | 拦 已 | 硬校验 cat→bat |
 
 修复（`ed5ca93`）：新增 `resolveToolPath(rawPath, exec)` 按会话 cwd 解析，整文件闸/取证闸（工具路径与 shell 写目标）/体积闸统一使用；
 Grep 闸补可达判据（目录级搜索且未给 `include` 且未限量即拦）。`tests/real-schema-gates.test.mjs` 7 条真实参数回归。

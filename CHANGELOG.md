@@ -850,7 +850,7 @@
   - **`gpt-astra`**：保留显式 `scope: 'irreversible'`，并用例锁死「显式优先」。
   - **测试**：`tests/profile.test.mjs` 新增 g1-g4（五画像派生回归锁 / 派生三分支与显式优先 / low 放行 `publish` 但 `rm-rf` 仍转人工 / 闸与母版同源）。
   - **实测**：`node --test packages/core/tests/profile.test.mjs` **12/12** 通过。
-- docs: `ARCH-MAP.md` 同步——L1 `evasionRisk` 由 ⬜ 改 ✅，缺口 #2 改为「剩余两件」，并新增缺口 #5「**缺 3.0.8 面板基线**」（本轮人类确认暂无面板数据，故不出环比表、不编造基线）。
+- docs: `ARCH-MAP.md` 同步——L1 `evasionRisk` 由 待 改 已，缺口 #2 改为「剩余两件」，并新增缺口 #5「**缺 3.0.8 面板基线**」（本轮人类确认暂无面板数据，故不出环比表、不编造基线）。
 - feat(docs): **P2 回流台账（伪 RLHF 最小闭环）**——新增 `packages/core/docs/PROFILE-TUNING.md`，**本轮可批的数值改动 = 0 条**。
   - **流程**：人工批准制四步（采数据 → 建议 → 人类批准 → 改画像再测）。
   - **快照-基准**：`bench:decision` 100% / 误伤 0 / p95 2.79ms；`bench:tasks --ab` 57/57 双向、介入 15 次应拦 15 误伤 0。
@@ -888,13 +888,13 @@
   - **计数与留痕**：`fuseOps` 独立于抽查A 的 `writeOps`；命中写 `action:"random-fuse"`（含第几次写操作、间隔、超出阈值几次）。
   - **测试**：新增 `tests/random-fuse.test.mjs` 6 条（默认开启随机 2–5 / 固定间隔第 3 次命中 / 拒一次后放行且 trigger 正确 / 与抽查A 独立 / 换回合作废 / 随机间隔两端可达）。
   - 验证：`npm run check` → `346/346`，`audit-isolation` Δ 0 PASS。
-- docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」🟡 → ✅（**默认开**，`FG_RANDOM_FUSE=0` 关闭）。
+- docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」部分 → 已（**默认开**，`FG_RANDOM_FUSE=0` 关闭）。
   - **缺口 #4**：改为「已默认开 + RULES 条款已补」。
   - **版本路线**：新增该节（3.5 重置文档 / 4.0 剥离旧 hook 或升级用法）。
 - docs(rules): **`RULES.md` 补第三十五条(二) 反规避抽查B**——技术映射表与实施差异备忘同步。
   - **条款口径**：默认开、2–5 随机、拒一次即放行、`random-fuse` 留痕、会话级计数。
   - **实施差异备忘**：新增 **v3.0.8 现状对齐**条目（收录 3.0.x 的按需自证/人工闸门/审计 turn·step/取证键归一化/evasionRisk/AGPL）。
-- docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」🟡 → ✅（默认关）。
+- docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」部分 → 已（默认关）。
   - **缺口 #4**：改为「默认关闭 + 未写入 RULES，待人类批示」。
 - fix(gate): **取证闸「读过仍被拒一次」的真根因——取证键没归一化**——同一文件两种写法，查不到即判「未读」。
   - **原状**：读记录侧 `rememberReads` 存宿主给的**原始路径**（相对），查证侧存 `resolveToolPath()` 后的**绝对路径**（`join(cwd, rel)`，Windows 带反斜杠）。
@@ -1036,7 +1036,7 @@
   - **做法**：新增 `rotateAuditIfNeeded()`：超上限（`FG_AUDIT_MAX_BYTES`，默认 5 MB ≈ 2 万条）时移入同目录 `archive/AUDIT.log.<时间戳>` 并重建空文件。
   - **保留**：保留最近 `FG_AUDIT_ARCHIVE_KEEP`（默认 10）份。
   - **纪律**：**只归档不删除**（执法记录不得丢）· 失败只 `warn` 不阻断 · 轮转失败**继续追加原文件**（宁可变大、不可丢记录）· 文件不存在（首写）静默放过，不刷噪音。
-  - **影响**：⚠ 封存的 `hooks/guard.mjs`（ZCode 层）不经此处写入，**不受本机制管辖**——这是封存的代价。
+  - **影响**：注意 封存的 `hooks/guard.mjs`（ZCode 层）不经此处写入，**不受本机制管辖**——这是封存的代价。
 - refactor: **审计写入收敛到单一入口** `appendAudit()`
   - **原状**：三处写点（`auditDeny` / `auditRedlineExempt` / `auditEligibility`）此前各写各的，正是"同一文件两种口径"的温床（污染事故根因之一）。
   - **做法**：现共用同一入口，轮转只在一处生效，口径不可能再分叉。

@@ -6,7 +6,7 @@
 > 本文件把它固化为**可核对的项目基线**：每一块都给出落地状态、代码锚点、缺口。
 > 图见同目录 [`architecture-map.mermaid`](architecture-map.mermaid)。
 >
-> 维护纪律：新增/删除能力时**同时改本表**，不要只改代码。状态只有三档：✅ 已落地 / 🟡 部分 / ⬜ 未做。
+> 维护纪律：新增/删除能力时**同时改本表**，不要只改代码。状态只有三档：已落地 / 部分 / 未做。
 
 ---
 
@@ -58,41 +58,41 @@ L6 处置结果与伪 RLHF 反馈闭环
 
 | 图块 | 条目 | 状态 | 代码锚点 / 缺口 |
 |---|---|---|---|
-| **P0** | 存活心跳（`status.json`） | ✅ | `src/dsh/heartbeat.mjs:85`、`status.mjs:73` |
-| **P0** | L4 隔离路由（workspace 哈希） | ✅ | `src/dsh/workspace.mjs:38`（sha256(realpath) 前 16 位）|
-| **P0** | 压缩监察留痕 | ✅ | `src/dsh/compactionWatch.mjs:239` |
-| **P0** | 审计沙箱（自证写入 / 隔离污染） | ✅ | `tests/audit-isolation.mjs`、`src/core/audit-writer.mjs` |
-| **L1** | 模型底座（DeepSeek Flash，MoE/字面执行） | ✅ | 画像文件 `src/profiles/deepseek-flash.mjs` |
-| **L1** | 画像包 · `evasionRisk: high` | ✅ | 字段在五份画像（`src/profiles/*.mjs`，取值标 TODO(实测)）；解析**唯一真源** `src/core/profileLoader.mjs` 的 `approvalScopeOf()`：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high`/缺省/非法 → `mutating`；`checkEligibility.profileScope()` 委托它，pre-execute 闸 `gateToolCall` 走同一入口；用例 `tests/profile.test.mjs` g1-g4（含「low 放行 publish、rm-rf 仍转人工」与「显式优先」） |
-| **L1** | 画像包 · 相位对抗（A/B/C 变体破 KV 盲区） | ⬜ | 全仓 0 命中（`相位`）|
-| **L1** | 画像包 · 神鬼缓冲垫（Nudge 重试 / 微创切除） | ⬜ | 全仓 0 命中（`Nudge`）|
-| **L2** | 系统提示 / 示例池 / 严格模式 | ✅ | `src/dsh/pipeline.mjs` 编排 + `src/dsh/guard/runtime.mjs` 的 `systemPromptListener` 注入（rules + cost + workspace 三段；2026-10-27 起熔断期间追加第四段 `focus-guard-fuse`，文案在母版 `constants.FUSE_NOTICE`，见 `src/dsh/index.js` 装配缝）|
-| **L2** | Superpowers 澄清→计划→TDD→验证 | 🟡 | 动笔闸 ✅（`guard/superpowers.mjs` 的 `superpowersStage`）；方法论本体是外部技能 |
-| **L2** | 宿主接入 ZCode / DSH | ✅ | `hooks/hooks.json`（ZCode）+ `src/dsh/index.js`（DSH 原生）|
-| **L2** | 心跳自证 / 模块就位（**按需自证 Lazy Liveness**，2026-10-19） | ✅ | 心跳只写 `.focus-guard/status.json`（10s，不进 Prompt）；系统提示**不再注入** `focus-guard-degraded` 段。存活徽标 `[FG 存活 n/m]` 只在三处出现：pre-execute 返回 deny/ask 时追加（`index.js` 的 `withLivenessBadge`）、`fg_apply` 结果文本（`src/dsh/tools.mjs`）、压缩落定事件（`compactionWatch.mjs` 的 `noteLivenessEvent` → 下次徽标带 `事件: compaction`，一次性消费）|
-| **L3** | 四大机械拦截点 | ✅ | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸 |
-| **L3** | XERJ 检索引擎（file:line / 降 token） | ✅ | 整文件闸直接指向 `xerj search` / `xerj def` |
-| **L3** | FGA · 默认只读 | ✅ 开关 | `FG_PTC_READONLY=1`：写类工具与变更型 shell 未授权即拦（`ptcReasonOf`）|
-| **L3** | FGA · 隐藏高危工具 | ⬜ | schema 由宿主注入，FG 改不了；只能做"默认拒绝 + 按需解锁"（见上一条）|
-| **L3** | FGA · 按需申请 `fg_apply` | ✅ | `adapters/dsh/eligibility-gate.mjs`、工具注册 `src/dsh/tools.mjs` |
-| **L3** | FGA · 静默秒批 / 合并出示 | ✅ | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
-| **L3** | FGA · 人工闸门（文件审批） | ✅ **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
-| **L3** | FGA · TTL 临时权限令牌 | ✅ | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
-| **L4** | DSH 原生压缩栈 | ✅ | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
-| **L4** | 卷宗哈希路由 + 新会话过滤注入 | ✅ | `workspace.mjs` 回合落账；hash 不符零注入 |
-| **L4** | **跨会话快速交接**（2026-10-22） | ✅ | `workspace.mjs` 的 `snapshot`（工具调用/被拦/KPI/委托，覆盖式、只存 FG 数得出的量）+ `shouldInjectHandoff()`（仅换会话时注入快照行，同会话不重复）+ `renderWorkspaceSection(record,{sid})`；CLI `npm run handoff` 打印简报。**不推断"做到哪了"** |
-| **L5** | 无 `[文件:行号]` 打回 | ✅ | `src/dsh/stopGuard.mjs` |
-| **L5** | 体积刺客阻断（禁裸 cat 等） | ✅ | `guard/volume.mjs` 体积三闸 + `guard/hardCheck.mjs` 硬校验 |
-| **L5** | 高危操作拦截 | ✅ | 红线 + 资格闸 + 语义层观察模式 |
-| **L5** | 反规避 · 不可预测检查点 | ✅ **默认开** | 抽查A：`RANDOM_AUDIT_EVERY`（确定性每 5 次全量审计，`postProgress.mjs:362`）。抽查B（2026-10-19 参数化）：独立参数 `FG_RANDOM_FUSE=1`（间隔 `[2,5]` 随机，`core/constants.mjs` 的 `RANDOM_FUSE_MIN/MAX`）或 `FG_RANDOM_FUSE_EVERY=N`（固定）；post-execute 只挂检查点（`postProgress.mjs:374`）。**2026-10-27 改：默认只留痕不打断**——pre-execute 第 3 层只清 `randomFusePending`，不再 deny（理由：拒一次必然多一次工具往返，而它不核对任何内容，理由原文就是"重试即放行"；实测 20 天 61 次全在 1 个长会话）。旧语义保留在 `FG_RANDOM_FUSE_BLOCK=1`（`guard/evidence.mjs` 的 `layer3Check`）。与抽查A 完全独立。**默认开**（2026-10-19 晚人类批示；FG_RANDOM_FUSE=0 关闭） |
-| **L5** | 反规避 · 意图预警（重复试探侦测） | 🟡 | 停滞/无效调用计数存在（`stalledStreak`/`ineffCalls`），未做"意图"级预警 |
-| **L5** | 反规避 · 状态一致性 | ✅ | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
-| **L5** | 压缩监察 | ✅ | 同 P0 |
-| **L6** | 处置结果 allow / deny / ask / 注入记忆 | ✅ | pipeline 决策 + `fg_appeal`（ask）+ workspace 注入 |
-| **L6** | 伪 RLHF 闭环（反馈落盘 → A/B 验证） | 🟡 | **半**：`bench:ab` / `bench:tasks` / `task-control` 能测 A/B 与成本；**回流台账已建** `docs/PROFILE-TUNING.md`（人工批准制：建议 → 人类批 → 改画像 → 再测；本轮实测可批改动 **0 条**，因 T2/T3 的校准指标采不到）。仍**不做**自动调参 |
-| **L7** | 工作流：提方向 → 验可行 → 下需求 | 🟡 | 指令级（`$DSH_HOME/AGENTS.md`），非代码强制 |
-| **L7** | 元审查：L1 输出 / L2 日志 / L3 status | ✅ | `npm run bench:decision`、`.focus-guard/AUDIT.log`、`status.mjs` |
-| **K** | 知识输入层 | ✅ | `docs/RULES.md`、`docs/archive/MASTER-PLAN-3.0.0.md`、技能库 |
+| **P0** | 存活心跳（`status.json`） | 已 | `src/dsh/heartbeat.mjs:85`、`status.mjs:73` |
+| **P0** | L4 隔离路由（workspace 哈希） | 已 | `src/dsh/workspace.mjs:38`（sha256(realpath) 前 16 位）|
+| **P0** | 压缩监察留痕 | 已 | `src/dsh/compactionWatch.mjs:239` |
+| **P0** | 审计沙箱（自证写入 / 隔离污染） | 已 | `tests/audit-isolation.mjs`、`src/core/audit-writer.mjs` |
+| **L1** | 模型底座（DeepSeek Flash，MoE/字面执行） | 已 | 画像文件 `src/profiles/deepseek-flash.mjs` |
+| **L1** | 画像包 · `evasionRisk: high` | 已 | 字段在五份画像（`src/profiles/*.mjs`，取值标 TODO(实测)）；解析**唯一真源** `src/core/profileLoader.mjs` 的 `approvalScopeOf()`：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high`/缺省/非法 → `mutating`；`checkEligibility.profileScope()` 委托它，pre-execute 闸 `gateToolCall` 走同一入口；用例 `tests/profile.test.mjs` g1-g4（含「low 放行 publish、rm-rf 仍转人工」与「显式优先」） |
+| **L1** | 画像包 · 相位对抗（A/B/C 变体破 KV 盲区） | 待 | 全仓 0 命中（`相位`）|
+| **L1** | 画像包 · 神鬼缓冲垫（Nudge 重试 / 微创切除） | 待 | 全仓 0 命中（`Nudge`）|
+| **L2** | 系统提示 / 示例池 / 严格模式 | 已 | `src/dsh/pipeline.mjs` 编排 + `src/dsh/guard/runtime.mjs` 的 `systemPromptListener` 注入（rules + cost + workspace 三段；2026-10-27 起熔断期间追加第四段 `focus-guard-fuse`，文案在母版 `constants.FUSE_NOTICE`，见 `src/dsh/index.js` 装配缝）|
+| **L2** | Superpowers 澄清→计划→TDD→验证 | 部分 | 动笔闸 已（`guard/superpowers.mjs` 的 `superpowersStage`）；方法论本体是外部技能 |
+| **L2** | 宿主接入 ZCode / DSH | 已 | `hooks/hooks.json`（ZCode）+ `src/dsh/index.js`（DSH 原生）|
+| **L2** | 心跳自证 / 模块就位（**按需自证 Lazy Liveness**，2026-10-19） | 已 | 心跳只写 `.focus-guard/status.json`（10s，不进 Prompt）；系统提示**不再注入** `focus-guard-degraded` 段。存活徽标 `[FG 存活 n/m]` 只在三处出现：pre-execute 返回 deny/ask 时追加（`index.js` 的 `withLivenessBadge`）、`fg_apply` 结果文本（`src/dsh/tools.mjs`）、压缩落定事件（`compactionWatch.mjs` 的 `noteLivenessEvent` → 下次徽标带 `事件: compaction`，一次性消费）|
+| **L3** | 四大机械拦截点 | 已 | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸 |
+| **L3** | XERJ 检索引擎（file:line / 降 token） | 已 | 整文件闸直接指向 `xerj search` / `xerj def` |
+| **L3** | FGA · 默认只读 | 已 开关 | `FG_PTC_READONLY=1`：写类工具与变更型 shell 未授权即拦（`ptcReasonOf`）|
+| **L3** | FGA · 隐藏高危工具 | 待 | schema 由宿主注入，FG 改不了；只能做"默认拒绝 + 按需解锁"（见上一条）|
+| **L3** | FGA · 按需申请 `fg_apply` | 已 | `adapters/dsh/eligibility-gate.mjs`、工具注册 `src/dsh/tools.mjs` |
+| **L3** | FGA · 静默秒批 / 合并出示 | 已 | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
+| **L3** | FGA · 人工闸门（文件审批） | 已 **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
+| **L3** | FGA · TTL 临时权限令牌 | 已 | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
+| **L4** | DSH 原生压缩栈 | 已 | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
+| **L4** | 卷宗哈希路由 + 新会话过滤注入 | 已 | `workspace.mjs` 回合落账；hash 不符零注入 |
+| **L4** | **跨会话快速交接**（2026-10-22） | 已 | `workspace.mjs` 的 `snapshot`（工具调用/被拦/KPI/委托，覆盖式、只存 FG 数得出的量）+ `shouldInjectHandoff()`（仅换会话时注入快照行，同会话不重复）+ `renderWorkspaceSection(record,{sid})`；CLI `npm run handoff` 打印简报。**不推断"做到哪了"** |
+| **L5** | 无 `[文件:行号]` 打回 | 已 | `src/dsh/stopGuard.mjs` |
+| **L5** | 体积刺客阻断（禁裸 cat 等） | 已 | `guard/volume.mjs` 体积三闸 + `guard/hardCheck.mjs` 硬校验 |
+| **L5** | 高危操作拦截 | 已 | 红线 + 资格闸 + 语义层观察模式 |
+| **L5** | 反规避 · 不可预测检查点 | 已 **默认开** | 抽查A：`RANDOM_AUDIT_EVERY`（确定性每 5 次全量审计，`postProgress.mjs:362`）。抽查B（2026-10-19 参数化）：独立参数 `FG_RANDOM_FUSE=1`（间隔 `[2,5]` 随机，`core/constants.mjs` 的 `RANDOM_FUSE_MIN/MAX`）或 `FG_RANDOM_FUSE_EVERY=N`（固定）；post-execute 只挂检查点（`postProgress.mjs:374`）。**2026-10-27 改：默认只留痕不打断**——pre-execute 第 3 层只清 `randomFusePending`，不再 deny（理由：拒一次必然多一次工具往返，而它不核对任何内容，理由原文就是"重试即放行"；实测 20 天 61 次全在 1 个长会话）。旧语义保留在 `FG_RANDOM_FUSE_BLOCK=1`（`guard/evidence.mjs` 的 `layer3Check`）。与抽查A 完全独立。**默认开**（2026-10-19 晚人类批示；FG_RANDOM_FUSE=0 关闭） |
+| **L5** | 反规避 · 意图预警（重复试探侦测） | 部分 | 停滞/无效调用计数存在（`stalledStreak`/`ineffCalls`），未做"意图"级预警 |
+| **L5** | 反规避 · 状态一致性 | 已 | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
+| **L5** | 压缩监察 | 已 | 同 P0 |
+| **L6** | 处置结果 allow / deny / ask / 注入记忆 | 已 | pipeline 决策 + `fg_appeal`（ask）+ workspace 注入 |
+| **L6** | 伪 RLHF 闭环（反馈落盘 → A/B 验证） | 部分 | **半**：`bench:ab` / `bench:tasks` / `task-control` 能测 A/B 与成本；**回流台账已建** `docs/PROFILE-TUNING.md`（人工批准制：建议 → 人类批 → 改画像 → 再测；本轮实测可批改动 **0 条**，因 T2/T3 的校准指标采不到）。仍**不做**自动调参 |
+| **L7** | 工作流：提方向 → 验可行 → 下需求 | 部分 | 指令级（`$DSH_HOME/AGENTS.md`），非代码强制 |
+| **L7** | 元审查：L1 输出 / L2 日志 / L3 status | 已 | `npm run bench:decision`、`.focus-guard/AUDIT.log`、`status.mjs` |
+| **K** | 知识输入层 | 已 | `docs/RULES.md`、`docs/archive/MASTER-PLAN-3.0.0.md`、技能库 |
 
 ---
 

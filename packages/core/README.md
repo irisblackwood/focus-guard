@@ -23,7 +23,7 @@ Restart the session to activate. The bundle patch is declared by this package's 
 
 > **Published on npm.** `npm install focus-guard` works — the registry currently serves **3.0.7**; this repo is **3.0.8**, not yet released. The GitHub install above still works and tracks the repo directly.
 
-⚠ Mutually exclusive with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Mounting both double-runs the same hooks — pick one.
+注意 Mutually exclusive with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Mounting both double-runs the same hooks — pick one.
 
 ### ZCode
 
