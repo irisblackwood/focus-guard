@@ -92,7 +92,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L6** | 伪 RLHF 闭环（反馈落盘 → A/B 验证） | 🟡 | **半**：`bench:ab` / `bench:tasks` / `task-control` 能测 A/B 与成本；**回流台账已建** `docs/PROFILE-TUNING.md`（人工批准制：建议 → 人类批 → 改画像 → 再测；本轮实测可批改动 **0 条**，因 T2/T3 的校准指标采不到）。仍**不做**自动调参 |
 | **L7** | 工作流：提方向 → 验可行 → 下需求 | 🟡 | 指令级（`$DSH_HOME/AGENTS.md`），非代码强制 |
 | **L7** | 元审查：L1 输出 / L2 日志 / L3 status | ✅ | `npm run bench:decision`、`.focus-guard/AUDIT.log`、`status.mjs` |
-| **K** | 知识输入层 | ✅ | `docs/RULES.md`、`docs/MASTER-PLAN-3.0.0.md`、技能库 |
+| **K** | 知识输入层 | ✅ | `docs/RULES.md`、`docs/archive/MASTER-PLAN-3.0.0.md`、技能库 |
 
 ---
 

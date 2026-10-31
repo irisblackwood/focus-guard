@@ -35,7 +35,7 @@
 - **无效调用**（重复读同一内容/同命令同返回/失败调用）连续 **5** 次 → 判真失控直接熔断；停滞 4 次时预警，可申请【信用延期】由人类批示。
   **闸门拒绝不计入无效调用**（被拦是判定生效，不是空转）；`effectiveCalls`/`invCalls` 是**回合级**计数，换回合清零。
 
-### 卷宗体系（四册，总纲见 [docs/MASTER-PLAN-2.0.0.md](../packages/core/docs/MASTER-PLAN-2.0.0.md)）
+### 卷宗体系（四册，总纲见 [archive/MASTER-PLAN-2.0.0.md](archive/MASTER-PLAN-2.0.0.md)，已归档）
 
 工作区档案 `<工作区>/.ai/CASE_FILE.md`：
 

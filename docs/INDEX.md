@@ -55,8 +55,6 @@
 | [AB-PROMPTS.md](../packages/core/docs/AB-PROMPTS.md) | A/B 采集协议 | 台账（测量协议，可复用） |
 | [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账（一次记录，属证据） |
 | [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账（外部事实，带日期可追溯） |
-| [MASTER-PLAN-2.0.0.md](../packages/core/docs/MASTER-PLAN-2.0.0.md) | 2.0 重构骨架 | **已结束：2.0 已发布 → 待归档**（命中②） |
-| [MASTER-PLAN-3.0.0.md](../packages/core/docs/MASTER-PLAN-3.0.0.md) | 3.0 迁移计划 | **已结束：3.0 已完成 → 待归档**（命中②） |
 
 > 「待归档」两份**物理未搬**：各被 6 处引用（含 `changelog-format` 测试），搬一份要同步改 6 处，
 > 改漏就断链。先标状态、不搬文件——**标记是判据，搬运是动作，判据可以先落地**。
@@ -71,6 +69,8 @@
 | [archive/HANDOFF-2026-10-19-evening.md](archive/HANDOFF-2026-10-19-evening.md) | 2026-10-19 晚间交接，已过期 |
 | [archive/HANDOFF-2026-10-22.md](archive/HANDOFF-2026-10-22.md) | 2026-10-22 交接，已过期 |
 | [archive/HANDOFF-2026-10-26.md](archive/HANDOFF-2026-10-26.md) | 2026-10-26 交接，已过期 |
+| [archive/MASTER-PLAN-2.0.0.md](archive/MASTER-PLAN-2.0.0.md) | 2.0 卷宗重构总纲，2.0 已发布（命中出口规则②） |
+| [archive/MASTER-PLAN-3.0.0.md](archive/MASTER-PLAN-3.0.0.md) | 3.0 协作治理总纲，3.0 已完成（命中出口规则②） |
 | [docs/vault-notes/README.md](vault-notes/README.md) | 外部资料摘录，非项目事实源 |
 | [packages/core/skills/focus-thinking/SKILL.md](../packages/core/skills/focus-thinking/SKILL.md) | 旧技能入口，技能目录已迁到 `.agents/skills-core/` |
 
