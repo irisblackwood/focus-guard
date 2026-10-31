@@ -27,6 +27,7 @@ import { isInvestigation, isMutating, penalize } from '../core/risk.mjs'
 import '../adapters/dsh/tool-kinds.mjs' // 分层纪律：宿主工具名在适配层注册成语义类别
 import { zcodeToolName } from './toolName.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
+import { normalizePath as normalize, projDirOf, sidOf } from './sessionScope.mjs'
 import { BLOCKS_RE, DELEGATE_DEFAULT, DOWNGRADE_MSG, LIBRARY_RE } from '../core/constants.mjs'
 
 const RE_WRITE = /^(?:write|edit|multiedit)$/i
@@ -39,20 +40,6 @@ const RE_AGENT =
   /^(?:agent|task|subagent|subagent_fork|spawn_teammate|summon_expert|summon_experts|summon_expert_team)$/i
 const RE_SEARCH = /^(?:grep|glob|fs-search|search)$/i
 
-/** 会话标识 / 工作目录：与其余 DSH 模块同口径。 */
-function sidOf(exec) {
-  const a = exec && exec.agent
-  return (
-    (a && ((a.session && a.session.header && a.session.header.id) || a.sessionId || a.id)) ||
-    (exec && exec.sessionId) ||
-    'dsh-native'
-  )
-}
-function projDirOf(exec) {
-  const a = exec && exec.agent
-  return (a && a.session && a.session.header && a.session.header.cwd) || process.cwd()
-}
-const normalize = (p) => String(p || '').replace(/\\/g, '/')
 
 const audit = (sid, action, opts = {}) => appendAudit(buildAuditRow(sid, action, opts))
 

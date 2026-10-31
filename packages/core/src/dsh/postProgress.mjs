@@ -33,6 +33,7 @@ import { collectStrings, callHash, isInvestigation } from '../core/risk.mjs'
 import { zcodeToolName } from './toolName.mjs'
 import { isDangerousCmd, SCRIPT_FILE_RE } from '../core/redlines.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
+import { normalizePath as normalize, projDirOf, sidOf } from './sessionScope.mjs'
 import { gateSwitch } from './testRuntime.mjs'
 import { budgetVerdict, stallVerdict, invPoolOverLimit, judgeProgress, poolOf } from '../core/progressPolicy.mjs'
 import {
@@ -81,21 +82,6 @@ const RE_READ = /^(?:read|notebookread)$/i
 const RE_GREP = /^grep$/i
 const RE_BASH = /^(?:pwsh|bash|shell|bash-persistent|pwsh-persistent)$/i
 const RE_AGENT = /^(?:agent|subagent)$/i
-
-/** 会话标识与工作目录：与 seams.mjs 同口径（agent.session.header.*）。 */
-function sidOf(exec) {
-  const a = exec && exec.agent
-  return (
-    (a && ((a.session && a.session.header && a.session.header.id) || a.sessionId || a.id)) ||
-    (exec && exec.sessionId) ||
-    'dsh-native'
-  )
-}
-function projDirOf(exec) {
-  const a = exec && exec.agent
-  return (a && a.session && a.session.header && a.session.header.cwd) || process.cwd()
-}
-const normalize = (p) => String(p || '').replace(/\\/g, '/')
 
 // 段 1/9 · 取证销账（只落状态，不产出 reason）
 
