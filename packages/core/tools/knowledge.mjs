@@ -16,13 +16,17 @@
  * 跟 schema:verify 空转 8 天是同一个形状（2026-10-29 抓到的病）。
  * 所以 `--check` 只作为「快照没被手改」的取证工具，**不进 npm run check**。
  *
- * ## 三个源
+ * ## 四个源（2026-10-31 按归档 README 纠正）
  *
- *   src    .ai/archive/library/<日期>/   外部原文快照（106 份，文件名自带主题）
- *   note   .ai/notes/                    自研笔记（12 份，含 prompts-mining/ 子目录）
- *   block  .ai/output/library/           派生积木（28 块，复用 library-index 的解析）
+ *   src    docs/vault-notes/               外部原文（8 份，**唯一可信源**）
+ *   note   .ai/notes/                      自研笔记（12 份，含 prompts-mining/ 子目录）
+ *   block  .ai/output/library/             当前派生积木（28 块）
+ *   hist   .ai/archive/library/<日期>/     历史派生积木（106 份）
  *
- * 活区 `.ai/library/` 只有 README，不索引——资料按隐私安排放归档，不是疏漏。
+ * 第一版把 `hist` 当成 `src` 索引，是错的——`.ai/archive/library/2026-10-08/`
+ * 的 README 第一句就是「这是历史归档，不是工作区」，那 105 份是 `library-build`
+ * 当年切出来的派生视图，`source:` 多已指向不存在的路径。真正的原文在
+ * `docs/vault-notes/`。**索引历史可以，但必须标成 hist，不能混进 src。**
  *
  * ## 用法
  *
@@ -36,9 +40,10 @@ import { diffKeys, runIndexTool } from './lib/index-io.mjs'
 
 const OUT = '.ai/output/knowledge.json'
 const SOURCES = [
-  { ns: 'src', dir: '.ai/archive/library', test: /\.md$/ },
+  { ns: 'src', dir: 'docs/vault-notes', test: /\.md$/ },
   { ns: 'note', dir: '.ai/notes', test: /\.md$/ },
   { ns: 'block', dir: '.ai/output/library', test: /^B\d{3}-.+\.md$/ },
+  { ns: 'hist', dir: '.ai/archive/library', test: /\.md$/ },
 ]
 
 /** 递归列出相对路径（正斜杠）。目录不存在返回空数组，不抛。 */
