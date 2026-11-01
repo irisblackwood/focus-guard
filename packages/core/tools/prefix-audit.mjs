@@ -75,7 +75,10 @@ function blockLen(src, start, end) {
   return j > i ? j - i + end.length : 0
 }
 const skillsChars = blockLen(firstUserText, '<available_skills>', '</available_skills>')
-const fgRulesChars = blockLen(firstUserText, 'focus-guard AI履职执法模型', 'docs/RULES.md')
+// 锚点用两版注入块的公共前缀 `<focus-guard `：2026-10-24 前的完整版开头是
+// `focus-guard AI履职执法模型v3.0`，之后的精简版是 `focus-guard v3.0`。旧锚点只认前者，
+// 精简版上线后 indexOf 恒 -1 → 本行恒报 0（读起来像"没成本"）。历史会话仍要能测，故取公共前缀。
+const fgRulesChars = blockLen(firstUserText, '<focus-guard ', 'docs/RULES.md')
 const fgWsChars = blockLen(firstUserText, '[FG-WORKSPACE]', '决策：') || 0
 const costChars = blockLen(firstUserText, '【成本】', '【成本】') || 20
 

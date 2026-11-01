@@ -104,7 +104,9 @@ D1/D3/D4/D6 已在 3.3.1 完成。
 `docs/vault-notes/README.md`（被跟踪的空壳清单，就在要搬的目录里）。
 分两阶段：**Stage A** 建 `paths.mjs`、值仍指当前位置（零行为变化）；**Stage B** 翻转常量 + 迁数据 + 改断言。
 
-### 1.4 3.4 补两项（2026-10-31，源自 Claude Code 提示词复核）
+### 1.4 3.4 补充项（2026-10-31）
+
+> ①② 源自 Claude Code 提示词复核；③ 源自 hook 协议层复核。
 
 #### ① 回合出口（**已完成 2026-10-31**）
 
@@ -141,6 +143,125 @@ D1/D3/D4/D6 已在 3.3.1 完成。
 **FG 本来就不打扰用户。** 「一直重复」是 AI 的输出行为问题，不是插件机制问题。给不存在的问题写代码 = 防御性设计。
 
 留痕理由：避免下次又把它当缺口提出来。
+
+#### ③ 协议层泄漏：宿主方言判定漏在 `guard.mjs`（**排 3.4.0**，2026-10-31 记录）
+
+`hooks/protocol.mjs:2` 自述「harness 专有环境变量只出现在本层」。实测：**环境变量守住了，载荷形态没守住。**
+
+```
+// guard.mjs:960
+const dshBridge = respText === undefined && (input.transcript_path === "" || input.transcript_path === undefined);
+```
+
+这是 DSH 桥的 Stop 载荷方言（`transcript_path` 恒为空串且无收尾文本），属 harness 专有知识，却写在执行体里。
+`:956`、`:958` 两行注释记录了 2.5.0 与 2.5.2 两次为它打补丁——**补丁有累积迹象，是分层失效的典型形态**。
+
+| 项 | 决定 |
+|---|---|
+| 排期 | **3.4.0**，与 N4 契约探针同批 |
+| 为什么同批 | N4 断言「载荷含 `turn`/`step`」，与本条同属「载荷形态知识」——一并归位，探针才有单一真相源 |
+| 做法 | `protocol.mjs` 导出 `isDshBridge(input)`，`guard.mjs` 只调用不判断 |
+| 验收（可复跑） | `rg 'transcript_path' packages/core/hooks/guard.mjs` 只命中调用处，不命中判定逻辑 |
+| 4.0 之后 | 该判定随 `guard.mjs` 迁入 MCP 内核 adapter，**不保留在协议层** |
+
+**为什么现在不动**：4.0 会整体重写 `guard.mjs`（废除外挂脚本 Hook），提前拆不如一次到位。
+**为什么仍要记**：4.0 之前 `guard.mjs` 还会继续改，留着破口就会继续往执行体里堆方言补丁；
+且接第三个 harness 时，这类补丁会线性增长。
+
+---
+
+### 1.5 3.3.2 补两项（2026-11-01，源自实测）
+
+> 两项同属「已测出、零件已有、只差收口」：不是新能力，是缺陷修复。故排 **3.3.x 补丁版**，
+> 不进 3.5（文档）也不进 4.0（Hook 完全态），避免夹带。
+
+#### ① 前缀稳定模块没接线（`prompt-prefix-shift` 恒 0 条）
+
+`packages/core/src/core/prefixStability.mjs`（2026-10-29 建）导出了 `fingerprintSections` / `isFgSection`，
+注释写着「每步算一次 FG 段指纹，变了就写一条 `prompt-prefix-shift` 审计」。
+
+**生产代码零引用。**
+
+| 证据 | 值 |
+|---|---|
+| 引用处 | 仅本文件自身（`:88`、`:118`） |
+| `AUDIT.log` 中 `prompt-prefix-shift` | **0 条** |
+| 真实会话漂移 | 10-27 三个会话中 **2 个 DRIFT**，分歧点恒定在 9624（`[FG-WORKSPACE]` 段） |
+
+漂移实证（`4cbe896a`，32 步，**同一会话中途**）：
+
+```
+A: 上次会话：session-c00d · 工具调用 116 · 被拦 0 · KPI -181
+B: 上次会话：5a292b3a-7e1 · 工具调用   4 · 被拦 0 · KPI  -5
+```
+
+原因是**并发**：另一个会话结束时更新了卷宗，正在跑的会话下一轮就读到新值。
+前缀从 9624 起全部失效——而审计里一条都没记。
+
+| 项 | 决定 |
+|---|---|
+| 做法 | `systemPromptListener` 追加 section 后算一次指纹，与上一步比对，变了写 `prompt-prefix-shift` |
+| 待定三点（须批示） | ① 在哪一步算（注入后 / 请求前）② 首次算不算基线 ③ 漂移时只写审计还是同时告警 |
+| 验收（可复跑） | 人为制造一次卷宗变更 → `AUDIT.log` 出现 `prompt-prefix-shift`；正常会话 0 误报 |
+
+#### ② **P0-1** 系统临时目录残留（**已完成 2026-11-01**）
+
+实测 `%TEMP%` 下 `focus-guard-*`：
+
+| 项 | 值 |
+|---|---|
+| 文件数 | **11,856** |
+| 总大小 | 1.8 MB（单文件极小，**是数量问题不是体积问题**） |
+| 时间跨度 | 最早 2026-10-25，全部在 7 天内产生 |
+| 均值速率 | **≈1,700 个/天** |
+
+形态分布（前三类占 92%）：
+
+```
+6,933  focus-guard-vg-<PID>-<N>.json        58.5%
+2,555  focus-guard-shell-*.json             21.5%
+1,496  focus-guard-poststate-*.json         12.6%
+ 872   其余（session / test / eval）
+```
+
+**根因**：`core/state.mjs:16` 的 `statePath()` 硬编码 `join(tmpdir(), ...)`，**没有环境变量覆盖**。
+同文件 `casePath()` 有 `FG_CASE_FILE`、`core/audit.mjs` 有 `FG_AUDIT_FILE`，**唯独状态文件没有**——
+于是 730 个测试每个都往系统临时目录写一份，且不删。
+
+**为什么没被清掉**：`cleanStaleTemp()`（`state.mjs:89`，第六十一条落地）只删 **30 天未动**的。
+现存全部在 7 天内，一条都够不着。按当前速率，30 天后稳态约 **5 万个**。
+
+**命名问题**（人类原话：「如果不是 fg 开头我都以为是病毒」）：测试残留与生产状态文件**同前缀同扩展名**，
+人类无法区分哪些是运行态、哪些是跑测试留下的垃圾。
+
+| 项 | 决定 |
+|---|---|
+| 做法 A（断源） | `statePath()` 加 `FG_STATE_DIR` 覆盖；测试基座统一指向一次性目录 |
+| 做法 B（兜底） | `cleanStaleTemp()` 增加按数量上限清理（如 >5,000 个则按 mtime 从旧删到 2,000） |
+| 不做 | **不删现存 11,856 个**——位于个人目录，须人类明确确认后另行处理 |
+| 验收（可复跑） | 跑一次 `npm run check`，`tmpdir()` 中新增 `focus-guard-*` 为 0；`cleanStaleTemp` 超限时能报出清理数 |
+
+**完成情况（2026-11-01 当日落地）**
+
+计数口径如实申报：15:02 首测 `%TEMP%` 根 **11,856** 个；15:15 动手清理时点已降至 **3,905** 个
+（其间约 8,000 个被其他进程清掉，原因未查明）。清理后归零。
+
+| 改动 | 落点 |
+|---|---|
+| 新增 `stateDir()` | `src/core/tempPath.mjs`（独立模块——塞 `constants.mjs` 会破坏其「纯数据」自述，塞 `state.mjs` 会让 `audit.mjs` 反向依赖形成循环） |
+| 状态文件迁入子目录 | `state.mjs::statePath()` → `stateDir()`；`saveState()` 补 `mkdirSync` |
+| 审计回退路径同步 | `audit.mjs` 两处 `tmpdir()` → `stateDir()` |
+| 读取路径同步 | `evidence.mjs::readGuardState()` 默认目录 → `stateDir()` |
+| 保留期 30 天 → 7 天 | `state.mjs::cleanStaleTemp()`；并改为只扫自己的子目录（原要对 1.2 万个匹配项逐个 `statSync`） |
+| 旧位置一次性迁移 | `cleanStaleTemp()` 增一段：未设 `FG_STATE_DIR` 时清空 `tmpdir()` 根的 `focus-guard-*.json` / `*-AUDIT.log` |
+| 测试断源 | `audit-isolation.mjs` 给子进程注入 `FG_STATE_DIR`（`mkdtempSync` 一次性目录，`exit` 时整体删） |
+| 测试自身泄漏 | `acceptance.test.mjs` 的 `freshDir()` 目录名补 `RUN`（原来 `after` 钩子匹配不到）；`after` 改 `recursive:true` 并同时扫 `stateDir()`；`threat-eval.mjs` 评测产物 `exit` 时删除 |
+
+**顺带修掉的第三个泄漏**：`acceptance.test.mjs` 的 `after` 钩子一直写着「跑完清理」，
+但 `rmSync(..., {force:true})` 不带 `recursive`，删不掉 `freshDir()` 建的**目录**——
+每跑一次留 15 个空目录。与 P0-1 同源（清理写了但没生效），已一并修。
+
+**验收实测**：`npm run check` → 730/730 pass，随后 `%TEMP%` 根 `focus-guard-*` 计数 **0**。
 
 ---
 
@@ -197,6 +318,7 @@ D1/D3/D4/D6 已在 3.3.1 完成。
 | D4 数字单点 | 已 | `ARCH-MAP.md` 成本段改为结论 + 指回 `BENCH.md`；`BENCH.md` 为唯一数字源。早期两次 A/B **未记录 session id**，如实标注「未记录」不补编号；`CHANGELOG`（历史）/`PROFILE-TUNING`（台账）为白名单 |
 | D6 技术映射核对 | 已 | `RULES.md` 第三部分末尾新增「实现位置索引」35 条（file:line）；抽查 5 条与代码逐字一致 |
 | 4.0 P0 spike | 待 | 待做：deny / `updatedInput` / turn-step 三件实测 |
+| 协议层泄漏归位（§1.4 ③） | 待 | `dshBridge` 判定在 `guard.mjs:960`，应移入 `protocol.mjs` 的 `isDshBridge()`；与 N4 契约探针同批 |
 
 ---
 

@@ -3,8 +3,8 @@
 // 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（13 个符号）。ESLint no-unused-vars 全量扫描发现。
 import { statSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { tmpdir } from "node:os";
 import { rotateAuditIfNeeded } from "./audit-writer.mjs";
+import { stateDir } from "./tempPath.mjs";
 
 export let auditFile = null;
 
@@ -40,7 +40,7 @@ export function auditTarget(sid) {
       if (statSync(dir).isDirectory()) auditFile = join(dir, ".focus-guard", "AUDIT.log");
     } catch {}
   }
-  if (!auditFile) auditFile = join(tmpdir(), `focus-guard-${sid}-AUDIT.log`);
+  if (!auditFile) auditFile = join(stateDir(), `focus-guard-${sid}-AUDIT.log`);
   return auditFile;
 }
 
@@ -72,7 +72,7 @@ export function audit(sid, trigger, opts = {}) {
   // 2026-10-29：补上体积轮转。此前只有 DSH 侧（audit-writer.appendAudit）轮转，母版这条路径不轮转——
   // 两条路写同一个文件，等于"谁先到 5MB 谁说了算"，只有 DSH 在跑时母版日志才会无界增长。
   const primary = auditTarget(sid);
-  for (const p of [primary, join(tmpdir(), `focus-guard-${sid}-AUDIT.log`)]) {
+  for (const p of [primary, join(stateDir(), `focus-guard-${sid}-AUDIT.log`)]) {
     try {
       mkdirSync(dirname(p), { recursive: true });
       if (p === primary) rotateAuditIfNeeded(p);

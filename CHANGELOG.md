@@ -8,6 +8,35 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
+## 未发版（P0-1）· 2026-11-01
+
+> 版本策略：本条为补丁级修复，累计 5 条 fix，未满 10 → 待人类批示后随下一个补丁号发布（拟 3.3.2）。
+> 不在此处写死版本号：`docs:lint` 的版本面判据要求「七处版本号 = CHANGELOG 最新段」，
+> 写 3.3.2 会连带要求七处同步 bump——那是发版动作，须单独批示。
+> 本版主题：**P0-1 临时目录残留**（缺陷编号见 `packages/core/docs/VERSION-PLAN.md` §1.5②）。
+> 发布状态：**未推送**；npm 未发布、未打 tag。
+> 影响面：开发期。
+
+### 缺陷 P0-1 · 临时目录残留
+
+- fix(temp): **状态文件迁出 `%TEMP%` 根目录**〔开发期〕
+  - 新增 `src/core/tempPath.mjs` 的 `stateDir()`：默认 `<tmpdir>/focus-guard/`，`FG_STATE_DIR` 可覆盖
+    ——与 `FG_AUDIT_FILE`、`FG_CASE_FILE` 同口径，此前唯独状态文件没有覆盖口。
+  - 实测 `%TEMP%` 根曾堆 11,856 个 `focus-guard-*`：资源管理器打开即卡死，而 `cleanStaleTemp`
+    每次会话启动还要对 1.2 万个匹配项逐个 `statSync`。
+- fix(temp): 保留期 30 天 → **7 天**，且只扫自己的子目录〔开发期〕
+  - 30 天 × 实测 1700 个/天 = 稳态 5 万个，等于没清。
+- fix(temp): **测试断源**——`audit-isolation` 给子进程注入一次性 `FG_STATE_DIR`〔开发期〕
+  - 730 个测试原先每个都往系统临时目录写一份且不删，占残留来源的 92%。
+- fix(temp): `acceptance` 的 `after` 钩子补 `recursive: true` 与 `RUN` 标记〔开发期〕
+  - 原来只删文件不删目录、且 `freshDir()` 名里没有 `RUN`，两个原因叠加 → 每跑一次留 15 个空目录。
+- fix(temp): `threat-eval` 评测产物 `exit` 时删除〔开发期〕
+
+### 未完成（已排期，未落地）
+
+- `prompt-prefix-shift` 接线：`prefixStability.mjs` 已写但生产代码零引用，
+  `AUDIT.log` 中该 action 恒 0 条。见 `VERSION-PLAN.md` §1.5①。
+
 ## 3.3.1 · 2026-10-31
 
 > 版本策略：3.3.0 之后 fix/feat 累计 **8 条** → 未满 10，走补丁号。

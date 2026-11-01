@@ -31,8 +31,9 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -138,6 +139,23 @@ else console.log(`[audit-isolation] 运行 ${files.length} 个测试文件`)
 const childEnv = { ...process.env }
 delete childEnv.NODE_TEST_CONTEXT
 childEnv.FG_RUN_ID = runId
+// P0-1（2026-11-01）：测试产物全部落进一次性沙箱，跑完整体删。
+//
+// 第一次修只改了 `FG_STATE_DIR`——那只管状态文件，**漏掉了另一半**：61 个测试文件里
+// 约 100 处 `join(tmpdir(), 'fg-…')`（审计 log / 审批目录 / 卷宗 md / 夹具目录），
+// 它们直接落在 %TEMP% 根，跑一次全量就留 655 个条目。实测确认过。
+//
+// 改法不是去改那 100 处，而是**把子进程的 tmpdir() 整体换掉**：`os.tmpdir()` 读
+// TEMP/TMP（Windows）与 TMPDIR（POSIX），三个都指过去，所有 `join(tmpdir(), …)` 自动进沙箱。
+// 一处改动覆盖全部测试文件，且对将来新增的测试同样生效。
+const testStateDir = mkdtempSync(join(tmpdir(), 'fg-test-'))
+childEnv.FG_STATE_DIR = testStateDir
+childEnv.TEMP = testStateDir
+childEnv.TMP = testStateDir
+childEnv.TMPDIR = testStateDir
+process.on('exit', () => {
+  try { rmSync(testStateDir, { recursive: true, force: true }) } catch {}
+})
 
 const run = wrapped
   ? spawnSync(wrapped, { cwd: repoRoot, stdio: 'inherit', shell: true, env: childEnv })

@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { statePath } from "../src/core/state.mjs";
 
 const engines = process.argv.slice(2);
 if (!engines.length) {
@@ -27,7 +28,7 @@ function call(engine, mode, obj, env = {}) {
   return { text, chars: text.length, bytes: Buffer.byteLength(text) };
 }
 
-const stateOf = (sid) => join(tmpdir(), `focus-guard-${sid}-${RUN}.json`);
+const stateOf = (sid) => statePath(`${sid}-${RUN}`);
 const clear = (sid) => rmSync(stateOf(sid), { force: true });
 const seed = (sid, patch) => writeFileSync(stateOf(sid), JSON.stringify({ ...JSON.parse(readFileSync(stateOf(sid), "utf8")), ...patch }));
 

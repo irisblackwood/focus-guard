@@ -18,6 +18,10 @@ const CONSTANTS = fileURLToPath(new URL("../src/core/constants.mjs", import.meta
 // 天然互斥——插桩后文本匹配必然失败，导致 `constants.mjs` 无法进入变异范围。
 // 现改为 import 运行时值；`PARDON_DECL_RE` 的断言同时从「源码里有这行字」升级为「这个正则真匹配」。
 const { ENGINE_VERSION, PARDON_DECL_RE } = await import("../src/core/constants.mjs");
+// P0-1（2026-11-01）：状态文件从 tmpdir() 根迁入 stateDir() 子目录。测试不再硬编码路径，
+// 直接调引擎的 statePath()——否则实现一改路径，测试就 ENOENT（这次正是如此）。
+const { statePath } = await import("../src/core/state.mjs");
+const { stateDir } = await import("../src/core/tempPath.mjs");
 const REDLINES = fileURLToPath(new URL("../src/core/redlines.mjs", import.meta.url));
 const AUDIT = fileURLToPath(new URL("../src/core/audit.mjs", import.meta.url));
 const RISK = fileURLToPath(new URL("../src/core/risk.mjs", import.meta.url));
@@ -25,7 +29,9 @@ const STATE = fileURLToPath(new URL("../src/core/state.mjs", import.meta.url));
 const RUN = `${process.pid}-${Date.now()}`; // 运行级隔离：引擎预算棘轮跨运行持久，测试状态必须用唯一 sid
 let seq = 0;
 function freshDir() {
-  const dir = join(tmpdir(), `focus-guard-test-${Date.now()}-${seq++}`);
+  // 2026-11-01（P0-1）：目录名带上 RUN，否则 after 钩子的 `includes(RUN)` 匹配不到，
+// 每跑一次留 15 个空目录——实测确认过，就是这条漏的。
+  const dir = join(tmpdir(), `focus-guard-test-${RUN}-${seq++}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -53,10 +59,10 @@ function makeRunner(sid) {
   run.in = (dir) => (mode, obj) => run(mode, obj, { ZCODE_PROJECT_DIR: dir });
   return run;
 }
-const stateOf = (sid) => JSON.parse(readFileSync(join(tmpdir(), `focus-guard-${sid}-${RUN}.json`), "utf8"));
-const auditOf = (sid) => readFileSync(join(tmpdir(), `focus-guard-${sid}-${RUN}-AUDIT.log`), "utf8");
+const stateOf = (sid) => JSON.parse(readFileSync(statePath(`${sid}-${RUN}`), "utf8"));
+const auditOf = (sid) => readFileSync(join(stateDir(), `focus-guard-${sid}-${RUN}-AUDIT.log`), "utf8");
 const writeState = (sid, patch) => {
-  const p = join(tmpdir(), `focus-guard-${sid}-${RUN}.json`);
+  const p = statePath(`${sid}-${RUN}`);
   const base = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
   writeFileSync(p, JSON.stringify({ ...base, ...patch }));
 };
@@ -64,12 +70,23 @@ const caseFileOf = (dir) => readFileSync(join(dir, ".ai", "CASE_FILE.md"), "utf8
 
 // 2.5.2：跑完清理本次运行在系统临时目录留下的状态/审计文件。
 // 此前一次全量验收会在 %TEMP% 留 ~190 个文件，长年累积无上限。
+// 2026-11-01（P0-1）两处补：① 状态文件已迁入 stateDir()，两个位置都要扫；
+// ② `freshDir()` 建的是**目录**，原来 `rmSync(..., {force:true})` 不带 recursive 删不掉——
+// 实测每跑一次留 15 个空目录，正是"清理写了但没生效"的又一例。
 after(() => {
-  for (const f of readdirSync(tmpdir())) {
-    if (f.startsWith("focus-guard-") && f.includes(RUN)) {
-      try {
-        rmSync(join(tmpdir(), f), { force: true });
-      } catch {}
+  for (const dir of new Set([tmpdir(), stateDir()])) {
+    let names = [];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const f of names) {
+      if (f.startsWith("focus-guard-") && f.includes(RUN)) {
+        try {
+          rmSync(join(dir, f), { recursive: true, force: true });
+        } catch {}
+      }
     }
   }
 });
@@ -101,7 +118,7 @@ describe("动态预算", () => {
   test("有效调用达硬上限 200 强制熔断", () => {
     const run = makeRunner("hardcap");
     run("reset", { prompt: "看看情况" });
-    const sp = join(tmpdir(), `focus-guard-hardcap-${RUN}.json`);
+    const sp = statePath(`hardcap-${RUN}`);
     const o = JSON.parse(readFileSync(sp, "utf8"));
     o.taskBudget = 200; o.effectiveCalls = 199;
     writeFileSync(sp, JSON.stringify(o));
@@ -469,15 +486,15 @@ describe("上下文污染检测（58条）", () => {
 });
 
 describe("回合与部署卫生", () => {
-  test("2.5.3 61条 陈旧清理：30 天未动的临时状态文件在会话启动时被清扫", () => {
-    const stalePath = join(tmpdir(), `focus-guard-staletest-${RUN}.json`);
+  test("2.5.3 61条 陈旧清理：7 天未动的临时状态文件在会话启动时被清扫", () => {
+    const stalePath = statePath(`staletest-${RUN}`);
     writeFileSync(stalePath, "{}");
     const old = new Date(Date.now() - 40 * 86400e3);
     utimesSync(stalePath, old, old); // 伪造为 40 天前未动
     const run = makeRunner("stale-clean");
     run("start", { session_id: "stale-clean" });
-    assert.equal(existsSync(stalePath), false, "30 天未动的残留应被清扫");
-    assert.ok(existsSync(join(tmpdir(), `focus-guard-stale-clean-${RUN}.json`)), "当前会话状态不受影响");
+    assert.equal(existsSync(stalePath), false, "超过保留期的残留应被清扫");
+    assert.ok(existsSync(statePath(`stale-clean-${RUN}`)), "当前会话状态不受影响");
   });
   test("43条 残留核验：上一回合残留被记档后清理", () => {
     const run = makeRunner("residue");
@@ -1181,7 +1198,7 @@ describe("极限场景（v2.4.1）", () => {
 
   test("状态健壮性：损坏的 state JSON 自动降级默认值；奇异会话 ID 消毒且不撞名", () => {
     const run = makeRunner("ext-corrupt");
-    writeFileSync(join(tmpdir(), `focus-guard-ext-corrupt-${RUN}.json`), "{corrupted json!!");
+    writeFileSync(statePath(`ext-corrupt-${RUN}`), "{corrupted json!!");
     run("reset", { prompt: "看看情况" });
     const d = stateOf("ext-corrupt");
     assert.equal(d.taskBudget, 10);
@@ -1193,13 +1210,13 @@ describe("极限场景（v2.4.1）", () => {
     const weird = "../x/..\\a b:c";
     run("reset", { session_id: weird, prompt: "看看情况" });
     const san = weird.replace(/[^A-Za-z0-9._-]/g, "_");
-    const found = readdirSync(tmpdir()).filter((f) => f.startsWith(`focus-guard-${san}`) && f.includes(RUN) && f.endsWith(".json"));
+    const found = readdirSync(stateDir()).filter((f) => f.startsWith(`focus-guard-${san}`) && f.includes(RUN) && f.endsWith(".json"));
     assert.equal(found.length, 1, "消毒后的状态文件应恰好一个");
-    assert.equal(JSON.parse(readFileSync(join(tmpdir(), found[0]), "utf8")).taskBudget, 10); // 无路径穿越，正常读写
+    assert.equal(JSON.parse(readFileSync(join(stateDir(), found[0]), "utf8")).taskBudget, 10); // 无路径穿越，正常读写
     // 2.5.2：消毒撞名——proj/a 与 proj_a 曾是同一个状态文件，熔断/审批/预算会跨会话串味
     run("reset", { session_id: "proj/a", prompt: "看看情况" });
     run("reset", { session_id: "proj_a", prompt: "看看情况" });
-    const a = readdirSync(tmpdir()).filter((f) => f.startsWith("focus-guard-proj_a") && f.includes(RUN) && f.endsWith(".json"));
+    const a = readdirSync(stateDir()).filter((f) => f.startsWith("focus-guard-proj_a") && f.includes(RUN) && f.endsWith(".json"));
     assert.equal(a.length, 2, "两个不同会话 ID 必须落成两个状态文件");
   });
 

@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { stateDir } from "./tempPath.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { BUDGET_DEFAULT, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_FLOOR, TTL_CEIL, TTL_GAIN, DELEGATE_DEFAULT, CASE_TEMPLATE } from "./constants.mjs";
@@ -14,7 +15,9 @@ import { noteFail, audit } from "./audit.mjs";
 import { sid } from "./session.mjs";
 
 export function statePath(id) {
-  return join(tmpdir(), `focus-guard-${id}.json`);
+  // 2026-11-01（P0-1）：改落独立子目录。原先是 tmpdir() 根下平铺——730 个测试每个写一份且不删，
+  // 实测 11,856 个条目堆在 %TEMP% 根目录，资源管理器打开即卡死。详见 tempPath.mjs 头注释。
+  return join(stateDir(), `focus-guard-${id}.json`);
 }
 
 export function loadState(path) {
@@ -74,6 +77,7 @@ export function saveState(path, state) {
   // 会留下半截 JSON（loadState 只能静默降级为默认值，等于整个会话状态凭空消失）。
   const tmp = path + "." + process.pid + ".tmp";
   try {
+    mkdirSync(dirname(path), { recursive: true }); // P0-1：状态文件迁入子目录后，目录需按需创建
     writeFileSync(tmp, JSON.stringify(state));
     renameSync(tmp, path);
   } catch {
@@ -84,24 +88,68 @@ export function saveState(path, state) {
   }
 }
 
-// 2.5.3（61条落地）：清理系统临时目录中 30 天未动的 focus-guard 状态/回退档案。
-// 实测残留曾达 8376 个（测试与运行残留无限累积）；30 天未触碰即视为陈旧，会话启动时清扫。
-export function cleanStaleTemp(sid) {
+// 2.5.3（61条落地）：清理陈旧的状态/回退档案。
+// 2026-11-01（P0-1）三处改：
+//   ① 保留期 30 天 → 7 天。状态文件只在会话存活期间有用，会话不会跨周；30 天 × 实测 1700 个/天
+//      = 稳态 5 万个，等于没清。
+//   ② 只扫自己的子目录，不再 readdirSync 整个 tmpdir——原来每次会话启动要对 1.2 万个匹配项
+//      逐个 statSync，纯浪费且随文件数线性增长。
+//   ③ 旧平铺位置（tmpdir 根）单独处理：新代码永不写那里，故匹配项一律清（升级的一次性迁移）。
+//      **仅在未设 FG_STATE_DIR 时执行**——否则测试会把宿主的真实状态文件一起删掉。
+const STALE_MS = 7 * 86400e3;
+const TEMP_ENTRY_RE = /^focus-guard-.*(\.json|-AUDIT\.log)$/;
+
+/** 清掉 dir 下早于 cutoff 的条目。目录不存在（首次运行）返回 0，不抛。 */
+function purgeStaleIn(dir, cutoff) {
+  let names;
   try {
-    const cutoff = Date.now() - 30 * 86400e3;
-    let cleaned = 0;
-    for (const f of readdirSync(tmpdir())) {
-      if (!/^focus-guard-.*(\.json|-AUDIT\.log)$/.test(f)) continue;
-      const fp = join(tmpdir(), f);
-      try {
-        if (statSync(fp).mtimeMs < cutoff) {
-          rmSync(fp, { force: true });
-          cleaned++;
-        }
-      } catch {}
+    names = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const f of names) {
+    if (!TEMP_ENTRY_RE.test(f)) continue;
+    const fp = join(dir, f);
+    let mt = 0;
+    try {
+      mt = statSync(fp).mtimeMs;
+    } catch {
+      continue;
     }
-    if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个 30 天未动的临时状态/档案文件` });
-  } catch {}
+    if (mt >= cutoff) continue;
+    try {
+      rmSync(fp, { force: true });
+      n++;
+    } catch {}
+  }
+  return n;
+}
+
+/** 旧平铺位置（tmpdir 根）：新代码永不写那里，故匹配项一律清。设了 FG_STATE_DIR 时不动，防测试误删宿主文件。 */
+function purgeLegacyRoot() {
+  const root = tmpdir();
+  if (process.env.FG_STATE_DIR || root === stateDir()) return 0;
+  let names;
+  try {
+    names = readdirSync(root);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const f of names) {
+    if (!TEMP_ENTRY_RE.test(f)) continue;
+    try {
+      rmSync(join(root, f), { force: true });
+      n++;
+    } catch {}
+  }
+  return n;
+}
+
+export function cleanStaleTemp(sid) {
+  const cleaned = purgeStaleIn(stateDir(), Date.now() - STALE_MS) + purgeLegacyRoot();
+  if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（新目录>7天 + 旧平铺位置全部）` });
 }
 
 export function normalize(p) {

@@ -10,6 +10,7 @@
 // 退出码：以最后一个引擎（受测引擎）为准——有漏检或良性误报即 exit 1，可直接做 CI 闸门。
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -35,6 +36,14 @@ const CHILD_ENV = {
   FG_APPROVAL_DIR: join(tmpdir(), `focus-guard-eval-approvals-${process.pid}-${Date.now()}`),
   FG_CASE_FILE: join(tmpdir(), `focus-guard-eval-case-${process.pid}-${Date.now()}.md`),
 };
+
+// P0-1（2026-11-01）：评测产物跑完即删。原先每跑一次在 %TEMP% 根留 3 个条目
+//（审计 log / 审批目录 / 卷宗 md），无人清理，长年累积。
+for (const p of [EVAL_AUDIT, CHILD_ENV.FG_APPROVAL_DIR, CHILD_ENV.FG_CASE_FILE]) {
+  process.on("exit", () => {
+    try { rmSync(p, { recursive: true, force: true }) } catch {}
+  });
+}
 
 const engines = process.argv.slice(2);
 if (!engines.length) {

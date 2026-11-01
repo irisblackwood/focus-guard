@@ -134,11 +134,12 @@ test("未机械化清单的重复行必须被报出（Set 去重会掩盖它）"
   assert.deepEqual(JSON.parse(runFixture(["--json"]).out).dupInList, [], "干净夹具不应报重复");
 });
 
-test("活文档：增补章 18 条全部已交代（0 未交代）", () => {
+test("活文档：增补章 19 条全部已交代（0 未交代）", () => {
   // 结论断言。检出能力由上面用夹具验证；这里只锁「真文档当前没有空头条款」。
   // 2026-10-27：此前 14 条未交代，当日逐条核实后 5 条补映射、9 条进未机械化清单。
+  // 2026-10-31：第十五章之四立第九十二条（问题发现与办理），已同批登记未机械化清单 → 18 → 19。
   const ledger = JSON.parse(run(["--json"]).out);
-  assert.equal(ledger.total, 18, "增补章立条应为 18 条");
+  assert.equal(ledger.total, 19, "增补章立条应为 19 条");
   assert.deepEqual(
     ledger.holes.map((h) => h.no),
     [],

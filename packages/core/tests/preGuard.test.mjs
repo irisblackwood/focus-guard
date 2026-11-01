@@ -17,7 +17,8 @@ import { tmpdir } from "node:os";
 
 // ── 状态文件隔离（2026-10-27 修，此前是偶发失败的根源）────────────────────────
 //
-// `statePath(id)` 的实现是 `join(tmpdir(), 'focus-guard-' + id + '.json')`，**不带 pid**。
+// `statePath(id)` 的实现是 `join(stateDir(), 'focus-guard-' + id + '.json')`（2026-11-01 起；
+// 此前平铺在 tmpdir() 根），**不带 pid**。
 // 本文件里那条"异常一律不阻塞"的用例传 `exec = null`，`sidOf` 于是回落到常量
 // `'dsh-native'` —— 读的就是**真实会话的状态文件** `focus-guard-dsh-native.json`，
 // 而真实会话（宿主里的 agent）随时在写它。熔断/委托池/已否决命令恰好非空时，
@@ -33,6 +34,10 @@ const SANDBOX = join(BASE_TMP, `fg-pre-sandbox-${process.pid}-${Date.now()}`);
 mkdirSync(SANDBOX, { recursive: true });
 process.env.TEMP = SANDBOX;
 process.env.TMP = SANDBOX;
+// P0-1（2026-11-01）：状态文件迁入 stateDir()，而 FG_STATE_DIR 优先级高于 tmpdir()——
+// 外层 audit-isolation 会注入 FG_STATE_DIR 指向它自己的一次性目录，那样 TEMP 重定向就被绕过了。
+// 本文件要的是"状态文件落在本沙箱内"，故显式把 FG_STATE_DIR 也指进沙箱。
+process.env.FG_STATE_DIR = join(SANDBOX, "focus-guard");
 process.on("exit", () => rmSync(SANDBOX, { recursive: true, force: true }));
 
 const AUDIT_TMP = join(tmpdir(), `fg-pre-audit-${process.pid}-${Date.now()}.log`);

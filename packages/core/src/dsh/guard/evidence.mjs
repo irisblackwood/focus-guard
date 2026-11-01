@@ -2,15 +2,16 @@
  * 第 3 层·状态校验 + 取证闸（2026-10-27 从 pipeline.mjs 抽出，纯搬运）。
  *
  * 权威落盘点（实测 guard.mjs:255-268, 372-395）：
- *   会话状态 → os.tmpdir()/focus-guard-<会话id>.json，字段 fused / forcedInvestigate / probation / readSet
- *   执法留痕 → <工作区>/.focus-guard/AUDIT.log（guard.mjs:19；工作区由 ZCODE_PROJECT_DIR/CLAUDE_PROJECT_DIR 定，缺省 tmpdir）
+ *   会话状态 → <stateDir()>/focus-guard-<会话id>.json（2026-11-01 起；此前平铺在 os.tmpdir() 根），
+ *              字段 fused / forcedInvestigate / probation / readSet
+ *   执法留痕 → <工作区>/.focus-guard/AUDIT.log（guard.mjs:19；工作区由 ZCODE_PROJECT_DIR/CLAUDE_PROJECT_DIR 定，缺省 stateDir()）
  *   取证记录 → <工作区>/.ai/CASE_FILE.md 的【三】（guard.mjs 写；原生插件另有记账类【五】）
  * 注意：任务书写的「熔断状态在 packages/core/.focus-guard/」不准确——该目录只有 AUDIT.log；
- * 熔断标志实际落在 os.tmpdir() 的会话状态文件里。
+ * 熔断标志实际落在 stateDir() 的会话状态文件里。
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { stateDir } from '../../core/tempPath.mjs'
 import { auditDeny } from '../audit.mjs'
 import { isMutatingBashCmd } from '../../core/redlines.mjs'
 import { statePath as guardStateFile, loadState, saveState } from '../../core/state.mjs'
@@ -37,11 +38,11 @@ const GUARD_STATE_MAX_AGE_MS = 60 * 60 * 1000
 
 /**
  * 取最近一个真实会话状态（排除 eval 快照）。
- * 入参可以是目录（默认 os.tmpdir()）或一个具体的状态文件路径（自检注入用）。
+ * 入参可以是目录（默认 stateDir()）或一个具体的状态文件路径（自检注入用）。
  * 顺序：先按 mtime 取最新一个 focus-guard-*.json → 再判定是否在 GUARD_STATE_MAX_AGE_MS 内。
  * 无可用状态（无文件 / 过旧 / 解析失败）返回 null，由调用方 fail-open + warn。
  */
-export function readGuardState(target = tmpdir()) {
+export function readGuardState(target = stateDir()) {
   try {
     const isFile = /\.json$/i.test(String(target)) && !String(target).endsWith('\\') && !String(target).endsWith('/')
     if (isFile) {
