@@ -84,6 +84,15 @@ export function audit(sid, trigger, opts = {}) {
   return seq;
 }
 
+/**
+ * 留痕告急：只走 stderr，不抛错、不阻断。
+ *
+ * **「不阻断」和「看不见」是两件事。** 静默的代价是配错了也看不出来——所以这里
+ * 宁可多一行 stderr 噪声，也不把失败吞掉；但反过来，也绝不因为留痕失败去阻断主流程
+ * （审计是旁路，旁路故障不该升级成主路故障）。
+ * （2026-11-01 取自外部参照 `memory-brain` 里 `think(verbose=)` 的那段权衡表述：
+ * 「静默的代价是配错了也看不出来」。）
+ */
 export function noteFail(sid, what) {
   try {
     process.stderr.write(`[留痕告急]${what}，会话 ${sid} 的本次记录未落盘。\n`);
