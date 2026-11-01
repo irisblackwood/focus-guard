@@ -3,10 +3,9 @@
 // 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（6 个符号）。ESLint no-unused-vars 全量扫描发现。
 import {
   readFileSync, writeFileSync, rmSync, statSync, mkdirSync,
-  existsSync, renameSync, readdirSync, openSync, writeSync, closeSync,
+  existsSync, renameSync, openSync, writeSync, closeSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
-import { tmpdir } from "node:os";
 import { stateDir } from "./tempPath.mjs";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -20,9 +19,43 @@ export function statePath(id) {
   return join(stateDir(), `focus-guard-${id}.json`);
 }
 
+/**
+ * 状态字段的最小类型收敛（2026-11-01 红队 R5）。
+ *
+ * 状态文件是**熔断决定的输入**：`fused` / `probation` / `taskBudget` 直接被闸门读。
+ * 原实现 `JSON.parse` 后原样返回，于是 `{"fused":"false"}`（字符串）为真、
+ * `{"taskBudget":-1}` 让预算判定恒负——一个写坏的状态文件就能让闸门反向工作。
+ *
+ * 不做签名（那是服务端的解法，插件不该背）。只做**类型收敛**：
+ * 布尔字段非 `true` 一律为 `false`，计数字段非有限数一律为 0、负数归 0。
+ * 代价是"合法但奇形怪状"的状态会被改写——可接受，状态由本程序自己写。
+ */
+function sanitizeState(s) {
+  if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+  for (const k of ["fused", "stopBlocked", "mercy", "forcedInvestigate", "probation", "delegated"]) {
+    if (k in s) s[k] = s[k] === true;
+  }
+  for (const k of [
+    "turnCount", "dumpCount", "violations", "writeOps", "taskBudget", "effectiveCalls",
+    "ineffCalls", "invCalls", "invCap", "delegateBudget", "delegateUsed",
+  ]) {
+    if (k in s) {
+      const n = Number(s[k]);
+      s[k] = Number.isFinite(n) ? Math.max(0, n) : 0;
+    }
+  }
+  if ("kpi" in s) {
+    const n = Number(s.kpi);
+    s.kpi = Number.isFinite(n) ? n : 0; // kpi 可负，只做有限性收敛
+  }
+  return s;
+}
+
 export function loadState(path) {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    const clean = sanitizeState(JSON.parse(readFileSync(path, "utf8")));
+    if (!clean) throw new Error("state 不是对象");
+    return clean;
   } catch {
     // 2.5.2：文件在但解析失败 = 熔断/已否决命令/审批标记全部清零，属"状态层面的假留痕"，
     // 必须让人类看见（与 2.5.1 的留痕防线同源）。首次运行无文件属正常，不告警。
@@ -102,83 +135,9 @@ export function saveState(path, state) {
   }
 }
 
-// 2.5.3（61条落地）：清理陈旧的状态/回退档案。
-// 2026-11-01（P0-1）三处改：
-//   ① 保留期 30 天 → 7 天。状态文件只在会话存活期间有用，会话不会跨周；30 天 × 实测 1700 个/天
-//      = 稳态 5 万个，等于没清。
-//   ② 只扫自己的子目录，不再 readdirSync 整个 tmpdir——原来每次会话启动要对 1.2 万个匹配项
-//      逐个 statSync，纯浪费且随文件数线性增长。
-//   ③ 旧平铺位置（tmpdir 根）单独处理：新代码永不写那里，故匹配项一律清（升级的一次性迁移）。
-//      **仅在未设 FG_STATE_DIR 时执行**——否则测试会把宿主的真实状态文件一起删掉。
-//   ④ 匹配面补 `.tmp`：saveState 现在用随机名中间文件，进程被 kill 会留下 `<…>.json.<hex>.tmp`
-//      孤儿。原先正则只认 `.json` / `-AUDIT.log`，这类孤儿永远清不掉。
-//   ⑤ **加数量上限**（P0-1 的结构性补丁）。前四条全是"按年龄清"——而年龄判据的根本毛病是
-//      写入量不受它约束：只要哪天又多出一条"每次测试写一份"的路径，7 天窗口照样能堆满。
-//      上限判据与写入量无关，是唯一能给出稳态上界的东西。两条并用：过期即删 + 超出上限删最旧。
-const STALE_MS = 7 * 86400e3;
-const STATE_FILE_CAP = 500; // 正常一天约 20 个会话 × 7 天 ≈ 140，500 留足余量
-const TEMP_ENTRY_RE = /^focus-guard-.*(\.json|-AUDIT\.log|\.tmp)$/;
-
-/**
- * 清掉 dir 下的状态/档案：早于 cutoff 的删，且总量不超过 cap（超出部分删最旧的）。
- * cutoff 传 `Infinity` 即"全部删"（旧平铺位置的一次性迁移用）。目录不存在（首次运行）返回 0，不抛。
- * protect 为当前会话文件名，只豁免**上限淘汰**（不豁免过期——过期的本会话文件也没有用）。
- * 为什么必须豁免：活跃会话若长时间不写状态，磁盘上可能出现 500 个更年轻的文件，
- * 光看 mtime 它就是"最旧"的，会被上限误删——那等于把熔断状态清空。
- */
-function purgeStaleIn(dir, cutoff, cap, protect) {
-  let names;
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return 0;
-  }
-  const items = [];
-  for (const f of names) {
-    if (!TEMP_ENTRY_RE.test(f)) continue;
-    const fp = join(dir, f);
-    try {
-      items.push({ fp, name: f, mt: statSync(fp).mtimeMs });
-    } catch {}
-  }
-  items.sort((a, b) => a.mt - b.mt); // 最旧在前
-  let n = 0;
-  const alive = [];
-  for (const it of items) {
-    if (it.mt >= cutoff) {
-      alive.push(it);
-      continue;
-    }
-    try {
-      rmSync(it.fp, { force: true });
-      n++;
-    } catch {}
-  }
-  let over = alive.length - cap;
-  for (const it of alive) {
-    if (over <= 0) break;
-    if (protect && it.name === protect) continue;
-    try {
-      rmSync(it.fp, { force: true });
-      n++;
-      over--;
-    } catch {}
-  }
-  return n;
-}
-
-/** 旧平铺位置（tmpdir 根）：新代码永不写那里，故匹配项一律清。设了 FG_STATE_DIR 时不动，防测试误删宿主文件。 */
-function purgeLegacyRoot() {
-  const root = tmpdir();
-  if (process.env.FG_STATE_DIR || root === stateDir()) return 0;
-  return purgeStaleIn(root, Infinity, 0); // 不限年龄、不留余量 = 全清
-}
-
-export function cleanStaleTemp(sid) {
-  const protect = sid ? `focus-guard-${sid}.json` : null;
-  const cleaned = purgeStaleIn(stateDir(), Date.now() - STALE_MS, STATE_FILE_CAP, protect) + purgeLegacyRoot();
-  if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（>7天或超出 ${STATE_FILE_CAP} 上限 + 旧平铺位置全部）` });
-}
+// 陈旧状态清理已抽到 `staleCleanup.mjs`（2026-11-01）：本文件因红队补丁跨过 400 行门槛，
+// 而清理逻辑与状态读写没有共享状态，独立成文件即可（切法同 `tempPath.mjs`）。
+export { cleanStaleTemp } from "./staleCleanup.mjs";
 
 export function normalize(p) {
   return String(p || "").replace(/\\/g, "/");
@@ -251,6 +210,11 @@ export function loadCaseRecords(p) {
   return out;
 }
 
+/** 卷宗表格单元格转义：`|` 会撑破列数（A3，2026-11-01 红队实测 8 列被撑成 11 段）。 */
+function cell(v) {
+  return String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 export function saveCaseRecords(projDir, records) {
   let tmp = null;
   try {
@@ -267,11 +231,15 @@ export function saveCaseRecords(projDir, records) {
       .concat(
         rows.map(
           (r) =>
-            `| ${r.path} | ${new Date(r.readAt || Date.now()).toISOString()} | ${r.mtime} | ${r.size} | ${r.sha || "-"} | n=${r.changes || 0}; last=${r.lastChange ? new Date(r.lastChange).toISOString() : "-"} | ${r.ttlOverride || ""} | ${r.via || "mtime+size"} |`
+            `| ${cell(r.path)} | ${new Date(r.readAt || Date.now()).toISOString()} | ${r.mtime} | ${r.size} | ${r.sha || "-"} | n=${r.changes || 0}; last=${r.lastChange ? new Date(r.lastChange).toISOString() : "-"} | ${cell(r.ttlOverride || "")} | ${cell(r.via || "mtime+size")} |`
         )
       )
       .join("\n");
-    t = t.replace(/(### 【三】[\s\S]*?\n)\| 文件名 \|[\s\S]*?(?=\n### |\n## |$)/, (_m, head) => head + table + "\n");
+    // A3（2026-11-01 红队）：原正则 `\| 文件名 \|[\s\S]*?(?=\n### |\n## |$)` 从表头一路吃到
+    // 下一个标题，把用户在【三】与【四】之间手写的内容**整段删掉**（实测：写在【三】后面的备注消失）。
+    // 改为只替换**连续的表格行**——表头 + 所有以 `|` 开头的行，遇到第一个非表格行即停。
+    // 判据：引擎只拥有它自己写的那些行，表格以外的字是用户的。
+    t = t.replace(/(### 【三】[\s\S]*?\n)\| 文件名 \|[^\n]*(?:\n\|[^\n]*)*/, (_m, head) => head + table);
     writeFileSync(tmp, t);
     renameSync(tmp, p);
   } catch {
@@ -292,7 +260,10 @@ export function saveLedger(projDir, state) {
     const used = eff + inv;
     const row = `| ${new Date().toISOString().slice(0, 16)} | ${state.taskInitial ?? state.taskBudget ?? BUDGET_DEFAULT} | ${used} | ${Math.max(0, (state.taskBudget || BUDGET_DEFAULT) - used)} | ${eff} | ${state.ineffCalls || 0} | ${new Date().toISOString()} | KPI ${state.kpi || 0} |`;
     const table = ["| 任务 | 初始额度 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 更新时间 | KPI |", "|---|---|---|---|---|---|---|---|", row].join("\n");
-    t = t.replace(/### 【四】[\s\S]*?(?=\n### |\n## |$)/, () => "### 【四】工作额度台账\n\n" + table + "\n");
+    // A3（2026-11-01 红队）：原正则 `### 【四】[\s\S]*?(?=\n### |\n## |$)` 在【四】是最后一节时
+    // 一路吃到文件末尾，把用户写在其后的内容整段删掉（实测：手写备注消失）。
+    // 改为只替换「标题行 + 空行 + 表格块」，表格以外的字留给用户。
+    t = t.replace(/### 【四】[^\n]*(?:\n[ \t]*)*(?:\| 任务 \|[^\n]*(?:\n\|[^\n]*)*)?/, () => "### 【四】工作额度台账\n\n" + table);
     writeFileSync(tmp, t);
     renameSync(tmp, p);
   } catch {

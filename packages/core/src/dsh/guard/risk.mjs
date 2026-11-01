@@ -6,6 +6,7 @@
  * 观察模式：累计判定数未达标前，高危只留痕 + 告警、不返回 ask（由人类决定何时启用）。
  */
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { auditDeny } from '../audit.mjs'
 import { RM_RF } from './redline.mjs'
@@ -72,7 +73,20 @@ export function buildAsk(cmd, risk, category, extra) {
 const SENTINEL_PY = fileURLToPath(new URL('../sentinel.py', import.meta.url))
 const SENTINEL_TIMEOUT_MS = 1500 // 实测 Needle 冷启 0.30s / 单次 0.13-0.42s → 取 ~5x 余量
 // `FG_PYTHON` 仅环境适配：宿主 python 不在 PATH 或需指定版本时用，测试也可借此指向假哨兵。
-const SENTINEL_PYTHON = process.env.FG_PYTHON || 'python'
+// S3（2026-11-01 红队）：这个变量直通 `execFileSync` 的 file 参数，可指向任意可执行文件。
+// 但它是**用户的配置权**，不是漏洞——不做白名单（插件不该管用户装什么 python）。
+// 真正该修的是"配错了没人知道"：路径不存在时原实现每次判定都抛 ENOENT → 转保守 ask，
+// 等于把哨兵永久废掉却不说明原因。这里做一次存在性校验，指不到就回退并留一行 stderr。
+function resolvePython() {
+  const raw = process.env.FG_PYTHON;
+  if (!raw) return "python";
+  try {
+    if (existsSync(raw)) return raw;
+  } catch {}
+  process.stderr.write(`[focus-guard] FG_PYTHON 指向的路径不存在（${raw}），本次回退 python。\n`);
+  return "python";
+}
+const SENTINEL_PYTHON = resolvePython();
 const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
 
 const OBSERVATION = { effective: false, judgements: 0, highRisk: 0 }

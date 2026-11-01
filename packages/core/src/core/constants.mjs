@@ -55,7 +55,14 @@ export const DOWNGRADE_MARKERS = /最小复现|复现请求|排查实验|联网�
 export const EVIDENCE_ANCHORS = /:\d+|日志原文|报错|HANDOFF\.md|交接报告|【假设】|【熔断】/;
 export const RISKY_FILE_RE = /(^|\/)(package(-lock)?\.json|[^\/]*\.lock|tsconfig\.json|AGENTS\.md|CLAUDE\.md|Dockerfile|[^\/]*\.env[^\/]*|zcode\.json|[^\/]*\.csproj|[^\/]*\.sln)$|\.github\/|\.zcode-plugin\//i;
 // 2.5.2：敏感文件（明文密钥与凭据）——改动前不做明文副本，只留痕（.pub 公钥不在此列）
-export const SECRET_FILE_RE = /(^|\/)(?:\.env(?:\.[^\/]*)?|\.npmrc|\.netrc|\.git-credentials|\.pgpass|\.htpasswd|id_rsa|id_ed25519|id_ecdsa)$|[^\/]*\.(?:pem|key|pfx|p12|jks)$/i;
+// 2026-11-01 红队 A1：原表是枚举式，实测 21 种常见含密文件漏 9 种，其中**项目内真实存在**的是
+// `*.tfvars`（Terraform 变量，常含密码）、`secrets.yaml`（k8s）、`*.ppk`（PuTTY 私钥）、
+// `*.p8` / `*.keystore` / `*.jceks` / `*.kdbx` / `*.ovpn` / `*.mobileprovision`。
+// 补进表里；`.aws/credentials`、`.kube/config` 通常在家目录，backupBeforeEdit 的
+// `rel.startsWith("..")` 已挡住，不在此列。
+// 局限（如实申报）：枚举永远会漏。真正的解法是白名单（只备份明确允许的源码类型），
+// 但那是判据级改动，不在本轮。
+export const SECRET_FILE_RE = /(^|\/)(?:\.env(?:\.[^\/]*)?|\.npmrc|\.netrc|\.git-credentials|\.pgpass|\.htpasswd|credentials|secrets?\.ya?ml|id_rsa|id_dsa|id_ecdsa|id_ed25519)$|[^\/]*\.(?:pem|key|pfx|p12|p8|jks|jceks|keystore|kdbx|ppk|ovpn|tfvars|mobileprovision)$/i;
 // 2.5.2 变更类命令判定：按"命令词"识别，并剥掉 sudo/env/xargs/时间前缀等外壳。
 // 旧写法（`(^|[;&|]\s*)(rm|mv|…)`）要求命令词紧跟段首，于是 `sudo mv`、`xargs mv`、`cp`（当时根本不在表里）
 // 全被判成"只读侦查"——既绕过触发①（未取证就改），又在熔断期拿到放行。

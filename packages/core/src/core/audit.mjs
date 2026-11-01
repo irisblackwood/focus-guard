@@ -19,16 +19,16 @@ export function setProjectDirProvider(fn) {
 }
 
 export function auditTarget(sid) {
+  // S4（2026-11-01 红队）：`FG_AUDIT_FILE` 原本也走下面的 `auditFile` 缓存，于是**首次调用后
+  // 再改这个环境变量就无效**（实测：设了新路径，auditTarget 仍返回旧路径）。长驻进程里是运维
+  // 困扰，测试里是假绿来源——以为重定向了，其实还在写真实日志。显式路径不进缓存。
+  const explicit = process.env.FG_AUDIT_FILE;
+  if (explicit) return explicit;
   if (auditFile !== null) return auditFile;
   // 2026-10-18 修（REPORT-2026-10-12 P1「审计单一入口未收敛」）：
   // 显式 FG_AUDIT_FILE 优先级最高。此前这里只认 ZCODE/CLAUDE 项目目录，于是
   // 测试把 FG_AUDIT_FILE 指向 tmpdir 时，走核心 audit() 的那条路（risk.mjs penalize()）
   // 仍然写真实 AUDIT.log —— 隔离形同虚设，CHANGELOG 的"零增长"实测不成立。
-  const explicit = process.env.FG_AUDIT_FILE;
-  if (explicit) {
-    auditFile = explicit;
-    return auditFile;
-  }
   let dir = "";
   try {
     dir = (projectDirProvider && projectDirProvider()) || "";
