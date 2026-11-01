@@ -263,6 +263,51 @@ B: 上次会话：5a292b3a-7e1 · 工具调用   4 · 被拦 0 · KPI  -5
 
 **验收实测**：`npm run check` → 730/730 pass，随后 `%TEMP%` 根 `focus-guard-*` 计数 **0**。
 
+#### ②-补 **P0-1 残余面**（已完成 2026-11-01，同批）
+
+上面那批只解决了「量」。「彻底」要再答三个问题，逐个交代：
+
+**(1) 为什么清理总能被写入量甩开？** —— 因为判据是年龄，年龄不约束写入。
+`cleanStaleTemp` 从 30 天改到 7 天只是把斜率改小，**结构没变**：只要再出现一条「每次测试写一份」的
+路径，7 天窗口照样堆满。补 `STATE_FILE_CAP = 500` 上限判据——它与写入量无关，是唯一能给稳态上界的东西。
+当前会话文件豁免淘汰（活跃会话若长时间不写状态，光看 mtime 它就是"最旧"的，被上限误删＝清空熔断状态）。
+
+**(2) 状态文件该不该放在临时目录？** —— 该，但**目录要私有**。
+`fused` / `probation` / `rejectedCmds` 是熔断决定的输入，而 `mkdirSync` 默认 mode 在 POSIX 上是 0o755，
+落共享 `/tmp` 时同机他人可读（CWE-377）。改为 0o700（`state.mjs::saveState`、`audit.mjs` 两处）。
+Windows 忽略 mode，无害。
+
+**(3) 中间文件为什么是漏洞？** —— `path.<pid>.tmp` 可预测 + `writeFileSync` 跟随符号链接。
+同机他人预置链接 → 改写任意目标文件（CWE-377 / CWE-59）。改为 6 字节随机名 +
+`openSync(…, 'wx', 0o600)`：`wx` = `O_CREAT|O_EXCL`，**已存在即失败且不跟随链接**；
+随机名让路径无法被预置。两条合起来，"预测到文件名"不再是攻击前提。
+
+**同一形态但按不同处理的一处**：`saveCaseRecords` / `saveLedger` 仍是 `.<pid>.tmp`。
+判据是**目录是否共享**——它们落在项目自己的 `.ai/`，能往那里放符号链接的人已经能直接改卷宗，
+加随机名是零收益的复杂度。已在代码注释里写明理由，避免后人当遗漏来"修"。
+
+**第七例「写了但没连上」**：上一批把状态文件迁进 `stateDir()` 后，`acceptance.test.mjs` 的
+「不遗留 .tmp 残片」断言仍扫 `tmpdir()` 根——**变成恒真**，照绿但什么都不测。已改扫真实落点。
+这是同一形态的第七次（前六：`SESSION_RULES_FULL`、`prefix-audit` 锚点、`prefixStability`、
+`after` 钩子、docs 台账、测试 tmpdir 断源只做了一半）。
+
+| 项 | 落点 |
+|---|---|
+| 上限判据 | `state.mjs::purgeStaleIn(dir, cutoff, cap, protect)` + `STATE_FILE_CAP` |
+| 目录权限 | `saveState` / `audit.mjs` 的 `mkdirSync` 补 `mode: 0o700` |
+| 原子写加固 | `saveState` 改随机名 + `openSync('wx', 0o600)` + `writeSync` |
+| 孤儿回收 | `TEMP_ENTRY_RE` 补 `\.tmp`（进程被 kill 留下的中间文件） |
+| 断言复位 | `acceptance.test.mjs` 改扫 `stateDir()` |
+
+**验收实测**：`node --test tests/acceptance.test.mjs` → 102/102 pass；
+另用一次性目录探针复验：600 个超额文件 + 1 个当前会话 → 清理后 501（当前会话受保护）；
+把当前会话文件 mtime 拨到 8 天前 → 仍被过期规则删掉。
+
+**没做的（如实申报）**：`readGuardState()` 的**目录扫描**分支仍取「mtime 最新的
+`focus-guard-*.json`」，理论上可被塞文件影响判定。但生产路径走 `readGuardStateExact()`
+（`evidence.mjs:185`，按会话 id 精确定位，**绝不做目录扫描**，3.0.8 已改），扫描分支只服务自检。
+不为一条不在路径上的分支加平台分支判断——那是用复杂度换一个用不上的保证。
+
 ---
 
 ## 2. 3.5 · 文档重置（完成态）

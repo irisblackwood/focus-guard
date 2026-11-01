@@ -74,7 +74,7 @@ export function audit(sid, trigger, opts = {}) {
   const primary = auditTarget(sid);
   for (const p of [primary, join(stateDir(), `focus-guard-${sid}-AUDIT.log`)]) {
     try {
-      mkdirSync(dirname(p), { recursive: true });
+      mkdirSync(dirname(p), { recursive: true, mode: 0o700 }); // P0-1 补②：审计日志同属取证数据，不给组/其他读
       if (p === primary) rotateAuditIfNeeded(p);
       appendFileSync(p, record);
       return seq;

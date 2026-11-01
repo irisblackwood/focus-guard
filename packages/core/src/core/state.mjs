@@ -3,12 +3,12 @@
 // 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（6 个符号）。ESLint no-unused-vars 全量扫描发现。
 import {
   readFileSync, writeFileSync, rmSync, statSync, mkdirSync,
-  existsSync, renameSync, readdirSync,
+  existsSync, renameSync, readdirSync, openSync, writeSync, closeSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { stateDir } from "./tempPath.mjs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { BUDGET_DEFAULT, INV_POOL_DEFAULT, SHA_LIMIT, CASE_MAX_ROWS, TTL_FIRST, TTL_FLOOR, TTL_CEIL, TTL_GAIN, DELEGATE_DEFAULT, CASE_TEMPLATE } from "./constants.mjs";
 import { noteFail, audit } from "./audit.mjs";
@@ -75,12 +75,26 @@ export function loadState(path) {
 export function saveState(path, state) {
   // 2.5.2 原子落盘：先写同目录临时文件再 rename 覆盖。原直接 writeFileSync 在进程被中断时
   // 会留下半截 JSON（loadState 只能静默降级为默认值，等于整个会话状态凭空消失）。
-  const tmp = path + "." + process.pid + ".tmp";
+  //
+  // 2026-11-01（P0-1 补②）：临时文件名由 `path.<pid>.tmp` 改为**随机名 + 独占创建**。
+  // 原写法有两个洞：
+  //   ① pid 可预测。同机攻击者预先在该路径放符号链接，`writeFileSync` 会跟随链接改写目标文件
+  //      （CWE-377 Insecure Temporary File / CWE-59 Link Following）。
+  //   ② 固定名意味着同一路径上的并发保存互相踩中间态。
+  // 改法：`openSync(tmp, 'wx', 0o600)` —— 'wx' = O_CREAT|O_EXCL，**已存在即失败且不跟随链接**；
+  // 名字取 6 字节随机数，路径无法被预置。两条合起来，"预测到文件名"不再是攻击前提。
+  // 权限 0o600：状态里有 fused / rejectedCmds，即熔断决定的输入，不该给组和其他人读。
+  const tmp = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  let fd = -1;
   try {
-    mkdirSync(dirname(path), { recursive: true }); // P0-1：状态文件迁入子目录后，目录需按需创建
-    writeFileSync(tmp, JSON.stringify(state));
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); // P0-1：状态文件迁入子目录后，目录需按需创建
+    fd = openSync(tmp, "wx", 0o600);
+    writeSync(fd, JSON.stringify(state));
+    closeSync(fd);
+    fd = -1;
     renameSync(tmp, path);
   } catch {
+    if (fd >= 0) { try { closeSync(fd); } catch {} }
     try {
       rmSync(tmp, { force: true });
     } catch {}
@@ -96,31 +110,58 @@ export function saveState(path, state) {
 //      逐个 statSync，纯浪费且随文件数线性增长。
 //   ③ 旧平铺位置（tmpdir 根）单独处理：新代码永不写那里，故匹配项一律清（升级的一次性迁移）。
 //      **仅在未设 FG_STATE_DIR 时执行**——否则测试会把宿主的真实状态文件一起删掉。
+//   ④ 匹配面补 `.tmp`：saveState 现在用随机名中间文件，进程被 kill 会留下 `<…>.json.<hex>.tmp`
+//      孤儿。原先正则只认 `.json` / `-AUDIT.log`，这类孤儿永远清不掉。
+//   ⑤ **加数量上限**（P0-1 的结构性补丁）。前四条全是"按年龄清"——而年龄判据的根本毛病是
+//      写入量不受它约束：只要哪天又多出一条"每次测试写一份"的路径，7 天窗口照样能堆满。
+//      上限判据与写入量无关，是唯一能给出稳态上界的东西。两条并用：过期即删 + 超出上限删最旧。
 const STALE_MS = 7 * 86400e3;
-const TEMP_ENTRY_RE = /^focus-guard-.*(\.json|-AUDIT\.log)$/;
+const STATE_FILE_CAP = 500; // 正常一天约 20 个会话 × 7 天 ≈ 140，500 留足余量
+const TEMP_ENTRY_RE = /^focus-guard-.*(\.json|-AUDIT\.log|\.tmp)$/;
 
-/** 清掉 dir 下早于 cutoff 的条目。目录不存在（首次运行）返回 0，不抛。 */
-function purgeStaleIn(dir, cutoff) {
+/**
+ * 清掉 dir 下的状态/档案：早于 cutoff 的删，且总量不超过 cap（超出部分删最旧的）。
+ * cutoff 传 `Infinity` 即"全部删"（旧平铺位置的一次性迁移用）。目录不存在（首次运行）返回 0，不抛。
+ * protect 为当前会话文件名，只豁免**上限淘汰**（不豁免过期——过期的本会话文件也没有用）。
+ * 为什么必须豁免：活跃会话若长时间不写状态，磁盘上可能出现 500 个更年轻的文件，
+ * 光看 mtime 它就是"最旧"的，会被上限误删——那等于把熔断状态清空。
+ */
+function purgeStaleIn(dir, cutoff, cap, protect) {
   let names;
   try {
     names = readdirSync(dir);
   } catch {
     return 0;
   }
-  let n = 0;
+  const items = [];
   for (const f of names) {
     if (!TEMP_ENTRY_RE.test(f)) continue;
     const fp = join(dir, f);
-    let mt = 0;
     try {
-      mt = statSync(fp).mtimeMs;
-    } catch {
+      items.push({ fp, name: f, mt: statSync(fp).mtimeMs });
+    } catch {}
+  }
+  items.sort((a, b) => a.mt - b.mt); // 最旧在前
+  let n = 0;
+  const alive = [];
+  for (const it of items) {
+    if (it.mt >= cutoff) {
+      alive.push(it);
       continue;
     }
-    if (mt >= cutoff) continue;
     try {
-      rmSync(fp, { force: true });
+      rmSync(it.fp, { force: true });
       n++;
+    } catch {}
+  }
+  let over = alive.length - cap;
+  for (const it of alive) {
+    if (over <= 0) break;
+    if (protect && it.name === protect) continue;
+    try {
+      rmSync(it.fp, { force: true });
+      n++;
+      over--;
     } catch {}
   }
   return n;
@@ -130,26 +171,13 @@ function purgeStaleIn(dir, cutoff) {
 function purgeLegacyRoot() {
   const root = tmpdir();
   if (process.env.FG_STATE_DIR || root === stateDir()) return 0;
-  let names;
-  try {
-    names = readdirSync(root);
-  } catch {
-    return 0;
-  }
-  let n = 0;
-  for (const f of names) {
-    if (!TEMP_ENTRY_RE.test(f)) continue;
-    try {
-      rmSync(join(root, f), { force: true });
-      n++;
-    } catch {}
-  }
-  return n;
+  return purgeStaleIn(root, Infinity, 0); // 不限年龄、不留余量 = 全清
 }
 
 export function cleanStaleTemp(sid) {
-  const cleaned = purgeStaleIn(stateDir(), Date.now() - STALE_MS) + purgeLegacyRoot();
-  if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（新目录>7天 + 旧平铺位置全部）` });
+  const protect = sid ? `focus-guard-${sid}.json` : null;
+  const cleaned = purgeStaleIn(stateDir(), Date.now() - STALE_MS, STATE_FILE_CAP, protect) + purgeLegacyRoot();
+  if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（>7天或超出 ${STATE_FILE_CAP} 上限 + 旧平铺位置全部）` });
 }
 
 export function normalize(p) {
@@ -227,6 +255,9 @@ export function saveCaseRecords(projDir, records) {
   let tmp = null;
   try {
     const p = ensureCaseFile(projDir);
+    // 此处仍是 `.<pid>.tmp` 可预测名——与 saveState 同一形态，但**不按同一缺陷处理**：
+    // 落点是项目自己的 `.ai/`，不是世界可写的临时目录；能往那里放符号链接的人已经能直接改卷宗，
+    // 加随机名只是零收益的复杂度。判据：临时目录共享才需要防预置。
     tmp = p + "." + process.pid + ".tmp";
     let t = readFileSync(p, "utf8");
     const rows = Object.values(records)

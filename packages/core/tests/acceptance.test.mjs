@@ -1454,7 +1454,9 @@ describe("工程自检（防版本与文档漂移）", () => {
     for (let i = 0; i < 5; i++) {
       run("post", { tool_name: "Read", tool_input: { file_path: `f${i}.txt`, limit: 5 }, tool_response: { content: `v${i}` } });
     }
-    const leftovers = readdirSync(tmpdir()).filter((f) => f.startsWith(`focus-guard-atomic-state-${RUN}`) && f.endsWith(".tmp"));
+    // 2026-11-01：原先扫 tmpdir() 根。P0-1 把状态文件迁进 stateDir() 后，这条断言**变成恒真**——
+    // 根目录里再也不可能出现 .tmp，测试照绿但什么都不测（第七例"写了但没连上"）。改扫真实落点。
+    const leftovers = readdirSync(stateDir()).filter((f) => f.startsWith(`focus-guard-atomic-state-${RUN}`) && f.endsWith(".tmp"));
     assert.deepEqual(leftovers, [], "原子落盘不应遗留 .tmp 残片");
     assert.equal(stateOf("atomic-state").turnCount, 5);
   });
