@@ -1,9 +1,12 @@
 // FocusGuard 母版层 · 改动前备份（v3.0.5；《资料与代码分层总规范》二·1）
-// .ai/backup/ 物理回滚副本，保留最近 BACKUP_KEEP 份；敏感文件不落明文。项目根由参数传入。
+// .ai/backup/ 物理回滚副本，保留最近 BACKUP_KEEP 份。
+// 2026-11-01 红队 A1：覆盖面由**黑名单**改为**白名单**——只备份源码/文档/配置模板
+//（`BACKUP_ALLOW_RE` / `BACKUP_ALLOW_NAME_RE`），其余一律跳过并留痕。理由见 constants.mjs。
+// 项目根由参数传入。
 // 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（11 个符号）。ESLint no-unused-vars 全量扫描发现。
 import { rmSync, statSync, mkdirSync, readdirSync, copyFileSync, lstatSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname, relative } from "node:path";
-import { SHA_LIMIT, BACKUP_KEEP, SECRET_FILE_RE } from "./constants.mjs";
+import { join, dirname, relative, basename } from "node:path";
+import { SHA_LIMIT, BACKUP_KEEP, SECRET_FILE_RE, BACKUP_ALLOW_RE, BACKUP_ALLOW_NAME_RE } from "./constants.mjs";
 import { normalize } from "./state.mjs";
 import { audit, noteFail } from "./audit.mjs";
 import { sid } from "./session.mjs";
@@ -35,17 +38,30 @@ export function backupBeforeEdit(absPath, projDir) {
       process.stderr.write(`[备份跳过]${rel} 属敏感文件，不复制明文副本；回滚请用版本控制。\n`);
       return;
     }
+    // 2026-11-01 红队 A1 第二轮：判据反过来——**白名单**，只备份明确安全的类型。
+    // 原先是黑名单：列出所有危险的东西，而危险的东西每天在长新格式，必然漏（实测漏 9/21）。
+    // 现在改成"列出所有安全的东西"（源码/文档/配置模板），其余一律不备份并留痕。
+    // 逃生口：`FG_BACKUP_ALLOW_ALL=1` 恢复旧行为（用户自己判断这份文件能不能落副本）。
+    const allowed =
+      process.env.FG_BACKUP_ALLOW_ALL === "1" ||
+      BACKUP_ALLOW_RE.test(rel) ||
+      BACKUP_ALLOW_NAME_RE.test(basename(rel));
+    if (!allowed) {
+      audit(sid, "backup-skip-unlisted", { level: null, evidence: `不在备份白名单（非源码/文档/配置模板），未复制 ${rel}` });
+      return;
+    }
     const root = join(dir, ".ai", "backup");
+    const dest = join(root, rel + "." + Date.now().toString(36) + process.pid.toString(36) + (backupSeq++).toString(36) + ".bak");
+    mkdirSync(dirname(dest), { recursive: true });
     // A1 补（2026-11-01 红队）：首次落盘时在 `.ai/` 下写一个**只忽略 backup/** 的 .gitignore。
     // 本仓把 `.ai/` 的排除写在自己的 `.git/info/exclude` 里——那是本机配置，**不随插件分发**；
     // 而 FG 写的是**用户的项目**，用户 `git add .` 就会把含明文凭据的副本收进版本库。
     // 只忽略 backup/ 而不是整个 .ai/：用户可能想提交 CASE_FILE.md 分享卷宗。
+    // 顺序：必须在 mkdir 之后——`.ai/` 不存在时先写会 ENOENT 被 catch 吞掉。
     try {
       const gi = join(dir, ".ai", ".gitignore");
       if (!existsSync(gi)) writeFileSync(gi, "# focus-guard：改动前明文副本，不入库\nbackup/\n");
     } catch {}
-    const dest = join(root, rel + "." + Date.now().toString(36) + process.pid.toString(36) + (backupSeq++).toString(36) + ".bak");
-    mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(absPath, dest);
     const all = [];
     (function walk(d) {

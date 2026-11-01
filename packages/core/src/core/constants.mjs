@@ -58,11 +58,27 @@ export const RISKY_FILE_RE = /(^|\/)(package(-lock)?\.json|[^\/]*\.lock|tsconfig
 // 2026-11-01 红队 A1：原表是枚举式，实测 21 种常见含密文件漏 9 种，其中**项目内真实存在**的是
 // `*.tfvars`（Terraform 变量，常含密码）、`secrets.yaml`（k8s）、`*.ppk`（PuTTY 私钥）、
 // `*.p8` / `*.keystore` / `*.jceks` / `*.kdbx` / `*.ovpn` / `*.mobileprovision`。
-// 补进表里；`.aws/credentials`、`.kube/config` 通常在家目录，backupBeforeEdit 的
-// `rel.startsWith("..")` 已挡住，不在此列。
-// 局限（如实申报）：枚举永远会漏。真正的解法是白名单（只备份明确允许的源码类型），
-// 但那是判据级改动，不在本轮。
-export const SECRET_FILE_RE = /(^|\/)(?:\.env(?:\.[^\/]*)?|\.npmrc|\.netrc|\.git-credentials|\.pgpass|\.htpasswd|credentials|secrets?\.ya?ml|id_rsa|id_dsa|id_ecdsa|id_ed25519)$|[^\/]*\.(?:pem|key|pfx|p12|p8|jks|jceks|keystore|kdbx|ppk|ovpn|tfvars|mobileprovision)$/i;
+// 同日第二轮：**判据反过来**——枚举永远会漏，所以主判据改成白名单（见 BACKUP_ALLOW_RE），
+// 本表降为第二道，只负责给"像密钥的"一个更具体的提示。
+// 补的第三类：按**文件名前缀**判（`credentials.json` / `secrets.yaml` / `service-account.json`
+// / `keyfile.*`）——这些扩展名本身是"无害"的 `.json`/`.yaml`，白名单会放行，必须在这里拦住。
+// 代价：`secrets.py` 这类同名源码模块也拿不到备份副本。**少一份回滚副本** 好过 **明文密钥入库**。
+export const SECRET_FILE_RE = /(^|\/)(?:\.env(?:\.[^\/]*)?|\.npmrc|\.netrc|\.git-credentials|\.pgpass|\.htpasswd|(?:credentials|secrets?|service-account|keyfile)[^\/]*|id_(?:rsa|dsa|ecdsa|ed25519))$|[^\/]*\.(?:pem|key|pfx|p12|p8|jks|jceks|keystore|kdbx|ppk|ovpn|tfvars|mobileprovision)$/i;
+
+// ============ 备份白名单（2026-11-01 红队 A1 第二轮：判据反过来） ============
+//
+// 为什么反过来：黑名单是"列出所有危险的东西"，而危险的东西每天在长新格式；白名单是
+// "列出所有安全的东西"，安全的东西几十年就这些。**枚举危险必然漏，枚举安全可以穷尽。**
+//
+// 覆盖面 = 源码 + 文档 + 配置模板。**不备份**二进制、媒体、压缩包、密钥、数据文件。
+// 漏备一份源码副本的代价是"少一次回滚"，漏拦一份密钥的代价是"明文凭据被提交上远端"——
+// 两害相权，白名单必须窄。
+export const BACKUP_ALLOW_RE =
+  /\.(?:[cm]?[jt]sx?|vue|svelte|py|rb|go|rs|java|kt|kts|cs|cpp|cc|cxx|c|h|hpp|hh|swift|php|pl|lua|sh|bash|zsh|fish|ps1|psm1|bat|cmd|sql|graphql|gql|proto|tf|hcl|gradle|cmake|mk|dart|scala|clj|ex|exs|erl|hs|ml|fs|r|jl|md|markdown|txt|rst|adoc|org|json|jsonc|json5|ya?ml|toml|ini|cfg|conf|properties|xml|html?|css|scss|sass|less|styl)$/i;
+
+/** 无扩展名但明确安全的文件名（构建脚本、许可、忽略规则等）。 */
+export const BACKUP_ALLOW_NAME_RE =
+  /^(?:Makefile|makefile|GNUmakefile|Dockerfile|Containerfile|LICEN[CS]E|NOTICE|README|CHANGELOG|AUTHORS|CONTRIBUTING|CODEOWNERS|Procfile|Gemfile|Rakefile|go\.mod|go\.sum|\.gitignore|\.gitattributes|\.editorconfig|\.prettierrc|\.eslintrc|\.babelrc)$/i;
 // 2.5.2 变更类命令判定：按"命令词"识别，并剥掉 sudo/env/xargs/时间前缀等外壳。
 // 旧写法（`(^|[;&|]\s*)(rm|mv|…)`）要求命令词紧跟段首，于是 `sudo mv`、`xargs mv`、`cp`（当时根本不在表里）
 // 全被判成"只读侦查"——既绕过触发①（未取证就改），又在熔断期拿到放行。
