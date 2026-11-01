@@ -16,6 +16,7 @@
 6. 基准与数字单点 → [BENCH.md](../packages/core/docs/BENCH.md)
 7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么 → 最新一份 HANDOFF
 8. **发现新缺口怎么记账** → [RULES.md](../packages/core/docs/RULES.md) **第十五章之四（第九十二条）**：适用范围、标记编排版本、两条必写理由、记录不等于动手、验收须可复跑
+9. **记忆改革要抄什么、不抄什么** → [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) **§五·补**：外部参照 `memory-brain` 的可抄面（注入块 marker 化 / 冲突检测）、不抄的三件、不接运行时的两条硬理由，以及写死的判据「记忆的消费者是闸门，不是模型」
 
 ## 二、权威文档
 
