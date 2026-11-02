@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FG · 脑</title>
+<style>
+  :root{
+    --bg:#04060c; --ink:#e8eef7; --dim:#7c8aa0; --line:#1b2434;
+    --file:#4fd1ff; --rule:#ffd166; --action:#b98cff; --trigger:#ff6b8a; --tool:#6ee7a8;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+    font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    overflow:hidden;-webkit-font-smoothing:antialiased}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  #c.drag{cursor:grabbing}
+  #vig{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 45%,transparent 35%,rgba(0,0,0,.55) 100%)}
+  .panel{position:fixed;background:rgba(9,13,22,.72);border:1px solid var(--line);
+    border-radius:10px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 8px 32px rgba(0,0,0,.45)}
+  /* 左上 · 身份 */
+  #head{left:18px;top:18px;padding:13px 16px 12px;min-width:280px}
+  #head h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.14em}
+  #head h1 span{color:var(--file)}
+  #head .sub{margin-top:6px;color:var(--dim);font-size:11.5px;line-height:1.7}
+  #head .sub b{color:#c3d0e2;font-weight:500}
+  /* 右上 · 图例 */
+  #legend{right:18px;top:18px;padding:11px 14px;min-width:186px}
+  #legend .t{color:var(--dim);font-size:10.5px;letter-spacing:.12em;margin-bottom:8px}
+  .lg{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;user-select:none;
+    opacity:1;transition:opacity .15s}
+  .lg.off{opacity:.3}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 8px currentColor}
+  .lg .n{flex:1;color:#c3d0e2}
+  .lg .v{color:var(--dim);font-size:11px}
+  /* 右下 · 提示 */
+  #hint{right:18px;bottom:18px;padding:9px 13px;color:var(--dim);font-size:11px;line-height:1.8}
+  #hint b{color:#a9b8cc;font-weight:500}
+  /* 左下 · 详情 */
+  #card{left:18px;bottom:18px;width:430px;max-width:calc(100vw - 36px);padding:14px 16px;
+    display:none;max-height:52vh;overflow:auto}
+  #card.show{display:block}
+  #card .k{font-size:10.5px;letter-spacing:.12em;color:var(--dim)}
+  #card h2{margin:5px 0 3px;font-size:14px;font-weight:600;word-break:break-all;line-height:1.4}
+  #card .m{color:var(--dim);font-size:11px;margin-bottom:10px}
+  #card .ev{border-left:2px solid var(--line);padding:2px 0 2px 10px;margin:7px 0;
+    color:#9fb0c6;font-size:11.5px;line-height:1.65}
+  #card .close{position:absolute;right:12px;top:10px;color:var(--dim);cursor:pointer;font-size:15px;
+    line-height:1;padding:3px}
+  #card .close:hover{color:var(--ink)}
+  /* 底部中间 · 时间轴提示 */
+  #foot{left:50%;bottom:18px;transform:translateX(-50%);padding:7px 14px;color:var(--dim);
+    font-size:11px;white-space:nowrap}
+  #foot b{color:#c3d0e2;font-weight:500}
+  #err{position:fixed;inset:0;display:none;place-items:center;text-align:center;padding:40px;
+    color:var(--dim);font-size:13px;line-height:1.9}
+  @media (max-width:820px){
+    #legend{display:none} #card{width:calc(100vw - 36px)} #foot{display:none}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vig"></div>
+
+<div id="head" class="panel">
+  <h1>FG · <span>脑</span></h1>
+  <div class="sub" id="meta"></div>
+</div>
+
+<div id="legend" class="panel">
+  <div class="t">实体类型（点此过滤）</div>
+  <div id="lgs"></div>
+</div>
+
+<div id="card" class="panel">
+  <div class="close" id="cardClose">✕</div>
+  <div class="k" id="cardKind"></div>
+  <h2 id="cardName"></h2>
+  <div class="m" id="cardMeta"></div>
+  <div id="cardEv"></div>
+</div>
+
+<div id="hint" class="panel">
+  <b>拖拽</b> 旋转　<b>滚轮</b> 缩放<br>
+  <b>点击</b> 实体看详情　<b>空格</b> 暂停自转
+</div>
+
+<div id="foot" class="panel"></div>
+<div id="err"></div>
+
+<script>
+const DATA = /*__FG_BRAIN_DATA__*/null;
+
+/* ══════════════════════════════════════════════════════════════
+   判据：位置 = FNV-1a(实体名) → 皮层顶点。
+   实体不变，位置就不变。每次刷新乱跳的图，看不出东西在长。
+   ══════════════════════════════════════════════════════════════ */
+const hash = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h >>> 0; };
+const rng32 = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+/* ── 自有皮层网格 ───────────────────────────────────────────────
+   不是解剖模型，是三个椭球 + 几组正弦褶皱。理由：memory-brain 的 cortex/*.bin
+   是 CC BY-SA 3.0，不能打包；自己算出来的东西没有许可证问题。 */
+const NC = 66000, NB = 20000, NS = 4000, NPTS = NC + NB + NS;
+
+function fib(i, n) {
+  const y = 1 - (i / (n - 1)) * 2;
+  const r = Math.sqrt(Math.max(0, 1 - y * y));
+  const th = i * 2.399963229728653;
+  return [Math.cos(th) * r, y, Math.sin(th) * r];
+}
+
+function buildMesh() {
+  const pos = new Float32Array(NPTS * 3);
+  const col = new Float32Array(NPTS * 3);
+  const siz = new Float32Array(NPTS);
+  const rnd = rng32(0x9E3779B9);
+  const TAU = Math.PI * 2;
+  let p = 0;
+
+  // 大脑：椭球 + 纵裂 + 脑回褶皱
+  for (let i = 0; i < NC; i++) {
+    let [x, y, z] = fib(i, NC);
+    const th = Math.atan2(z, x);
+    const w = 0.030 * Math.sin(6.0 * th + 1.3) * Math.cos(5.0 * Math.PI * y)
+            + 0.018 * Math.sin(11.0 * th - 2.2) * Math.cos(9.0 * Math.PI * y + 0.7);
+    const r = 1 + w;
+    x *= r * 0.80; y *= r * 0.90; z *= r * 1.02;
+    x += Math.sign(x || 1) * 0.052 * Math.pow(Math.max(0, 1 - Math.abs(x) / 0.30), 2);
+    const k = 0.45 + 0.55 * rnd() + (w > 0 ? 0.18 : 0);
+    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
+    col[p * 3] = 0.16 * k; col[p * 3 + 1] = 0.62 * k; col[p * 3 + 2] = 1.00 * k;
+    siz[p] = 0.0052 + 0.0022 * rnd();
+    p++;
+  }
+  // 小脑：细密褶皱，压在后下方
+  for (let i = 0; i < NB; i++) {
+    const [bx, by, bz] = fib(i, NB);
+    const w = 1 + 0.055 * Math.sin(26 * bx + 1.1) * Math.sin(24 * by) + 0.03 * Math.sin(31 * bz + 1.7);
+    const x = bx * 0.40 * w, y = by * 0.25 * w - 0.62, z = bz * 0.33 * w - 0.60;
+    const k = 0.5 + 0.5 * rnd();
+    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
+    col[p * 3] = 1.00 * k; col[p * 3 + 1] = 0.58 * k; col[p * 3 + 2] = 0.20 * k;
+    siz[p] = 0.0044 + 0.0020 * rnd();
+    p++;
+  }
+  // 脑干
+  for (let i = 0; i < NS; i++) {
+    const a = rnd() * TAU, h = rnd(), rr = 0.085 * (1 - 0.35 * h);
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr - 0.30, y = -0.70 - h * 0.44;
+    const k = 0.45 + 0.4 * rnd();
+    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
+    col[p * 3] = 0.62 * k; col[p * 3 + 1] = 0.38 * k; col[p * 3 + 2] = 0.98 * k;
+    siz[p] = 0.0046 + 0.0020 * rnd();
+    p++;
+  }
+  return { pos, col, siz, n: NPTS };
+}
+
+/* ── 实体落点 ───────────────────────────────────────────────── */
+const TYPE_COLOR = {
+  file: [0.31, 0.82, 1.00],
+  rule: [1.00, 0.82, 0.40],
+  action: [0.73, 0.55, 1.00],
+  trigger: [1.00, 0.42, 0.54],
+  tool: [0.43, 0.91, 0.66],
+};
+const TYPE_LABEL = { file: "文件", rule: "条号", action: "动作", trigger: "触发", tool: "工具" };
+const TYPE_ORDER = ["file", "rule", "action", "trigger", "tool"];
+const REGION_LABEL = { stem: "脑干", cerebellum: "小脑", left: "大脑·左", right: "大脑·右" };
+const REGION_NOTE = { stem: "硬约束 ∞", cerebellum: "程序 180d", left: "判据 60d", right: "叙事 30d" };
+
+const mesh = buildMesh();
+
+/* 分区顶点池：解剖位置就是语义。
+   大脑两半球按 x 正负分左右，小脑与脑干各取自己的那一段。
+   实体的落点在**自己那块的池子里**按哈希取——所以"脑干上的东西"永远长在脑干上。 */
+const POOL = { left: [], right: [], cerebellum: [], stem: [] };
+for (let i = 0; i < NPTS; i++) {
+  if (i < NC) (mesh.pos[i * 3] < 0 ? POOL.left : POOL.right).push(i);
+  else if (i < NC + NB) POOL.cerebellum.push(i);
+  else POOL.stem.push(i);
+}
+
+const nodes = DATA.nodes.map((n) => {
+  const pool = POOL[n.r] || POOL.right;
+  const vi = pool[hash(n.id) % pool.length];
+  const j = hash(n.id + "#") / 4294967296;
+  const a = hash(n.id + "@") / 4294967296 * Math.PI * 2;
+  const r = 0.012 + 0.02 * j;
+  return {
+    ...n,
+    x: mesh.pos[vi * 3] + Math.cos(a) * r,
+    y: mesh.pos[vi * 3 + 1] + (j - 0.5) * 0.03,
+    z: mesh.pos[vi * 3 + 2] + Math.sin(a) * r,
+    color: TYPE_COLOR[n.type] || [0.8, 0.8, 0.8],
+  };
+});
+
+/* 大小与亮度 = 遗忘曲线。
+   强度跨四个数量级（3700 : 1.4），线性缩放会让大多数点直接看不见，所以走对数。
+   另外加一条**褪色**判据：距上次出现超过半衰期的，向灰收敛——那才是"忘了"的样子，
+   而强度只说明"记得多深"。两件事分开，才不会把"很久没提"误读成"从来没重要过"。 */
+const maxS = Math.max(1, ...nodes.map((n) => n.s || 0));
+const LOG_MAX = Math.log1p(maxS);
+const GEN = Date.parse(DATA.meta.generatedAt) || Date.now();
+const GRAY = [0.30, 0.33, 0.38];
+for (const n of nodes) {
+  const k = Math.log1p(n.s || 0) / LOG_MAX;
+  n.size = 0.005 + 0.034 * Math.pow(k, 0.8);
+  n.fade = 0.22 + 0.78 * Math.pow(k, 0.5);
+  const hl = DATA.meta.halfLives ? DATA.meta.halfLives[n.r] : null;
+  const age = (GEN - Date.parse(n.l || "")) / 86400e3;
+  const stale = hl ? Math.min(1, Math.max(0, age / hl)) : 0;
+  // 褪色封顶 0.6：颜色本身也是信息（哪类是文件、哪类是条号），褪成纯灰等于把色标废掉。
+  // 用 stale² 而不是 stale：只有"超过半衰期很久"的才明显发灰，"上周还提过"的只轻微降饱和。
+  const w = Math.min(0.6, stale * stale * 0.7 + ((n.s || 0) < 0.4 ? 0.25 : 0));
+  n.color = n.color.map((c, i) => c + (GRAY[i] - c) * w);
+  n.alpha = 1;
+}
+
+/* ── WebGL ──────────────────────────────────────────────────── */
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl", { antialias: true, alpha: false, premultipliedAlpha: false });
+if (!gl) {
+  const e = document.getElementById("err");
+  e.style.display = "grid";
+  e.textContent = "这个浏览器/面板没有 WebGL。用 Chrome / Edge 打开本地文件即可。";
+}
+
+const POINT_VS = `
+attribute vec3 aPos; attribute vec3 aCol; attribute float aSize; attribute float aAlpha;
+uniform mat4 uMVP; uniform vec3 uEye; uniform float uPix; uniform float uAlphaMul;
+varying vec3 vCol; varying float vA;
+void main(){
+  vec4 p = uMVP * vec4(aPos,1.0);
+  gl_Position = p;
+  gl_PointSize = clamp(aSize * uPix / max(p.w,0.05), 1.0, 64.0);
+  vec3 nrm = normalize(aPos + vec3(0.0001));
+  vec3 viewDir = normalize(uEye - aPos);
+  float facing = max(0.0, dot(nrm, viewDir));
+  vCol = aCol; vA = aAlpha * uAlphaMul * (0.22 + 0.78 * facing);
+}`;
+
+const POINT_FS = `
+precision mediump float;
+varying vec3 vCol; varying float vA;
+void main(){
+  vec2 d = gl_PointCoord - vec2(0.5);
+  float r2 = dot(d,d);
+  if (r2 > 0.25) discard;
+  float a = 1.0 - smoothstep(0.02, 0.25, r2);
+  gl_FragColor = vec4(vCol, a * vA);
+}`;
+
+const LINE_VS = `
+attribute vec3 aPos; attribute vec3 aCol; attribute float aAlpha;
+uniform mat4 uMVP;
+varying vec3 vCol; varying float vA;
+void main(){ gl_Position = uMVP*vec4(aPos,1.0); vCol=aCol; vA=aAlpha; }`;
+
+const LINE_FS = `
+precision mediump float;
+varying vec3 vCol; varying float vA;
+void main(){ gl_FragColor = vec4(vCol, vA); }`;
+
+function shader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, shader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+const pPoint = program(POINT_VS, POINT_FS);
+const pLine = program(LINE_VS, LINE_FS);
+const loc = (p, n) => gl.getAttribLocation(p, n);
+const uni = (p, n) => gl.getUniformLocation(p, n);
+
+function buffer(data, usage) {
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, data, usage || gl.STATIC_DRAW);
+  return b;
+}
+function bindAttr(prog, name, buf, size) {
+  const l = loc(prog, name);
+  if (l < 0) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.enableVertexAttribArray(l);
+  gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0);
+}
+
+/* 皮层 */
+const bShellPos = buffer(mesh.pos), bShellCol = buffer(mesh.col), bShellSiz = buffer(mesh.siz);
+const shellAlpha = new Float32Array(NPTS).fill(0.26);
+const bShellA = buffer(shellAlpha);
+
+/* 节点 */
+const N = nodes.length;
+const nPos = new Float32Array(N * 3), nCol = new Float32Array(N * 3), nSiz = new Float32Array(N), nAlp = new Float32Array(N);
+nodes.forEach((n, i) => {
+  nPos[i * 3] = n.x; nPos[i * 3 + 1] = n.y; nPos[i * 3 + 2] = n.z;
+  nCol[i * 3] = n.color[0]; nCol[i * 3 + 1] = n.color[1]; nCol[i * 3 + 2] = n.color[2];
+  nSiz[i] = n.size; nAlp[i] = n.fade;
+});
+const bNPos = buffer(nPos), bNCol = buffer(nCol), bNSiz = buffer(nSiz), bNAlp = buffer(nAlp, gl.DYNAMIC_DRAW);
+
+/* 边 */
+const E = DATA.edges.length;
+const ePos = new Float32Array(E * 6), eCol = new Float32Array(E * 6), eAlp = new Float32Array(E * 2);
+const eBase = new Float32Array(E);
+DATA.edges.forEach((e, i) => {
+  const a = nodes[e.s], b = nodes[e.t];
+  ePos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
+  const c = [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
+  eCol.set([...c, ...c], i * 6);
+  eBase[i] = Math.min(0.34, 0.035 + e.w * 0.022);
+  eAlp[i * 2] = eBase[i]; eAlp[i * 2 + 1] = eBase[i];
+});
+const bEPos = buffer(ePos), bECol = buffer(eCol), bEAlp = buffer(eAlp, gl.DYNAMIC_DRAW);
+
+/* 悬停高亮：单顶点缓冲，避免每帧新建 */
+const bHovPos = buffer(new Float32Array(3), gl.DYNAMIC_DRAW);
+const bHovCol = buffer(new Float32Array(3), gl.DYNAMIC_DRAW);
+const bHovSiz = buffer(new Float32Array(1), gl.DYNAMIC_DRAW);
+const bHovAlp = buffer(new Float32Array([1]), gl.DYNAMIC_DRAW);
+
+/* ── 矩阵 ───────────────────────────────────────────────────── */
+function perspective(out, fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+  out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+  out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
+  out[12] = 0; out[13] = 0; out[14] = 2 * far * near * nf; out[15] = 0;
+  return out;
+}
+function lookAt(out, eye, ctr, up) {
+  let z0 = eye[0] - ctr[0], z1 = eye[1] - ctr[1], z2 = eye[2] - ctr[2];
+  let l = 1 / Math.hypot(z0, z1, z2); z0 *= l; z1 *= l; z2 *= l;
+  let x0 = up[1] * z2 - up[2] * z1, x1 = up[2] * z0 - up[0] * z2, x2 = up[0] * z1 - up[1] * z0;
+  l = Math.hypot(x0, x1, x2) || 1; l = 1 / l; x0 *= l; x1 *= l; x2 *= l;
+  const y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
+  out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+  out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+  out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+  out[12] = -(x0 * eye[0] + x1 * eye[1] + x2 * eye[2]);
+  out[13] = -(y0 * eye[0] + y1 * eye[1] + y2 * eye[2]);
+  out[14] = -(z0 * eye[0] + z1 * eye[1] + z2 * eye[2]);
+  out[15] = 1;
+  return out;
+}
+function mul(out, a, b) {
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    out[i * 4 + j] = a[j] * b[i * 4] + a[4 + j] * b[i * 4 + 1] + a[8 + j] * b[i * 4 + 2] + a[12 + j] * b[i * 4 + 3];
+  }
+  return out;
+}
+
+/* ── 相机 ───────────────────────────────────────────────────── */
+const FOV = Math.PI / 4.4;
+let yaw = 0.55, pitch = -0.12, dist = 3.15;
+let autoRotate = true, dragging = false, lastT = 0;
+const proj = new Float32Array(16), view = new Float32Array(16), mvp = new Float32Array(16);
+const eye = [0, 0, 0];
+
+function resize() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(innerWidth * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+addEventListener("resize", resize);
+resize();
+
+/* ── 过滤 ───────────────────────────────────────────────────── */
+const offTypes = new Set();
+const typeCount = {};
+for (const n of nodes) typeCount[n.type] = (typeCount[n.type] || 0) + 1;
+
+function applyFilters() {
+  nodes.forEach((n, i) => { nAlp[i] = offTypes.has(n.type) ? 0 : n.fade; });
+  gl.bindBuffer(gl.ARRAY_BUFFER, bNAlp);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, nAlp);
+  applyEdgeFilter();
+}
+
+let selected = -1, neighbors = null;
+
+function applyEdgeFilter() {
+  for (let i = 0; i < E; i++) {
+    const e = DATA.edges[i];
+    let a = eBase[i];
+    const aOff = offTypes.has(nodes[e.s].type), bOff = offTypes.has(nodes[e.t].type);
+    if (aOff || bOff) a = 0;
+    else if (selected >= 0) a = (e.s === selected || e.t === selected) ? Math.min(0.62, a * 2.4) : a * 0.12;
+    eAlp[i * 2] = a; eAlp[i * 2 + 1] = a;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, bEAlp);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, eAlp);
+  // 选中时把邻居点亮
+  nodes.forEach((n, i) => {
+    let v = offTypes.has(n.type) ? 0 : n.fade;
+    if (selected >= 0 && i !== selected) v *= neighbors && neighbors.has(i) ? 1 : 0.35;
+    nAlp[i] = v;
+  });
+  gl.bindBuffer(gl.ARRAY_BUFFER, bNAlp);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, nAlp);
+}
+
+/* ── 渲染 ───────────────────────────────────────────────────── */
+function drawPoints(bufPos, bufCol, bufSiz, bufAlp, count, sizeMul, alphaMul) {
+  gl.useProgram(pPoint);
+  gl.uniformMatrix4fv(uni(pPoint, "uMVP"), false, mvp);
+  gl.uniform3fv(uni(pPoint, "uEye"), eye);
+  gl.uniform1f(uni(pPoint, "uPix"), (canvas.height / (2 * Math.tan(FOV / 2))) * sizeMul);
+  gl.uniform1f(uni(pPoint, "uAlphaMul"), alphaMul);
+  bindAttr(pPoint, "aPos", bufPos, 3);
+  bindAttr(pPoint, "aCol", bufCol, 3);
+  bindAttr(pPoint, "aSize", bufSiz, 1);
+  bindAttr(pPoint, "aAlpha", bufAlp, 1);
+  gl.drawArrays(gl.POINTS, 0, count);
+}
+
+function drawLines() {
+  gl.useProgram(pLine);
+  gl.uniformMatrix4fv(uni(pLine, "uMVP"), false, mvp);
+  bindAttr(pLine, "aPos", bEPos, 3);
+  bindAttr(pLine, "aCol", bECol, 3);
+  bindAttr(pLine, "aAlpha", bEAlp, 1);
+  gl.drawArrays(gl.LINES, 0, E * 2);
+}
+
+function frame(t) {  if (!dragging && autoRotate) yaw += 0.0016;
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  eye[0] = dist * cp * Math.sin(yaw); eye[1] = dist * sp; eye[2] = dist * cp * Math.cos(yaw);
+  lookAt(view, eye, [0, 0, 0], [0, 1, 0]);
+  perspective(proj, FOV, canvas.width / canvas.height, 0.1, 24);
+  mul(mvp, proj, view);
+
+  gl.clearColor(0.016, 0.023, 0.047, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+  // 皮层：一遍就够，亮度已按朝向衰减
+  drawPoints(bShellPos, bShellCol, bShellSiz, bShellA, NPTS, 1.0, 1.0);
+
+  if (E) drawLines();
+
+  // 节点：先晕后核
+  drawPoints(bNPos, bNCol, bNSiz, bNAlp, N, 3.4, 0.10);
+  drawPoints(bNPos, bNCol, bNSiz, bNAlp, N, 1.0, 1.0);
+
+  // 悬停：在实体外面再套一圈光
+  if (hover >= 0) {
+    const n = nodes[hover];
+    gl.bindBuffer(gl.ARRAY_BUFFER, bHovPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([n.x, n.y, n.z]));
+    gl.bindBuffer(gl.ARRAY_BUFFER, bHovCol); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(n.color));
+    gl.bindBuffer(gl.ARRAY_BUFFER, bHovSiz); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([n.size]));
+    drawPoints(bHovPos, bHovCol, bHovSiz, bHovAlp, 1, 4.2, 0.45);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ── 拾取 ───────────────────────────────────────────────────── */
+let hover = -1;
+const scr = new Float32Array(N * 3);
+
+function projectAll() {
+  const W = canvas.width, H = canvas.height;
+  for (let i = 0; i < N; i++) {
+    const x = nodes[i].x, y = nodes[i].y, z = nodes[i].z;
+    const w = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
+    if (w <= 0.01) { scr[i * 3 + 2] = -1; continue; }
+    const cx = (mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12]) / w;
+    const cy = (mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13]) / w;
+    scr[i * 3] = (cx * 0.5 + 0.5) * W;
+    scr[i * 3 + 1] = (1 - (cy * 0.5 + 0.5)) * H;
+    scr[i * 3 + 2] = w;
+  }
+}
+
+function pick(clientX, clientY) {
+  projectAll();
+  const dpr = canvas.width / innerWidth;
+  const mx = clientX * dpr, my = clientY * dpr;
+  let best = -1, bestD = 22 * dpr * 22 * dpr;
+  for (let i = 0; i < N; i++) {
+    if (nAlp[i] <= 0 || scr[i * 3 + 2] <= 0) continue;
+    const dx = scr[i * 3] - mx, dy = scr[i * 3 + 1] - my;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+/* ── HUD ────────────────────────────────────────────────────── */
+const metaEl = document.getElementById("meta");
+const m = DATA.meta;
+const regionLine = Object.keys(REGION_LABEL)
+  .filter((k) => m.regions && m.regions[k])
+  .map((k) => `${REGION_LABEL[k]} <b>${m.regions[k]}</b>`)
+  .join(" · ");
+metaEl.innerHTML =
+  `<b>${m.events.toLocaleString()}</b> 条事件 · ${(m.from || "").slice(0, 10)} → ${(m.to || "").slice(0, 10)}<br>` +
+  `<b>${m.nodes}</b> 实体 / <b>${m.edges}</b> 条共现` +
+  (m.truncated ? `（原 ${m.total}，按强度截断）` : "") +
+  `<br>${regionLine}`;
+
+document.getElementById("foot").innerHTML =
+  `位置 = <b>FNV-1a(实体名)</b> → 分区顶点（不变）　大小 = <b>遗忘曲线</b>（在用则亮，久不用则灰）`;
+
+const lgs = document.getElementById("lgs");
+for (const tp of TYPE_ORDER) {
+  const n = typeCount[tp] || 0;
+  if (!n) continue;
+  const el = document.createElement("div");
+  el.className = "lg";
+  el.innerHTML = `<span class="dot" style="background:${rgb(TYPE_COLOR[tp])};color:${rgb(TYPE_COLOR[tp])}"></span>` +
+    `<span class="n">${TYPE_LABEL[tp]}</span><span class="v">${n}</span>`;
+  el.onclick = () => {
+    if (offTypes.has(tp)) offTypes.delete(tp); else offTypes.add(tp);
+    el.classList.toggle("off", offTypes.has(tp));
+    applyFilters();
+  };
+  lgs.appendChild(el);
+}
+
+function rgb(c) { return `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`; }
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+const card = document.getElementById("card");
+function showCard(i) {
+  const n = nodes[i];
+  const hlv = m.halfLives ? m.halfLives[n.r] : null;
+  const hl = hlv === null || hlv === undefined ? "∞" : `${hlv}d`;
+  document.getElementById("cardKind").textContent = `${REGION_LABEL[n.r] || n.r} · ${TYPE_LABEL[n.type] || n.type} · 半衰期 ${hl}`;
+  document.getElementById("cardName").textContent = n.name;
+  document.getElementById("cardMeta").textContent =
+    `出现 ${n.c} 次　强度 ${n.s}　${(n.f || "").slice(0, 16).replace("T", " ")} → ${(n.l || "").slice(0, 16).replace("T", " ")}`;
+  document.getElementById("cardEv").innerHTML = (n.x || [])
+    .map((s) => `<div class="ev">${esc(s)}</div>`).join("") || `<div class="ev" style="opacity:.5">无证据文本</div>`;
+  card.classList.add("show");
+}
+function hideCard() { card.classList.remove("show"); }
+
+document.getElementById("cardClose").onclick = () => {
+  selected = -1; neighbors = null; hideCard(); applyFilters();
+};
+
+/* ── 交互 ───────────────────────────────────────────────────── */
+let px = 0, py = 0, moved = 0;
+
+canvas.addEventListener("pointerdown", (e) => {
+  dragging = true; moved = 0; px = e.clientX; py = e.clientY;
+  canvas.classList.add("drag"); canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointerup", (e) => {
+  dragging = false; canvas.classList.remove("drag");
+  if (moved < 6) {
+    const i = pick(e.clientX, e.clientY);
+    if (i >= 0) {
+      selected = i;
+      neighbors = new Set();
+      for (const ed of DATA.edges) { if (ed.s === i) neighbors.add(ed.t); else if (ed.t === i) neighbors.add(ed.s); }
+      showCard(i); applyEdgeFilter();
+    } else { selected = -1; neighbors = null; hideCard(); applyEdgeFilter(); }
+  }
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (dragging) {
+    const dx = e.clientX - px, dy = e.clientY - py;
+    moved += Math.abs(dx) + Math.abs(dy);
+    yaw -= dx * 0.005;
+    pitch = Math.max(-1.45, Math.min(1.45, pitch + dy * 0.005));
+    px = e.clientX; py = e.clientY;
+  } else {
+    const i = pick(e.clientX, e.clientY);
+    if (i !== hover) { hover = i; canvas.style.cursor = i >= 0 ? "pointer" : "grab"; }
+  }
+});
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  dist = Math.max(1.7, Math.min(7.5, dist * Math.exp(e.deltaY * 0.0012)));
+}, { passive: false });
+addEventListener("keydown", (e) => {
+  if (e.code === "Space") { e.preventDefault(); autoRotate = !autoRotate; }
+  if (e.code === "Escape") { selected = -1; neighbors = null; hideCard(); applyFilters(); }
+});
+
+/* ── 起飞 ───────────────────────────────────────────────────── */
+if (gl) {
+  if (N === 0) {
+    const e = document.getElementById("err");
+    e.style.display = "grid";
+    e.textContent = "日志里没有可用的实体。换一个 --log 再试。";
+  }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

@@ -37,7 +37,10 @@
     "schema:update": "node packages/core/tools/schema-fingerprint.mjs --update",
     "fixtures:capture": "node packages/core/tools/capture-fixtures.mjs",
     "handoff": "node packages/core/tools/handoff.mjs",
-    "layers:audit": "node packages/core/tools/layering-audit.mjs"
+    "layers:audit": "node packages/core/tools/layering-audit.mjs",
+    "brain": "node tools/brain.mjs",
+    "version:check": "node tools/version.mjs",
+    "version:set": "node tools/version.mjs --set"
   },
   "dsh": {
     "bundle": {
