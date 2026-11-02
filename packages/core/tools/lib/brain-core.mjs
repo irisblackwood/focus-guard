@@ -8,11 +8,22 @@
  *   所以这里把"事件"聚合成"实体"：**事件无界，实体有界**。这是唯一能给出稳态上界的东西
  *   （与 P0-1 学到的是同一条：只有上限能给稳态上界，年龄不能）。
  *
- * 遗忘曲线（Ebbinghaus 的指数衰减，改成增量式）：
- *   每次命中：s ← s · 2^(−Δt/半衰期) + 1
- *   展示时再衰减到"现在"：s_now = s · 2^(−(now−last)/半衰期)
- *   增量式的好处是不用存历史，O(1) 更新，且天然满足"常用的忘得慢"——
- *   命中越频繁，两次衰减之间的间隔越短，衰减越少。
+ * 但"事件"不等于"知识"（2026-11-02 补）。审计日志里绝大多数行是**心跳**：预算重置、
+ * 残留检查、KPI 结算，每回合一次，内容是几个计数器。旧版照单全收，于是 12,721 次提及里
+ * 48% 是 `reset-fired` / `residue-check` 两个机械动作，真实文件（166 个，最高 228 次）
+ * 全被压成暗雾。第一道闸：**没有对象的事件不进脑**（`entitiesOf`）。
+ *
+ * 第二道闸是**强度不按次数算**（`templateOf` / `applyEvent`）。用户第二次追问
+ * 「3条 残留(已清理): fused readSet=21 / 第 35 次写操作全量审计，这种记得干嘛？
+ * 难道是里程碑？」——不是里程碑，是同一句话的第 N 遍。这份日志 8,585 行只有 622 种
+ * 不同的样子，所以「提及次数」量的是重复度，不是重要度。强度改成
+ * **s = 种数 × √(种数/次数)**：每次都新 → 退回计数；翻来覆去一句 → 趋近 0。
+ * 心跳留在 AUDIT.log 里，那本来就是它该待的地方。
+ *
+ * 遗忘曲线（Ebbinghaus 的指数衰减）：
+ *   强度 s 在最后一次事件时刻算出，展示时衰减到"现在"：s_now = s · 2^(−(now−last)/半衰期)
+ *   每次命中都刷新 last，所以"还在发生的东西"不会开始遗忘——它只是不再变大。
+
  *
  * 分区（解剖位置即语义）：
  *   脑干   不可违的硬约束（条号、deny/熔断/红线）—— 永不遗忘
@@ -41,48 +52,14 @@ export function decayTo(s, lastIso, halfLife, now) {
   return s * Math.exp(-lambdaOf(halfLife) * days(t, now));
 }
 
-/* ── 实体抽取 ───────────────────────────────────────────────── */
-const PER_LINE_FILES = 6;
-const PER_LINE_RULES = 2;
-const FILE_RE =
-  /(?:[A-Za-z]:)?[A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-]\.(?:mjs|js|cjs|json|md|log|html|yml|yaml|txt|py|sh|ps1|bat)\b/g;
-const RULE_CN_RE = /第[一二三四五六七八九十百零〇\d]{1,6}条/g;
-const RULE_NUM_RE = /(?:^|[^\d.])(\d{1,3})条/g;
-const SEC_RE = /§\s?[一二三四五六七八九十]{1,4}/g;
-
-export function normPath(raw, repo) {
-  let s = String(raw).replace(/\\/g, "/");
-  const r = repo.replace(/\\/g, "/").toLowerCase();
-  const at = s.toLowerCase().indexOf(r);
-  if (at >= 0) s = s.slice(at + r.length);
-  return s.replace(/^\/+/, "").replace(/^\.\//, "");
-}
-
-function pushUnique(list, v, cap) {
-  if (list.length >= cap || list.includes(v)) return;
-  list.push(v);
-}
-
-export function entitiesOf(rec, repo, opts = {}) {
-  const out = [];
-  if (rec.action) out.push({ type: "action", name: String(rec.action) });
-  if (rec.tool) out.push({ type: "tool", name: String(rec.tool) });
-  // 8,543 行里 action 与 trigger 同名的有 8,075 行（94.5%），同名再建节点只是影子
-  if (rec.trigger && rec.trigger !== rec.action) out.push({ type: "trigger", name: String(rec.trigger) });
-  const text = `${rec.evidence || ""} ${rec.command || ""}`;
-  const files = [];
-  for (const m of text.matchAll(FILE_RE)) pushUnique(files, normPath(m[0], repo), PER_LINE_FILES);
-  for (const f of files) if (f && f.includes(".") && !isNoise(f, opts.noise)) out.push({ type: "file", name: f });
-  const rules = [];
-  for (const m of text.matchAll(RULE_CN_RE)) pushUnique(rules, m[0], PER_LINE_RULES);
-  for (const m of text.matchAll(RULE_NUM_RE)) pushUnique(rules, `第${m[1]}条`, PER_LINE_RULES);
-  for (const m of text.matchAll(SEC_RE)) pushUnique(rules, m[0].replace(/\s+/g, ""), PER_LINE_RULES);
-  for (const r of rules) out.push({ type: "rule", name: r });
-  return out;
-}
+/* 「一行字怎么被读懂」那部分搬到 brain-text.mjs 了：对象抽取、内容模板、实体抽取。
+   切分线是**改动的理由**——那边改是因为读法变了，这边改是因为索引怎么长变了。
+   调用方不必知道它搬家：这里原样转出去，与上面 brain-regions 同一个处理。 */
+import { MAX_TEMPLATES, entitiesOf, templateOf } from "./brain-text.mjs";
+export { entitiesOf, hash32, normPath, objectsIn, templateOf } from "./brain-text.mjs";
 
 /* ── 索引：加载 / 增量更新 / 落盘 ───────────────────────────── */
-export const INDEX_VERSION = 3; // v2 加按天直方图；v3 分区判据重写（旧索引里的 r 是旧判据算的，必须重算）
+export const INDEX_VERSION = 5; // v4 只记有对象的事件；v5 强度改「种数×新意率」（旧索引里的 s 是次数，必须重算）
 const MAX_ENTITIES = 20000;
 const MAX_EDGES = 60000;
 const FORGET_STRENGTH = 0.05; // 低于这个且一年没动 → 真的忘了，删
@@ -115,6 +92,9 @@ export function loadIndex(path) {
 export function reclassify(idx, opts = {}) {
   let n = 0;
   for (const e of Object.values(idx.entities || {})) {
+    // 记忆块的分区由**来源文档**决定（法条进脑干、方法进小脑），不是由标题文字猜。
+    // 拿 classify 去跑「第43条 未经调查取证即改文件」这种长标题只会落到兜底。
+    if (e.t === "memory") continue;
     const r = regionOf(e.t, e.n, opts);
     if (r !== e.r) {
       e.r = r;
@@ -124,12 +104,33 @@ export function reclassify(idx, opts = {}) {
   return n;
 }
 
-/** 一条事件并入索引。同一个实体两次命中之间按半衰期衰减，然后 +1。 */
+/**
+ * 一条事件并入索引。
+ *
+ * 强度 = **见过几种不同的样子** × 新意率，不是出现次数（2026-11-02 第三次改）。
+ *
+ * 前两版都错了，错法不同：
+ *   ① 按事件数累加：`reset-fired` 3,220 次 → s=3,096。可它每回合都响一次，内容是计数器。
+ *   ② 按天折叠：降到 16。用户仍然问「这种记得干嘛？难道是里程碑？」——他问得对，
+ *      「活跃 16 天」和「很重要」不是一回事。
+ * 真相是这份日志 8,585 行只有 622 种不同的样子。**提及次数量的不是重要度，是重复度。**
+ *
+ * 现在的判据：
+ *   s = 种数 × √(种数 / 次数)
+ *   每次都是新样子（种数=次数）→ s=种数，退回"计数"；翻来覆去同一句（种数=1）→ s≈0。
+ *   中间连续过渡，没有阈值，也没有"多少次算例行"这种拍脑袋的线。
+ *   实测：deny 36种/139次 → 18.3；第43条 3种/2940次 → 0.096；random-audit 1种/181次 → 0.074。
+ *   **例行与真事差 100 倍**，不用另设过滤，它们自己就沉下去了。
+ *
+ * `c` 仍记原始次数（PMI 的分母要真实频次），`h` 仍记每天的真实次数（共活跃要真实形状）。
+ */
 export function applyEvent(idx, rec, repo, now, opts = {}) {
   const ents = entitiesOf(rec, repo, opts);
   if (!ents.length) return 0;
   const ts = String(rec.ts || new Date(now).toISOString());
   const t = Date.parse(ts) || now;
+  const day = ts.slice(0, 10);
+  const tp = templateOf(rec);
 
   for (const e of ents) {
     const id = `${e.type}:${e.name}`;
@@ -137,28 +138,34 @@ export function applyEvent(idx, rec, repo, now, opts = {}) {
     if (!n) {
       n = idx.entities[id] = { t: e.type, n: e.name, r: regionOf(e.type, e.name, opts), c: 0, f: ts, l: ts, s: 0, x: [] };
     }
-    const hl = REGIONS[n.r].halfLife;
-    n.s = n.s * Math.exp(-lambdaOf(hl) * days(Date.parse(n.l), t)) + 1;
-    n.c += 1;
-    if (!n.f || ts < n.f) n.f = ts;
-    if (!n.l || ts > n.l) n.l = ts;
     // 按天直方图：共活跃信号的原料。稀疏存，只记有事件的那几天。
-    const day = ts.slice(0, 10);
     n.h = n.h || {};
     n.h[day] = (n.h[day] || 0) + 1;
+    n.c += 1;
+    // 只在新样子时扩表；重复只让分母变大，于是强度自己往下走。
+    n.g = n.g || [];
+    if (n.g.length < MAX_TEMPLATES && !n.g.includes(tp)) n.g.push(tp);
+    n.s = n.g.length * Math.sqrt(n.g.length / n.c);
+    if (!n.f || ts < n.f) n.f = ts;
+    // 每次命中都刷新"最近出现"：它还在发生，就不该开始遗忘。
+    if (!n.l || ts > n.l) n.l = ts;
     const ev = String(rec.evidence || "").replace(/\s+/g, " ").slice(0, 200);
     if (ev && n.x.length < 3 && !n.x.includes(ev)) n.x.push(ev);
   }
 
   const ids = [...new Set(ents.map((e) => `${e.type}:${e.name}`))].slice(0, 10);
   for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) bumpEdge(idx, ids[i], ids[j], "co", t);
+    for (let j = i + 1; j < ids.length; j++) linkEdge(idx, ids[i], ids[j], "co", t);
   }
   idx.seen += 1;
   return 1;
 }
 
-function bumpEdge(idx, a, b, kind, t) {
+/**
+ * 连一条边。导出是因为记忆块也要连：一段内容里提到的文件/条号，是一条**事实边**
+ * （这段确实写了这个路径），不是共现猜的"两者都出现过所以大概有关"。
+ */
+export function linkEdge(idx, a, b, kind, t) {
   if (a === b) return;
   const [s, t2] = a < b ? [a, b] : [b, a];
   const key = `${kind}|${s}|${t2}`;
@@ -169,15 +176,16 @@ function bumpEdge(idx, a, b, kind, t) {
   e.l = iso;
 }
 
-/** 同 seq 的多行是一条链：补一层弱边。 */
+/** 同 seq 的多行是一条链：**相邻行之间**连边，不是全挂到第一行（2026-11-02）。
+ *  星形连接会把链头变成枢纽，且链尾之间的关系丢失；链式只连 i-1 ↔ i，形状就是"一条链"。 */
 export function applySeqLinks(idx, groups, now) {
   let n = 0;
   for (const g of groups) {
     if (g.length < 2) continue;
-    const head = g[0].ids;
     for (let i = 1; i < g.length; i++) {
-      for (const a of head.slice(0, 3)) for (const b of g[i].ids.slice(0, 3)) {
-        bumpEdge(idx, a, b, "seq", g[i].t || now);
+      for (const b of g[i - 1].ids.slice(0, 3)) for (const c of g[i].ids.slice(0, 3)) {
+        if (b === c) continue;
+        linkEdge(idx, b, c, "seq", g[i].t || now);
         n++;
       }
     }
@@ -270,7 +278,12 @@ export function saveIndex(path, idx, now) {
 export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000, maxInf = 800) {
   const rows = Object.entries(idx.entities).map(([id, n]) => {
     const hl = REGIONS[n.r].halfLife;
-    return { id, ...n, sNow: decayTo(n.s, n.l, hl, now) };
+    /* 记忆块不衰减。
+       s 对足迹是「强度」——越久没提越淡，这是对的；
+       对记忆块 s 是**人给的 imp**，是绝对刻度。一条法条不会因为写下三个月就不算数。
+       实跑症状：右脑（半衰期 30d）的偏好块 imp 9 被衰减到 6.1，
+       权重闸门落在 8 时整类消失——衰减曲线把"权重"偷换成了"新鲜度"。 */
+    return { id, ...n, sNow: n.t === "memory" ? n.s : decayTo(n.s, n.l, hl, now) };
   });
   rows.sort((a, b) => b.sNow - a.sNow);
   const kept = rows.slice(0, maxNodes);
@@ -280,6 +293,16 @@ export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000, maxInf = 8
     return {
       i, id: n.id, type: n.t, name: n.n, r: n.r, c: n.c,
       s: +n.sNow.toFixed(3), f: n.f, l: n.l, ev: n.x, h: n.h,
+      // 种数要带出去：卡片上「出现 2,940 次」如果不说「其中只有 3 种样子」，
+      // 读的人就会把它当成 2,940 次重要的事——这正是用户质疑的那个误读。
+      g: n.g ? n.g.length : 0,
+      // 记忆块的出处与类别。**字段名必须叫 kd 不能叫 k**：视图里 k 是强度归一值
+      // （node.k = st），叫 k 会被 ...n 展开后覆盖，卡片上就会显示成一串小数。
+      kd: n.k, src: n.src, ord: n.ord,
+      // 权重是不是人标的。imp 是我拍的和领导批的，卡片上必须分得清——
+      // 分不清就会出现「我猜的 8 分」冒充「用户定的 8 分」。
+      im: n.mt && n.mt.imp ? Number(n.mt.imp) || null : null,
+      by: n.mt && n.mt.src ? n.mt.src : null,
     };
   });
 

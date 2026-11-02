@@ -12,7 +12,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  applyEvent, classify, decayTo, emptyIndex, isNoise, loadConfig, prune, readNewLines, regionOf,
+  applyEvent, applySeqLinks, classify, decayTo, emptyIndex, entitiesOf, isNoise, loadConfig, prune, readNewLines, regionOf,
 } from "../tools/lib/brain-core.mjs";
 import { inferRelations, pmi } from "../tools/lib/brain-relate.mjs";
 
@@ -64,6 +64,47 @@ test("噪音：内置判据挡临时路径，配置只能追加、关不掉内�
   assert.equal(isNoise("src/core/state.mjs"), false);
   assert.equal(isNoise("vendor/thing.js", ["vendor/"]), true);
   assert.equal(isNoise("C:/tmp/x.txt", []), true);
+});
+
+test("心跳不是知识：没有对象的不建实体，同一句话重复再多也只有一份强度", () => {
+  // 用户原话两连问：「为什么无聊的第 xx 次审计，也要记？」
+  //             「3条 残留(已清理): fused readSet=21 …… 这种记得干嘛？难道是里程碑？」
+  // 旧版把每行的 action 无条件建成实体，于是 reset-fired 3,220 次、residue-check 2,940 次
+  // 占掉全部提及的 48%，真实文件（166 个，最高 228 次）全被压成暗雾。
+  const repo = "/repo";
+  const beat = { ts: "2026-10-01T01:00:00Z", action: "reset-fired", evidence: "prompt:有 kw=10 budget=10 eff=0" };
+  assert.deepEqual(entitiesOf(beat, repo), [], "计数器心跳不指认任何对象，不该长成节点");
+
+  // 同一句话出现三十次：种数仍是 1，强度按 1×√(1/30) 掉下去，而不是涨到 30。
+  const idx = emptyIndex();
+  const line = { ts: "2026-10-01T01:00:00Z", action: "residue-check", evidence: "43条 残留(已清理): readSet=1" };
+  for (let i = 0; i < 30; i++) {
+    applyEvent(idx, { ...line, ts: `2026-10-${String(1 + (i % 20)).padStart(2, "0")}T01:00:00Z` }, repo, Date.now());
+  }
+  const r43 = idx.entities["rule:第43条"];
+  assert.equal(r43.c, 30, "原始次数要留着：PMI 的分母要真实频次");
+  assert.equal(r43.g.length, 1, "readSet=1 和 readSet=2 是同一件事的两个读数，抹掉数字后只有一种样子");
+  assert.ok(r43.s < 0.2, `重复三十遍的强度必须远小于 1，实得 ${r43.s}`);
+
+  // 换一个真的不同的说法，才算第二种样子，强度才往上走。
+  applyEvent(idx, { ...line, evidence: "43条 残留(已清理): fused stall=1" }, repo, Date.now());
+  assert.equal(r43.g.length, 2);
+  assert.ok(r43.s > 0.2, `见过第二种样子后强度应当回升，实得 ${r43.s}`);
+});
+
+test("强度：每次都是新样子时退回计数，翻来覆去一句时趋近 0", () => {
+  // s = 种数 × √(种数/次数)。这是本工具唯一的"重要度"公式，错了会静默——
+  // 图还是画得出来，只是大小全错，而且几个月后才发现。
+  const repo = "/repo";
+  const idx = emptyIndex();
+  // 注意变化的是**词**不是数字：抹掉数字是本工具的判据之一，用 i 做区别只会得到同一句话。
+  const verbs = ["删除", "覆盖", "外传", "提权", "绕过", "截断", "改签", "重放", "注入", "清空"];
+  for (const v of verbs) {
+    applyEvent(idx, { ts: "2026-10-01T01:00:00Z", action: "deny", evidence: `拦下${v}命令 src/a.mjs` }, repo, Date.now());
+  }
+  const e = idx.entities["file:src/a.mjs"];
+  assert.equal(e.g.length, 10, "十句不同的话 = 十种样子");
+  assert.ok(Math.abs(e.s - 10) < 0.001, `种数=次数时 s 应等于次数，实得 ${e.s}`);
 });
 
 test("遗忘曲线：正好过一个半衰期，强度减半", () => {
@@ -135,4 +176,14 @@ test("PMI：常见的东西一起出现，不算关联", () => {
   assert.equal(pmi(1, 1000, 1000, 12000), 0);
   // 两个各 100 次的东西稳定共现 50 次 → 远超偶然
   assert.ok(pmi(50, 100, 100, 12000) > 4, "稀有且稳定共现必须给出高分");
+});
+
+test("seq 链：相邻行连边，链头不当枢纽（2026-11-02）", () => {
+  const idx = emptyIndex();
+  idx.entities = {
+    "file:a": { t: "file", n: "a" }, "file:b": { t: "file", n: "b" }, "file:c": { t: "file", n: "c" },
+  };
+  idx.edges = {};
+  applySeqLinks(idx, [[{ ids: ["file:a"] }, { ids: ["file:b"] }, { ids: ["file:c"] }]], Date.now());
+  assert.deepEqual(Object.keys(idx.edges).sort(), ["seq|file:a|file:b", "seq|file:b|file:c"], "只连相邻行，不能 a↔c");
 });
