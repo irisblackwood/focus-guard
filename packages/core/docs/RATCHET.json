@@ -19,6 +19,14 @@
       "smells": 8,
       "duplicates": 27,
       "note": "还债 1 条类别：sidOf / projDirOf / normalize 在 postProgress 与 preGuard 各有一份 12 行逐字相同实现，收进 src/dsh/sessionScope.mjs；重复块 29 → 27。3.3.1 其余条目为回合出口、知识索引与文档收口（D3/D4/D6），无新增结构债。"
+    },
+    {
+      "version": "3.3.2",
+      "date": "2026-11-02",
+      "commit": "e72b79e",
+      "smells": 8,
+      "duplicates": 25,
+      "note": "还债 2 条：可达闭包 BFS 在 health-core 与 import-graph 各有一份逐字相同 12 行，收进 lib/reach.mjs；重复块 27→25。结构异味 8 条不变——本轮 brain-core.mjs 曾涨到 464 行成为第 9 条，当场拆出 lib/brain-regions.mjs 还掉，没有进账。"
     }
   ]
 }

@@ -185,9 +185,9 @@
 ### 债务偿还（棘轮）
 
 - fix(tool): 可达闭包 BFS 收成一份 `lib/reach.mjs`〔开发期〕
-  - `health-core.mjs` 与 `import-graph.mjs` 各有一份逐字相同 12 行的 `closure` / `reachFrom`。
-    两份实现必然分叉——本仓栽过一次（`stripLiterals` 各写一份，其中一份漏了正则字面量，
-    把 398 行的函数抹成 0）。
+  - `health-core.mjs` 与 `import-graph.mjs` 各有一份逐字相同 12 行的
+    `closure` / `reachFrom`。两份实现必然分叉——本仓栽过一次（`stripLiterals` 各写一份，
+    其中一份漏了正则字面量，把 398 行的函数抹成 0）。
   - 重复块 27 → **25**（棘轮要求每版至少还 1 条，本版还 2 条）。结构异味 8 条不变。
   - 顺带：`brain-core.mjs` 拆出 `lib/brain-regions.mjs`（分区与筛选），
     从 464 行回到 319 行——它本来是第 9 条结构异味，是这次改动自己涨出来的，自己还掉。
