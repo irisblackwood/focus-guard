@@ -106,53 +106,16 @@ const DATA = /*__FG_BRAIN_DATA__*/null;
 const hash = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h >>> 0; };
 const rng32 = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
-/* ── 自有皮层网格 ───────────────────────────────────────────────
-   不是解剖模型，是几个解析曲面 + 褶皱。理由：memory-brain 的 cortex/*.bin
-   是 CC BY-SA 3.0，不能打包；自己算出来的东西没有许可证问题。
+/* ── 脑的形状由节点自己堆出来 ────────────────────────────────────
+   上一版是「一个实体脑 + 上面贴几个点」。用户一句点破：
+   脑应该**由记忆节点构成**，不该先有个实体脑。所以这里没有任何表面网格，
+   只有节点：
+     · 每个实体取一个落点，落在自己所属分区的**体积**里（偏外，轮廓才清楚）
+     · 每个实体再按提及次数撒一小团尘埃，密度就是重要性
+   形状是这些点堆出来的，不是画出来的。
+   ——这也更接近它该有的意思：脑不是容器，脑是里面那些东西。 */
 
-   比例按真实人脑取：前后长 167mm / 左右宽 140mm / 上下高 93mm
-   → 大脑 x:y:z = 0.84 : 0.56 : 1.00。**宽度永远大于高度**，这是硬约束。
-
-   上一版为了"凑"侧面剪影的高度，把 y 拉到 0.96（x 只有 0.78），
-   于是脑子比宽还高——竖着的鸡蛋。错在**把高度算在大脑头上**：
-   真实侧面轮廓之所以接近 1.3:1，是因为脑干垂在大脑下面，不是大脑本身高。
-   剪影该由"大脑 + 下垂的脑干"共同给出，不能拿大脑去补。 */
-const NC = 62000, NB = 9000, NS = 4500, NPTS = NC + NB + NS;
-
-function fib(i, n) {
-  const y = 1 - (i / (n - 1)) * 2;
-  const r = Math.sqrt(Math.max(0, 1 - y * y));
-  const th = i * 2.399963229728653;
-  return [Math.cos(th) * r, y, Math.sin(th) * r];
-}
-
-const smooth01 = (a, b, x) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
-
-/* 半轴。前后长 : 左右宽 : 上下高 = 1.00 : 0.84 : 0.56（真实人脑 167:140:93）。
-   三个半轴支持 URL 覆盖（?ax=&ay=&az=），供视觉门控做参数搜索。
-   注意：门控只能验"剪影吻合"，验不了"这是不是脑子"——上一轮就是照着
-   一张 AI 生成的参考图把 y 拉到 0.96，IoU 涨了，东西更丑了。
-   参考图本身也要被怀疑。 */
-const Q = new URLSearchParams(location.search);
-const AX = +(Q.get("ax") || 0.84), AY = +(Q.get("ay") || 0.56), AZ = +(Q.get("az") || 1.0);
-const AXIS2 = [AX * AX, AY * AY, AZ * AZ];
-
-/* 光从上前右来。lambert 只跟法线有关、跟视角无关，所以**在 CPU 上烘进顶点色**：
-   每帧省掉 5 万个顶点上的 dot + normalize。真正需要每帧算的只剩深度测试本身。
-   "让显卡硬算"的反面不是少画点，是**把跟视角无关的东西提前算完**。 */
-const LD = (() => { const v = [0.42, 0.76, 0.50], l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; })();
-function lamAt(nx, ny, nz) {
-  const l = Math.hypot(nx, ny, nz) || 1;
-  return Math.max(0, (nx * LD[0] + ny * LD[1] + nz * LD[2]) / l);
-}
-
-/* 三维值噪声。
-   之前用"四组正弦叠加"当沟回，问题是**正弦有主方向**：叠加几条就出几套平行长脊，
-   整个脑子像一条切了花刀的面包。真实沟回是各向同性的迷宫，没有主方向。
-   值噪声在立方格点上取随机值再平滑插值，天生各向同性，叠三个倍频就有细节层次。 */
+/* 三维值噪声：给表面一点有机的起伏。没有它，落点会显出规则的椭球感。 */
 const PERM = (() => {
   const r = rng32(0x5BF03635), a = new Uint8Array(512);
   for (let i = 0; i < 256; i++) a[i] = i;
@@ -175,153 +138,99 @@ function vnoise(x, y, z) {
   return y0 + (y1 - y0) * w;
 }
 
-function buildMesh() {
-  const pos = new Float32Array(NPTS * 3);
-  const col = new Float32Array(NPTS * 3);
-  const siz = new Float32Array(NPTS);
-  /* 每个点自带一个**朝外法线**。实体要贴到皮层表面外侧才不会被深度测试埋掉，
-     靠 normalize(坐标) 反推是错的（脑干离原点很远，会被推成竖直方向）。 */
-  const nrm = new Float32Array(NPTS * 3);
-  const rnd = rng32(0x9E3779B9);
-  const TAU = Math.PI * 2;
-  let p = 0;
+const smooth01 = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
 
-  // 大脑：椭球 + 纵裂 + 脑回褶皱
-  for (let i = 0; i < NC; i++) {
-    let [x, y, z] = fib(i, NC);
-    /* 抖动只往**切向**加：加完再归一化，径向那部分被吃掉。
-       上一版是三轴纯随机抖动，径向分量留在里面，fib 的螺旋被椭球缩放后
-       显成一圈圈同心环——俯视像洋葱，侧看像水波纹。 */
-    x += (rnd() - 0.5) * 0.034; y += (rnd() - 0.5) * 0.034; z += (rnd() - 0.5) * 0.034;
-    const il = 1 / (Math.hypot(x, y, z) || 1);
-    x *= il; y *= il; z *= il;
+/* 半轴。前后长 : 左右宽 : 上下高 = 1.00 : 0.84 : 0.56（真实人脑 167:140:93）。
+   **宽度永远大于高度**——上一版为了凑侧面剪影把 y 拉到 0.96，脑子比宽还高，
+   就是「竖着的鸡蛋」。高度该由脑干垂在下面提供。
+   支持 ?ax=&ay=&az= 覆盖，供门控做参数搜索。 */
+const Q = new URLSearchParams(location.search);
+const AX = +(Q.get("ax") || 0.84), AY = +(Q.get("ay") || 0.56), AZ = +(Q.get("az") || 1.0);
 
-    /* 沟回：值噪声给的是**块**，而脑沟是**窄线**。
-       直接拿噪声当高度，明暗出来是一块块黑斑（像石头上的苔痕）；
-       真实沟回是"宽的圆顶 + 窄的深沟"——沟只占表面很小一条。
-       做法：不取噪声值本身，取它**等值线**附近的一个窄带（n≈0.5 的等高线），
-       那是一条条细曲线，正好当沟底。 */
-    const n1 = vnoise(x * 6.0, y * 6.0, z * 6.0);
-    const n2 = vnoise(x * 12.0 + 3.1, y * 12.0 + 1.7, z * 12.0 + 5.3);
+/* ── 三个分区的「表面」：只用来决定落点范围，不画出来 ───────────── */
+function cortexAt(x, y, z, out) {
+  const n1 = vnoise(x * 4.2, y * 4.2, z * 4.2);
+  const r = 1 + 0.022 * (n1 - 0.5);
+  let X = x * r * AX, Y = y * r * AY, Z = z * r * AZ;
 
-    /* 几何只做轻微起伏：幅度必须小。大了会把点云撑出缝，露出背景，
-       就成了"黑洞"——那是几何位移的锅，不是明暗的锅。 */
-    let w = 0.020 * (n1 - 0.5) + 0.008 * (n2 - 0.5);
+  /* 顶点略平、枕侧略高：真脑的顶不是圆弧，前后也不对称。 */
+  Y *= 1 - 0.10 * smooth01(0.15, 1.0, y) * (1 - Math.abs(z) * 0.55);
+  Y += 0.05 * (1 - smooth01(-1.0, 0.45, z));
 
-    /* 外侧裂（Sylvian fissure）：侧面最好认的一条沟，从前下走向后上，
-       把颞叶和额顶叶分开。没有它，侧脸就是个椭圆。 */
-    const zs = smooth01(-0.30, 0.10, z) * smooth01(1.00, 0.40, z);
-    const ys = -0.36 + 0.26 * (z + 0.30);
-    const syl = zs * Math.exp(-Math.pow((y - ys) / 0.055, 2));
-    w -= 0.020 * syl;
+  /* 颞叶：前下方垂下来的一块。侧脸最重要的形状线索——
+     真实脑的**底缘不是椭圆弧**：额叶底 → 颞极下垂 → 颞叶底面 → 小脑。 */
+  const tp = Math.exp(-Math.pow((Z - 0.14) / 0.46, 2)) * Math.exp(-Math.pow((Y + 0.30) / 0.28, 2));
+  Y -= 0.145 * tp;
+  X *= 1 + 0.085 * tp;
 
-    const r = 1 + w;
-    x *= r * AX; y *= r * AY; z *= r * AZ;
+  /* 纵裂：窄、浅、不到底。底面由胼胝体连着，沟到不了底。
+     旧版把 |x|<0.15 的点整体外推 0.125，等于把两个半球掰开——东非大裂谷。 */
+  const up = smooth01(-0.10, 0.30, y);
+  X += Math.sign(X || 1) * 0.030 * Math.exp(-Math.pow(X / 0.042, 2)) * up;
 
-    /* 顶点略平、两极略收：真脑的顶不是圆弧，额极和枕极都比中间窄。
-       再给一点前后不对称：枕侧（z<0）略高、额侧略低。完全对称的椭圆
-       一眼就是"画的"，人脑侧脸永远是歪的。 */
-    y *= 1 - 0.115 * smooth01(0.10, 1.0, y) * (1 - Math.abs(z) * 0.55);
-    y += 0.050 * (1 - smooth01(-1.0, 0.45, z));
-
-    /* 颞叶：前下方垂下来的一块。
-       这是侧脸最重要的形状线索——真实脑的**底缘不是椭圆弧**：
-       额叶底 → 颞极下垂 → 颞叶底面 → 枕前切迹上收 → 小脑。
-       少了这一块，再好的沟回也只是一颗有花纹的蛋。 */
-    const tp = Math.exp(-Math.pow((z - 0.16) / 0.44, 2)) * Math.exp(-Math.pow((y + 0.30) / 0.26, 2));
-    y -= 0.155 * tp;
-    x *= 1 + 0.085 * tp;
-
-    // 枕极略平、颞叶外鼓（前后上下不对称才是脑子）
-    z += 0.040 * smooth01(0.2, 1.0, z) * (1 - Math.abs(y));
-    const tl = Math.exp(-Math.pow((y + 0.22) / 0.24, 2)) * Math.exp(-Math.pow((z - 0.06) / 0.52, 2));
-    x *= 1 + 0.060 * tl;
-
-    /* 纵裂：**窄、浅、不到底**。
-       旧版是把 |x|<0.15 的点整体外推 0.125，等于把两个半球掰开——
-       那是东非大裂谷，不是纵裂。真实纵裂宽约 3mm（相对脑宽 0.02），
-       深约半球高的 1/3，底面由胼胝体连着，沟到不了底。 */
-    const up = smooth01(-0.14, 0.28, y);          // 越往上越深，下半部合拢
-    x += Math.sign(x || 1) * 0.026 * Math.exp(-Math.pow(x / 0.036, 2)) * up;
-
-    /* 底面**不裁**。
-       上一版为了"颅底是平的"按截面半径裁切，结果极点附近的 rr→0，
-       `cut/rr` 直接顶到上限 2.2——底部被撑出一圈 2.2 倍半径的裙边，
-       侧看是一张飞碟，把小脑和脑干全盖住了。
-       真实颅底不是平盘：是颞叶下缘 + 小脑 + 脑干凑出来的。让它们自己凑。 */
-
-    /* 明暗一次烘进去：lambert（光）+ 沟回。
-       沟 = 噪声等值线附近的窄带，宽度用高斯控制（0.05 是带宽），
-       两个倍频各一层，粗沟 + 细沟。外侧裂再单独压一道更深的。
-       这样"沟"是一条条线，不是一块块斑——线才是沟回，斑只是脏。 */
-    const sul = 0.70 * Math.exp(-Math.pow((n1 - 0.5) / 0.050, 2))
-              + 0.30 * Math.exp(-Math.pow((n2 - 0.5) / 0.045, 2))
-              + 0.55 * syl;
-    const cav = 1 - Math.min(0.90, sul);
-    const nx = x / AXIS2[0], ny = y / AXIS2[1], nz = z / AXIS2[2];
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    const k = (0.15 + 1.00 * lamAt(nx, ny, nz)) * cav * (0.86 + 0.20 * rnd());
-    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    nrm[p * 3] = nx / nl; nrm[p * 3 + 1] = ny / nl; nrm[p * 3 + 2] = nz / nl;
-    col[p * 3] = 0.13 * k; col[p * 3 + 1] = 0.52 * k; col[p * 3 + 2] = 0.88 * k;
-    siz[p] = 0.0245 + 0.005 * rnd();
-    p++;
-  }
-
-  /* ── 小脑：扁、宽、塞在枕叶下方，表面是横向叶片 ──────────────
-     旧版是个孤立椭球悬在脑干后面、亮橙色——那不是小脑，那是长在脑子上的肿瘤。
-     真实小脑：左右两半球 + 中间蚓部，宽约为大脑的 0.7，高只有 0.3，
-     上缘**嵌进**枕叶下方（小脑幕之上），表面是一层层横纹（folia）。 */
-  const CB = { cx: 0, cy: -0.395, cz: -0.640, ax: 0.225, ay: 0.140, az: 0.165 };
-  const CB2 = [CB.ax * CB.ax, CB.ay * CB.ay, CB.az * CB.az];
-  for (let i = 0; i < NB; i++) {
-    let [bx, by, bz] = fib(i, NB);
-    bx += (rnd() - 0.5) * 0.10; by += (rnd() - 0.5) * 0.10; bz += (rnd() - 0.5) * 0.10;
-    const il = 1 / (Math.hypot(bx, by, bz) || 1);
-    bx *= il; by *= il; bz *= il;
-    // folia：沿 z 的密集横纹，这是小脑最好认的特征
-    const folia = 0.020 * Math.sin(bz * 24 + 0.6) + 0.009 * Math.sin(bz * 41 - 1.2);
-    // 蚓部：中线略凹，把两个小脑半球分开
-    const vermis = 1 - 0.12 * Math.exp(-Math.pow(bx / 0.30, 2));
-    const w = 1 + folia;
-    const x = CB.cx + bx * CB.ax * w * vermis;
-    const y = CB.cy + by * CB.ay * w;
-    const z = CB.cz + bz * CB.az * w;
-    const nx = (x - CB.cx) / CB2[0], ny = (y - CB.cy) / CB2[1], nz = (z - CB.cz) / CB2[2];
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    const k = (0.22 + 0.90 * lamAt(nx, ny, nz)) * (0.80 + 0.20 * Math.tanh(folia * 70)) * (0.80 + 0.30 * rnd());
-    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    nrm[p * 3] = nx / nl; nrm[p * 3 + 1] = ny / nl; nrm[p * 3 + 2] = nz / nl;
-    // 灰褐、压暗：它该融进整体，不该跳出来抢视线
-    col[p * 3] = 0.58 * k; col[p * 3 + 1] = 0.44 * k; col[p * 3 + 2] = 0.38 * k;
-    siz[p] = 0.0080 + 0.0026 * rnd();
-    p++;
-  }
-
-  /* ── 脑干：中脑 → 脑桥（膨大）→ 延髓，从小脑**前方**垂下 ──────
-     旧版是一根等径细管、直直吊在正中——那是输液管。
-     真实脑干在小脑前方（z 更靠前），脑桥处明显向前膨出，延髓渐细。
-     它同时是**整个侧面轮廓的高度来源**：大脑只到 -0.56，剩下的靠它。 */
-  for (let i = 0; i < NS; i++) {
-    const t = rnd();                       // 0=中脑（上） → 1=延髓（下）
-    const y = -0.44 - t * 0.30;
-    const bulge = Math.exp(-Math.pow((t - 0.32) / 0.18, 2)); // 脑桥
-    const taper = 1 - 0.30 * smooth01(0.55, 1.0, t);
-    const rad = (0.075 + 0.045 * bulge) * taper;
-    const zc = -0.215 + t * 0.075;         // 向下略前倾
-    const a = rnd() * TAU;
-    const dx = Math.cos(a) * 1.18, dz = Math.sin(a) * 0.80;  // 横断面左右宽、前后扁
-    const x = dx * rad, z = zc + dz * rad;
-    const nl = Math.hypot(dx, 0, dz) || 1;
-    const k = (0.22 + 0.86 * lamAt(dx, 0, dz)) * (0.80 + 0.30 * rnd());
-    pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    nrm[p * 3] = dx / nl; nrm[p * 3 + 1] = 0; nrm[p * 3 + 2] = dz / nl;
-    col[p * 3] = 0.50 * k; col[p * 3 + 1] = 0.38 * k; col[p * 3 + 2] = 0.68 * k;
-    siz[p] = 0.0078 + 0.0026 * rnd();
-    p++;
-  }
-  return { pos, col, siz, nrm, n: NPTS };
+  out[0] = X; out[1] = Y; out[2] = Z;
 }
+
+const CB = { cx: 0, cy: -0.400, cz: -0.640, ax: 0.225, ay: 0.140, az: 0.165 };
+function cerebellumAt(bx, by, bz, out) {
+  const folia = 0.022 * Math.sin(bz * 26 + 0.6) + 0.010 * Math.sin(bz * 43 - 1.2);
+  const vermis = 1 - 0.10 * Math.exp(-Math.pow(bx / 0.30, 2));
+  const r = 1 + folia;
+  out[0] = CB.cx + bx * CB.ax * r * vermis;
+  out[1] = CB.cy + by * CB.ay * r;
+  out[2] = CB.cz + bz * CB.az * r;
+}
+
+/* 脑干：中脑 → 脑桥（膨大）→ 延髓，从小脑前方垂下。
+   它同时是侧面轮廓的高度来源：大脑只到 -0.56，剩下的靠它。 */
+function stemAt(t, a, out) {
+  const y = -0.42 - t * 0.34;
+  const bulge = Math.exp(-Math.pow((t - 0.32) / 0.18, 2));
+  const taper = 1 - 0.30 * smooth01(0.55, 1.0, t);
+  const rad = (0.070 + 0.045 * bulge) * taper;
+  const zc = -0.215 + t * 0.075;
+  out[0] = Math.cos(a) * rad * 1.15;
+  out[1] = y;
+  out[2] = zc + Math.sin(a) * rad * 0.80;
+}
+
+/* ── 落点池 ──────────────────────────────────────────────────────
+   每个分区先撒一批表面点，实体按哈希在里面取一个——
+   所以「脑干上的东西」永远落在脑干上，位置也不会每次刷新乱跳。
+   池里同时记住该分区的**中心**：体收缩要朝它收。 */
+const POOL = (() => {
+  const rnd = rng32(0x51ED270B);
+  const d = [0, 0, 0], o = [0, 0, 0];
+  const dir = () => {
+    const u = rnd() * 2 - 1, th = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
+    d[0] = Math.cos(th) * s; d[1] = u; d[2] = Math.sin(th) * s;
+  };
+  const P = {
+    left: { pts: [], c: [0, 0, 0] },
+    right: { pts: [], c: [0, 0, 0] },
+    cerebellum: { pts: [], c: [CB.cx, CB.cy, CB.cz] },
+    stem: { pts: [], c: [0, -0.59, -0.18] },
+  };
+  const N = 40000;
+  for (let i = 0; i < N; i++) {
+    dir();
+    cortexAt(d[0], d[1], d[2], o);
+    (o[0] < 0 ? P.left : P.right).pts.push([o[0], o[1], o[2]]);
+  }
+  for (let i = 0; i < 9000; i++) {
+    dir();
+    cerebellumAt(d[0], d[1], d[2], o);
+    P.cerebellum.pts.push([o[0], o[1], o[2]]);
+  }
+  for (let i = 0; i < 4000; i++) {
+    stemAt(rnd(), rnd() * Math.PI * 2, o);
+    P.stem.pts.push([o[0], o[1], o[2]]);
+  }
+  return P;
+})();
 
 /* ── 实体落点 ───────────────────────────────────────────────── */
 const TYPE_COLOR = {
@@ -336,62 +245,125 @@ const TYPE_ORDER = ["file", "rule", "action", "trigger", "tool"];
 const REGION_LABEL = { stem: "脑干", cerebellum: "小脑", left: "大脑·左", right: "大脑·右" };
 const REGION_NOTE = { stem: "硬约束 ∞", cerebellum: "程序 180d", left: "判据 60d", right: "叙事 30d" };
 
-const mesh = buildMesh();
-
-/* 分区顶点池：解剖位置就是语义。
-   大脑两半球按 x 正负分左右，小脑与脑干各取自己的那一段。
-   实体的落点在**自己那块的池子里**按哈希取——所以"脑干上的东西"永远长在脑干上。 */
-const POOL = { left: [], right: [], cerebellum: [], stem: [] };
-for (let i = 0; i < NPTS; i++) {
-  if (i < NC) (mesh.pos[i * 3] < 0 ? POOL.left : POOL.right).push(i);
-  else if (i < NC + NB) POOL.cerebellum.push(i);
-  else POOL.stem.push(i);
-}
-
-const nodes = DATA.nodes.map((n) => {
-  const pool = POOL[n.r] || POOL.right;
-  const vi = pool[hash(n.id) % pool.length];
-  const j = hash(n.id + "#") / 4294967296;
-  const a = hash(n.id + "@") / 4294967296 * Math.PI * 2;
-  /* 沿**表面法线往外**顶一点，不要随机方向。
-     随机方向有一半落到皮层里面，深度测试一开就全被埋掉；
-     贴着表面又和皮层 z-fighting。往外 0.02 刚好浮在表面上方。 */
-  const r = 0.020 + 0.022 * j;
-  const nx = mesh.nrm[vi * 3], ny = mesh.nrm[vi * 3 + 1], nz = mesh.nrm[vi * 3 + 2];
-  return {
-    ...n,
-    x: mesh.pos[vi * 3] + nx * r + Math.cos(a) * 0.012,
-    y: mesh.pos[vi * 3 + 1] + ny * r + (j - 0.5) * 0.016,
-    z: mesh.pos[vi * 3 + 2] + nz * r + Math.sin(a) * 0.012,
-    color: TYPE_COLOR[n.type] || [0.8, 0.8, 0.8],
-  };
-});
-
 /* 大小与亮度 = 遗忘曲线。
-   强度跨四个数量级（3700 : 1.4），线性缩放会让大多数点直接看不见，所以走对数。
-   另外加一条**褪色**判据：距上次出现超过半衰期的，向灰收敛——那才是"忘了"的样子，
-   而强度只说明"记得多深"。两件事分开，才不会把"很久没提"误读成"从来没重要过"。 */
-const maxS = Math.max(1, ...nodes.map((n) => n.s || 0));
-const LOG_MAX = Math.log1p(maxS);
+   强度跨四个数量级（3834 : 1），线性缩放会让大多数点直接看不见，所以走对数。
+   另外加一条**褪色**判据：距上次出现超过半衰期的，向灰收敛——那才是「忘了」的样子，
+   而强度只说明「记得多深」。两件事分开，才不会把「很久没提」误读成「从来没重要过」。 */
+/* 强度**分区内归一**，不是全局归一。
+   全局归一的话，小脑和脑干因为提及次数高一个数量级（9783 / 8805 次），
+   它们的最强节点把 k 顶到 1，大脑最强的只有 0.5——整块大脑被压成一层暗雾。
+   但"跨区比强度"本来就没意义：小脑里最强的工具调用和左脑里最强的判据
+   不是同一个量纲上的东西。各自区内比，才看得出"这一块里谁最重"。 */
+const REG_MAX = {};
+for (const n of DATA.nodes) REG_MAX[n.r] = Math.max(REG_MAX[n.r] || 1, n.s || 0);
+const REG_LOG = {};
+for (const r in REG_MAX) REG_LOG[r] = Math.log1p(REG_MAX[r]);
 const GEN = Date.parse(DATA.meta.generatedAt) || Date.now();
 const GRAY = [0.30, 0.33, 0.38];
-for (const n of nodes) {
-  const k = Math.log1p(n.s || 0) / LOG_MAX;
+
+const nodes = DATA.nodes.map((n) => {
+  const P = POOL[n.r] || POOL.right;
+  const h = hash(n.id);
+  const p = P.pts[h % P.pts.length];
+  /* 落点在体积里，不贴死在表面：**偏外**（0.34..1.0）——
+     太靠外像一层皮，太靠里就没有轮廓。偏外既有形又有厚度。 */
+  const u = ((h >>> 8) >>> 0) / 16777216;
+  const k = 0.58 + 0.42 * Math.sqrt(u);
+  const st = Math.log1p(n.s || 0) / (REG_LOG[n.r] || 1);
+  const node = {
+    ...n,
+    x: P.c[0] + (p[0] - P.c[0]) * k,
+    y: P.c[1] + (p[1] - P.c[1]) * k,
+    z: P.c[2] + (p[2] - P.c[2]) * k,
+    color: TYPE_COLOR[n.type] || [0.8, 0.8, 0.8],
+    k: st,
+  };
   /* 同一套大小放到不同器官上尺度不一样：脑干半径只有大脑的 1/8，
-     0.039 的球贴上去就是一颗亮瘤子。按区域缩。
-     脑干 41 个实体挤在那么细的一根管上，不缩就是一团加法混合的白光。 */
+     0.03 的球贴上去就是一颗亮瘤子。按区域缩。 */
   const shrink = n.r === "stem" ? 0.42 : n.r === "cerebellum" ? 0.66 : 1;
-  n.size = (0.005 + 0.034 * Math.pow(k, 0.8)) * shrink;
-  n.fade = 0.22 + 0.78 * Math.pow(k, 0.5);
+  node.size = (0.006 + 0.030 * Math.pow(st, 0.8)) * shrink;
+  node.fade = 0.26 + 0.74 * Math.pow(st, 0.5);
+
   const hl = DATA.meta.halfLives ? DATA.meta.halfLives[n.r] : null;
   const age = (GEN - Date.parse(n.l || "")) / 86400e3;
   const stale = hl ? Math.min(1, Math.max(0, age / hl)) : 0;
   // 褪色封顶 0.6：颜色本身也是信息（哪类是文件、哪类是条号），褪成纯灰等于把色标废掉。
-  // 用 stale² 而不是 stale：只有"超过半衰期很久"的才明显发灰，"上周还提过"的只轻微降饱和。
   const w = Math.min(0.6, stale * stale * 0.7 + ((n.s || 0) < 0.4 ? 0.25 : 0));
-  n.color = n.color.map((c, i) => c + (GRAY[i] - c) * w);
-  n.alpha = 1;
-}
+  node.color = node.color.map((c, i) => c + (GRAY[i] - c) * w);
+  return node;
+});
+
+/* ── 尘埃：每个实体按提及次数撒一小团 ──────────────────────────
+   这是「脑由节点构成」的实质：整团点云的总形状就是脑。
+   一个实体撒多少点，按 log(提及次数) 走——线性会让 3834 次的那个
+   一个人撒出一万点，把整个脑糊成一个亮团。 */
+/* ── 场的点：脑的形状由点撑出来，亮度由附近的记忆给 ──────────────
+   直接"每个实体撒一团"不行：258 个实体摊在一个脑那么大的面上，
+   团与团之间全是空档，看起来是一堆葡萄，不是脑。
+   改成反过来：先在脑的表面上撒一批点（这是"可能长东西的地方"），
+   每个点再算它离最近的实体有多近、那个实体多重——
+   **近就亮，远就几乎不亮**。于是轮廓由点撑住，内容由记忆点亮。
+   每个点仍然是一个"位置"，只是它的明暗在说这里有没有东西。 */
+const FIELD = (() => {
+  const SIG = 0.090, SIG2 = 2 * SIG * SIG;
+  const BASE = [0.17, 0.31, 0.55];          // 没有记忆处的基础色（冷、暗）
+  const pos = [], col = [], siz = [], alp = [];
+  const rnd = rng32(0x2F9A31C7);
+  const near = new Int32Array(3), nw = new Float64Array(3);
+
+  function emit(px, py, pz, cx, cy, cz, shell) {
+    // 往里收一点，给一点厚度，不要一张皮
+    const k = shell * (0.80 + 0.20 * rnd());
+    const X = cx + (px - cx) * k, Y = cy + (py - cy) * k, Z = cz + (pz - cz) * k;
+
+    let w1 = 0, w2 = 0, w3 = 0, i1 = -1, i2 = -1, i3 = -1;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const dx = X - n.x, dy = Y - n.y, dz = Z - n.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > 0.42) continue;                 // 远处的 exp 没有意义，先砍掉
+      const w = n.k * Math.exp(-d2 / SIG2);
+      if (w > w1) { w3 = w2; i3 = i2; w2 = w1; i2 = i1; w1 = w; i1 = i; }
+      else if (w > w2) { w3 = w2; i3 = i2; w2 = w; i2 = i; }
+      else if (w > w3) { w3 = w; i3 = i; }
+    }
+    const inf = Math.min(1, w1 + 0.55 * w2 + 0.3 * w3);
+    if (inf < 0.012) return;                    // 一点记忆都没有的地方不画——留白比糊满好
+
+    near[0] = i1; near[1] = i2; near[2] = i3;
+    nw[0] = w1; nw[1] = w2; nw[2] = w3;
+    let tr = 0, tg = 0, tb = 0, tw = 0;
+    for (let j = 0; j < 3; j++) {
+      if (near[j] < 0) continue;
+      const c = nodes[near[j]].color, w = nw[j];
+      tr += c[0] * w; tg += c[1] * w; tb += c[2] * w; tw += w;
+    }
+    const m = 0.55;                             // 把类型色往基础色里揉，免得满屏彩点
+    const r0 = (tr / tw) * m + BASE[0] * (1 - m);
+    const g0 = (tg / tw) * m + BASE[1] * (1 - m);
+    const b0 = (tb / tw) * m + BASE[2] * (1 - m);
+
+    pos.push(X, Y, Z);
+    col.push(r0, g0, b0);
+    siz.push(0.0060 + 0.0055 * rnd());
+    alp.push(0.024 + 0.46 * Math.pow(inf, 0.9));
+  }
+
+  const take = (pts, cx, cy, cz, want) => {
+    const step = Math.max(1, Math.floor(pts.length / want));
+    for (let i = 0; i < pts.length; i += step) {
+      const p = pts[i];
+      emit(p[0], p[1], p[2], cx, cy, cz, 1);
+    }
+  };
+  take(POOL.left.pts, 0, 0, 0, 11000);
+  take(POOL.right.pts, 0, 0, 0, 11000);
+  take(POOL.cerebellum.pts, CB.cx, CB.cy, CB.cz, 3200);
+  take(POOL.stem.pts, 0, -0.59, -0.18, 1600);
+
+  return { pos: new Float32Array(pos), col: new Float32Array(col), siz: new Float32Array(siz), alp: new Float32Array(alp), n: pos.length / 3 };
+})();
+
 
 /* ── WebGL ──────────────────────────────────────────────────── */
 const canvas = document.getElementById("c");
@@ -402,45 +374,19 @@ if (!gl) {
   e.textContent = "这个浏览器/面板没有 WebGL。用 Chrome / Edge 打开本地文件即可。";
 }
 
-/* 皮层：**不透明、写深度**。
-   上一版是加法混合 + 关深度测试，于是每一条视线都要穿过 100 层点，
-   84k 点叠出来的是一团雾——你看到的是"点云的统计"，不是"表面"。
-   深度一开，只画看得见的那一面，填充率掉一个数量级，形也立起来了。 */
-const SHELL_VS = `
-attribute vec3 aPos; attribute vec3 aCol; attribute float aSize;
-uniform mat4 uMVP; uniform vec3 uEye; uniform float uPix;
-varying vec3 vCol;
-void main(){
-  vec4 p = uMVP * vec4(aPos, 1.0);
-  gl_Position = p;
-  gl_PointSize = clamp(aSize * uPix / max(p.w, 0.05), 1.5, 40.0);
-  /* 漫反射在 CPU 上烘好了（跟视角无关）。这里只补一项**跟视角有关**的边缘光，
-     它负责把轮廓从背景里勾出来——没有它，深蓝的脑贴在近黑的背景上是一团糊。 */
-  vec3 n = normalize(aPos);
-  vec3 v = normalize(uEye - aPos);
-  float rim = pow(1.0 - max(0.0, dot(n, v)), 2.4);
-  vCol = aCol + vec3(0.11, 0.21, 0.34) * rim;
-}`;
-
-const SHELL_FS = `
-precision mediump float;
-varying vec3 vCol;
-void main(){
-  vec2 d = gl_PointCoord - vec2(0.5);
-  if (dot(d, d) > 0.25) discard;
-  gl_FragColor = vec4(vCol, 1.0);
-}`;
-
-/* 节点：加法混合（要发光），但不写深度——否则后面画的高光会被它挡住。 */
+/* 全部是点，全部加法混合，全部不测深度——**因为这就是一团星云，不是实体**。
+   没有深度，远近只能靠"距离雾"给：越远的点越小越暗。
+   这一项在顶点着色器里算，一次 dot 的代价。 */
 const NODE_VS = `
 attribute vec3 aPos; attribute vec3 aCol; attribute float aSize; attribute float aAlpha;
-uniform mat4 uMVP; uniform float uPix; uniform float uAlphaMul;
+uniform mat4 uMVP; uniform vec3 uEye; uniform float uPix; uniform float uAlphaMul;
 varying vec3 vCol; varying float vA;
 void main(){
   vec4 p = uMVP * vec4(aPos, 1.0);
   gl_Position = p;
-  gl_PointSize = clamp(aSize * uPix / max(p.w, 0.05), 2.0, 64.0);
-  vCol = aCol; vA = aAlpha * uAlphaMul;
+  gl_PointSize = clamp(aSize * uPix / max(p.w, 0.05), 1.0, 40.0);
+  float fog = clamp(1.0 - (length(uEye - aPos) - 2.1) * 0.34, 0.28, 1.0);
+  vCol = aCol; vA = aAlpha * uAlphaMul * fog;
 }`;
 
 const NODE_FS = `
@@ -453,14 +399,13 @@ void main(){
   gl_FragColor = vec4(vCol, (1.0 - smoothstep(0.02, 0.25, r2)) * vA);
 }`;
 
-/* 边：整体外扩 1.5%，免得和皮层共面 z-fighting。
-   深度测试一开，穿过脑内部的长弦自动被前面那层皮挡掉——
-   "蜘蛛网"是**没有深度**造成的，不是边太多。 */
+/* 边：只在选中实体时画。边是关系不是几何——把它画成穿过脑内部的弦，
+   等于凭空造出一根不存在的结构。 */
 const LINE_VS = `
 attribute vec3 aPos; attribute vec3 aCol; attribute float aAlpha;
 uniform mat4 uMVP;
 varying vec3 vCol; varying float vA;
-void main(){ gl_Position = uMVP * vec4(aPos * 1.015, 1.0); vCol = aCol; vA = aAlpha; }`;
+void main(){ gl_Position = uMVP * vec4(aPos, 1.0); vCol = aCol; vA = aAlpha; }`;
 
 const LINE_FS = `
 precision mediump float;
@@ -489,8 +434,7 @@ function program(vs, fs, attrs, unis) {
   return { p, a, u };
 }
 
-const pShell = program(SHELL_VS, SHELL_FS, ["aPos", "aCol", "aSize"], ["uMVP", "uEye", "uPix"]);
-const pNode = program(NODE_VS, NODE_FS, ["aPos", "aCol", "aSize", "aAlpha"], ["uMVP", "uPix", "uAlphaMul"]);
+const pNode = program(NODE_VS, NODE_FS, ["aPos", "aCol", "aSize", "aAlpha"], ["uMVP", "uEye", "uPix", "uAlphaMul"]);
 const pLine = program(LINE_VS, LINE_FS, ["aPos", "aCol", "aAlpha"], ["uMVP"]);
 
 function buffer(data, usage) {
@@ -508,7 +452,9 @@ function bindAttr(prog, name, buf, size) {
 }
 
 /* 皮层（法线也传上去——不给它用，但以后要加边缘光就不用改缓冲） */
-const bShellPos = buffer(mesh.pos), bShellCol = buffer(mesh.col), bShellSiz = buffer(mesh.siz);
+/* 尘埃（构成脑的那一团） */
+const bDustPos = buffer(FIELD.pos), bDustCol = buffer(FIELD.col);
+const bDustSiz = buffer(FIELD.siz), bDustAlp = buffer(FIELD.alp);
 
 /* 节点 */
 const N = nodes.length;
@@ -649,20 +595,12 @@ function applyEdgeFilter() {
 /* ── 渲染 ───────────────────────────────────────────────────── */
 function updPix() { pixBase = canvas.height / (2 * Math.tan(FOV / 2)); }
 
-function drawShell() {
-  gl.useProgram(pShell.p);
-  gl.uniformMatrix4fv(pShell.u.uMVP, false, mvp);
-  gl.uniform3fv(pShell.u.uEye, eye);
-  gl.uniform1f(pShell.u.uPix, pixBase);
-  bindAttr(pShell, "aPos", bShellPos, 3);
-  bindAttr(pShell, "aCol", bShellCol, 3);
-  bindAttr(pShell, "aSize", bShellSiz, 1);
-  gl.drawArrays(gl.POINTS, 0, NPTS);
-}
+
 
 function drawNodes(bufPos, bufCol, bufSiz, bufAlp, count, sizeMul, alphaMul) {
   gl.useProgram(pNode.p);
   gl.uniformMatrix4fv(pNode.u.uMVP, false, mvp);
+  gl.uniform3fv(pNode.u.uEye, eye);
   gl.uniform1f(pNode.u.uPix, pixBase * sizeMul);
   gl.uniform1f(pNode.u.uAlphaMul, alphaMul);
   bindAttr(pNode, "aPos", bufPos, 3);
@@ -703,19 +641,14 @@ function frame(t) {
   gl.clearColor(0.016, 0.023, 0.047, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  /* 皮层：不透明 + 写深度。只画看得见的那一面，后面的点被深度挡掉。 */
-  gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
-  gl.depthMask(true);
-  gl.disable(gl.BLEND);
-  drawShell();
-
-  /* 边与节点：测深度但不写深度——否则先画的点会把后面同位置的点挡住。 */
+  /* 没有皮层可画——脑就是这些点。先铺尘埃（构成形状），再点实体（标出"是什么"）。 */
+  gl.disable(gl.DEPTH_TEST);
   gl.depthMask(false);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 2.6, 0.07);   // 晕
-  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 1.0, 1.0);    // 核
+  drawNodes(bDustPos, bDustCol, bDustSiz, bDustAlp, FIELD.n, 1.0, 1.0);   // 场的点
+  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 2.6, 0.07);                   // 晕
+  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 1.0, 1.0);                    // 核
 
   /* 选中的边最后画、关深度测试：它是**覆盖层**。
      关系不是长在肉上的，不该被前面的皮层挡住——挡住就等于没画。 */
