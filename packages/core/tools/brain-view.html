@@ -29,6 +29,7 @@
   /* 右上 · 图例 */
   #legend{right:18px;top:18px;padding:11px 14px;min-width:186px}
   #legend .t{color:var(--dim);font-size:10.5px;letter-spacing:.12em;margin-bottom:8px}
+  #legend .sep{height:1px;background:var(--line);margin:8px 0 6px}
   .lg{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;user-select:none;
     opacity:1;transition:opacity .15s}
   .lg.off{opacity:.3}
@@ -47,6 +48,8 @@
   #card .m{color:var(--dim);font-size:11px;margin-bottom:10px}
   #card .ev{border-left:2px solid var(--line);padding:2px 0 2px 10px;margin:7px 0;
     color:#9fb0c6;font-size:11.5px;line-height:1.65}
+  #card .ev.inf{border-left-color:#3d4a63;color:#93a6c2;font-size:11px}
+  #card .dim{opacity:.5;font-size:10.5px}
   #card .close{position:absolute;right:12px;top:10px;color:var(--dim);cursor:pointer;font-size:15px;
     line-height:1;padding:3px}
   #card .close:hover{color:var(--ink)}
@@ -73,6 +76,8 @@
 <div id="legend" class="panel">
   <div class="t">实体类型（点此过滤）</div>
   <div id="lgs"></div>
+  <div class="sep"></div>
+  <div id="infRow"></div>
 </div>
 
 <div id="card" class="panel">
@@ -128,8 +133,13 @@ function buildMesh() {
     const w = 0.030 * Math.sin(6.0 * th + 1.3) * Math.cos(5.0 * Math.PI * y)
             + 0.018 * Math.sin(11.0 * th - 2.2) * Math.cos(9.0 * Math.PI * y + 0.7);
     const r = 1 + w;
-    x *= r * 0.80; y *= r * 0.90; z *= r * 1.02;
-    x += Math.sign(x || 1) * 0.052 * Math.pow(Math.max(0, 1 - Math.abs(x) / 0.30), 2);
+    // 人脑不是球：左右宽、上下扁、前后长
+    x *= r * 0.94; y *= r * 0.82; z *= r * 1.06;
+    // 颞叶：中下段向外鼓一点，否则侧面看是个鸡蛋
+    const tl = Math.exp(-Math.pow((y + 0.22) / 0.32, 2)) * Math.exp(-Math.pow((z - 0.08) / 0.6, 2));
+    x *= 1 + 0.09 * tl;
+    // 纵裂：以 x=0 为轴把两半球推开。高斯比二次衰减"深"，因为要的是**一条沟**不是一圈鼓
+    x += Math.sign(x || 1) * 0.125 * Math.exp(-Math.pow(x / 0.15, 2));
     const k = 0.45 + 0.55 * rnd() + (w > 0 ? 0.18 : 0);
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
     col[p * 3] = 0.16 * k; col[p * 3 + 1] = 0.62 * k; col[p * 3 + 2] = 1.00 * k;
@@ -304,7 +314,7 @@ function bindAttr(prog, name, buf, size) {
 
 /* 皮层 */
 const bShellPos = buffer(mesh.pos), bShellCol = buffer(mesh.col), bShellSiz = buffer(mesh.siz);
-const shellAlpha = new Float32Array(NPTS).fill(0.26);
+const shellAlpha = new Float32Array(NPTS).fill(0.33);
 const bShellA = buffer(shellAlpha);
 
 /* 节点 */
@@ -317,16 +327,23 @@ nodes.forEach((n, i) => {
 });
 const bNPos = buffer(nPos), bNCol = buffer(nCol), bNSiz = buffer(nSiz), bNAlp = buffer(nAlp, gl.DYNAMIC_DRAW);
 
-/* 边 */
+/* 边：事实（同行共现 / 同 seq）画成线，**推断（共同中间物）画成雾**。
+   两者必须一眼可分——不然你没法判断眼前这条线是"发生过"还是"我猜的"。
+   事实边亮度也跟着权重走，但封顶压得很低：枢纽节点（度数 201）否则会拉出满屏白线。 */
 const E = DATA.edges.length;
 const ePos = new Float32Array(E * 6), eCol = new Float32Array(E * 6), eAlp = new Float32Array(E * 2);
 const eBase = new Float32Array(E);
+const INF_COLOR = [0.58, 0.63, 0.76];
 DATA.edges.forEach((e, i) => {
   const a = nodes[e.s], b = nodes[e.t];
   ePos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
-  const c = [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
+  const c = e.k === "inf"
+    ? INF_COLOR
+    : [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
   eCol.set([...c, ...c], i * 6);
-  eBase[i] = Math.min(0.34, 0.035 + e.w * 0.022);
+  eBase[i] = e.k === "inf"
+    ? Math.min(0.085, 0.018 + e.v * 0.016)
+    : Math.min(0.135, 0.022 + Math.min(e.w, 6) * 0.019);
   eAlp[i * 2] = eBase[i]; eAlp[i * 2 + 1] = eBase[i];
 });
 const bEPos = buffer(ePos), bECol = buffer(eCol), bEAlp = buffer(eAlp, gl.DYNAMIC_DRAW);
@@ -370,7 +387,7 @@ function mul(out, a, b) {
 
 /* ── 相机 ───────────────────────────────────────────────────── */
 const FOV = Math.PI / 4.4;
-let yaw = 0.55, pitch = -0.12, dist = 3.15;
+let yaw = 0.78, pitch = -0.06, dist = 3.05;
 let autoRotate = true, dragging = false, lastT = 0;
 const proj = new Float32Array(16), view = new Float32Array(16), mvp = new Float32Array(16);
 const eye = [0, 0, 0];
@@ -396,7 +413,7 @@ function applyFilters() {
   applyEdgeFilter();
 }
 
-let selected = -1, neighbors = null;
+let selected = -1, neighbors = null, showInf = true;
 
 function applyEdgeFilter() {
   for (let i = 0; i < E; i++) {
@@ -404,6 +421,7 @@ function applyEdgeFilter() {
     let a = eBase[i];
     const aOff = offTypes.has(nodes[e.s].type), bOff = offTypes.has(nodes[e.t].type);
     if (aOff || bOff) a = 0;
+    else if (!showInf && e.k === "inf") a = 0;
     else if (selected >= 0) a = (e.s === selected || e.t === selected) ? Math.min(0.62, a * 2.4) : a * 0.12;
     eAlp[i * 2] = a; eAlp[i * 2 + 1] = a;
   }
@@ -445,7 +463,7 @@ function drawLines() {
 function frame(t) {  if (!dragging && autoRotate) yaw += 0.0016;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   eye[0] = dist * cp * Math.sin(yaw); eye[1] = dist * sp; eye[2] = dist * cp * Math.cos(yaw);
-  lookAt(view, eye, [0, 0, 0], [0, 1, 0]);
+  lookAt(view, eye, [0, -0.04, 0], [0, 1, 0]);
   perspective(proj, FOV, canvas.width / canvas.height, 0.1, 24);
   mul(mvp, proj, view);
 
@@ -539,6 +557,22 @@ for (const tp of TYPE_ORDER) {
   lgs.appendChild(el);
 }
 
+/* 推断边开关。单独一行，因为它是**另一个物种**：事实是记录下来的，推断是算出来的。 */
+const infRow = document.getElementById("infRow");
+const infCount = DATA.meta.inferred || 0;
+if (infCount) {
+  infRow.className = "lg";
+  infRow.title = "A 与 B 从未在同一行出现，但共享 ≥2 个冷门中间物（Adamic-Adar）";
+  infRow.innerHTML =
+    `<span class="dot" style="background:${rgb(INF_COLOR)};color:${rgb(INF_COLOR)};box-shadow:none"></span>` +
+    `<span class="n">推断关联</span><span class="v">${infCount}</span>`;
+  infRow.onclick = () => {
+    showInf = !showInf;
+    infRow.classList.toggle("off", !showInf);
+    applyEdgeFilter();
+  };
+}
+
 function rgb(c) { return `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`; }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
@@ -551,8 +585,20 @@ function showCard(i) {
   document.getElementById("cardName").textContent = n.name;
   document.getElementById("cardMeta").textContent =
     `出现 ${n.c} 次　强度 ${n.s}　${(n.f || "").slice(0, 16).replace("T", " ")} → ${(n.l || "").slice(0, 16).replace("T", " ")}`;
-  document.getElementById("cardEv").innerHTML = (n.x || [])
-    .map((s) => `<div class="ev">${esc(s)}</div>`).join("") || `<div class="ev" style="opacity:.5">无证据文本</div>`;
+  const evHtml = (n.ev || []).map((s) => `<div class="ev">${esc(s)}</div>`).join("") ||
+    `<div class="ev" style="opacity:.5">无证据文本</div>`;
+  const infs = DATA.edges
+    .filter((e) => e.k === "inf" && (e.s === i || e.t === i))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 6);
+  const infHtml = infs.length
+    ? `<div class="k" style="margin-top:11px">推断关联 · 从未同现，共享冷门中间物</div>` +
+      infs.map((e) => {
+        const o = nodes[e.s === i ? e.t : e.s];
+        return `<div class="ev inf">↔ ${esc(o.name)}　<span class="dim">${e.w} 个中间物 · 分 ${e.v}</span></div>`;
+      }).join("")
+    : "";
+  document.getElementById("cardEv").innerHTML = evHtml + infHtml;
   card.classList.add("show");
 }
 function hideCard() { card.classList.remove("show"); }

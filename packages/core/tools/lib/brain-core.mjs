@@ -252,7 +252,57 @@ export function saveIndex(path, idx, now) {
 }
 
 /* ── 出图 ───────────────────────────────────────────────────── */
-export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000) {
+/**
+ * 推断边：A 与 B 从没在同一行出现过，但**结构上显然有关系**。
+ *
+ * 判据用 Adamic-Adar：score(A,B) = Σ_{z∈N(A)∩N(B)} 1/ln(2+|N(z)|)。
+ * 为什么是它而不是"数共同邻居"：共同邻居越热门，说明力越弱——`reset-fired` 那种
+ * 几千次的枢纽跟谁都"共同"，数它等于把噪音当信号。AA 用 1/ln(度) 把这个衰减掉，
+ * 所以真正把 A、B 拉到一起的，是那些**冷门但两者都碰过**的中间物。
+ *
+ * 为什么不用 embedding：本仓零依赖，而且闸门的记忆必须**可复算、可解释**——
+ * 你问"为什么这两条连上了"，我要能回答"因为它们共有 3 个中间物，其中 2 个很冷门"，
+ * 而不是"因为向量余弦 0.83"。前者能复跑，后者不能。
+ *
+ * 门槛两条：共同邻居 ≥ 2（一个中间物不足以叫"关系"），score ≥ 0.5。
+ * 0.5 不是拍数：AA 里 2 个共同邻居、各自度数 ~50 时正好落在 0.5 附近——
+ * 也就是说"两个独立桥梁，且都不是超级枢纽"才算数。
+ */
+export function inferEdges(edges, maxInf) {
+  const adj = new Map();
+  for (const e of edges) {
+    if (e.k !== "co") continue;
+    if (!adj.has(e.s)) adj.set(e.s, new Set());
+    if (!adj.has(e.t)) adj.set(e.t, new Set());
+    adj.get(e.s).add(e.t);
+    adj.get(e.t).add(e.s);
+  }
+  const score = new Map();
+  for (const [z, set] of adj) {
+    const arr = [...set];
+    if (arr.length < 2) continue;
+    const w = 1 / Math.log(2 + arr.length);
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = Math.min(arr[i], arr[j]);
+        const b = Math.max(arr[i], arr[j]);
+        const k = `${a}:${b}`;
+        const cur = score.get(k) || { a, b, v: 0, n: 0 };
+        cur.v += w;
+        cur.n += 1;
+        score.set(k, cur);
+      }
+    }
+  }
+  const has = new Set(edges.map((e) => `${Math.min(e.s, e.t)}:${Math.max(e.s, e.t)}`));
+  return [...score.values()]
+    .filter((x) => !has.has(`${x.a}:${x.b}`) && x.n >= 2 && x.v >= 0.5)
+    .sort((p, q) => q.v - p.v)
+    .slice(0, maxInf)
+    .map((x) => ({ s: x.a, t: x.b, w: x.n, k: "inf", v: +x.v.toFixed(2) }));
+}
+
+export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000, maxInf = 800) {
   const rows = Object.entries(idx.entities).map(([id, n]) => {
     const hl = REGIONS[n.r].halfLife;
     return { id, ...n, sNow: decayTo(n.s, n.l, hl, now) };
@@ -262,7 +312,7 @@ export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000) {
   const idxOf = new Map();
   const nodes = kept.map((n, i) => {
     idxOf.set(n.id, i);
-    return { i, id: n.id, type: n.t, name: n.n, r: n.r, c: n.c, s: +n.sNow.toFixed(3), f: n.f, l: n.l, x: n.x };
+    return { i, id: n.id, type: n.t, name: n.n, r: n.r, c: n.c, s: +n.sNow.toFixed(3), f: n.f, l: n.l, ev: n.x };
   });
   const edges = [];
   for (const e of Object.values(idx.edges)) {
@@ -272,5 +322,13 @@ export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000) {
     edges.push({ s, t, w: e.w, k: e.k, v: +e.s2.toFixed(2) });
   }
   edges.sort((a, b) => b.v - a.v);
-  return { nodes, edges: edges.slice(0, maxEdges), total: rows.length, totalEdges: Object.keys(idx.edges).length };
+  const keptEdges = edges.slice(0, maxEdges);
+  const inferred = inferEdges(keptEdges, maxInf);
+  return {
+    nodes,
+    edges: keptEdges.concat(inferred),
+    total: rows.length,
+    totalEdges: Object.keys(idx.edges).length,
+    inferred: inferred.length,
+  };
 }

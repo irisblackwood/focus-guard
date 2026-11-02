@@ -12,7 +12,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  applyEvent, decayTo, emptyIndex, prune, readNewLines, regionOf,
+  applyEvent, decayTo, emptyIndex, inferEdges, prune, readNewLines, regionOf,
 } from "../tools/lib/brain-core.mjs";
 
 test("分区：条号与高危进脑干，工具与机械动作进小脑，代码进左脑，文档进右脑", () => {
@@ -55,12 +55,33 @@ test("增量幂等：同一份日志读第二遍，返回 0 行（不重复计�
   }
 });
 
-test("修剪：超过一年未动且强度见底的实体被遗忘，新的留下", () => {
-  const idx = emptyIndex();
+test("修剪：超过一年未动且强度见底的实体被遗忘，新的留下", () => {  const idx = emptyIndex();
   idx.entities["file:old.mjs"] = { t: "file", n: "old.mjs", r: "right", c: 1, f: "2024-01-01T00:00:00Z", l: "2024-01-01T00:00:00Z", s: 1, x: [] };
   idx.entities["file:new.mjs"] = { t: "file", n: "new.mjs", r: "right", c: 1, f: "2026-11-01T00:00:00Z", l: "2026-11-01T00:00:00Z", s: 1, x: [] };
   const dropped = prune(idx, Date.parse("2026-11-02T00:00:00Z"));
   assert.equal(dropped, 1);
   assert.ok(!idx.entities["file:old.mjs"], "两年前的一闪而过应该被忘掉");
   assert.ok(idx.entities["file:new.mjs"], "昨天的必须留下");
+});
+
+test("推断边：两个从未同现的实体，共享两个中间物就自动连上", () => {
+  const edges = [
+    { s: 0, t: 2, k: "co", w: 1, v: 1 },
+    { s: 0, t: 3, k: "co", w: 1, v: 1 },
+    { s: 1, t: 2, k: "co", w: 1, v: 1 },
+    { s: 1, t: 3, k: "co", w: 1, v: 1 },
+  ];
+  const inf = inferEdges(edges, 100);
+  const ab = inf.find((e) => e.s === 0 && e.t === 1);
+  assert.ok(ab, "0 与 1 从未同现，但共享中间物 2 和 3，应当被推断连上");
+  assert.equal(ab.k, "inf", "推断边必须打上 inf 标记，否则与事实边混为一谈");
+  assert.equal(ab.w, 2, "共同中间物应为 2 个");
+});
+
+test("推断边：只共享一个中间物不算关系", () => {
+  const edges = [
+    { s: 0, t: 2, k: "co", w: 1, v: 1 },
+    { s: 1, t: 2, k: "co", w: 1, v: 1 },
+  ];
+  assert.equal(inferEdges(edges, 100).length, 0, "一个中间物可能只是巧合，不能叫关系");
 });

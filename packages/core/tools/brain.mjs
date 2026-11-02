@@ -48,6 +48,7 @@ const DEFAULTS = {
   index: join(REPO, ".focus-guard", "brain-index.json"),
   maxNodes: 3000,
   maxEdges: 12000,
+  maxInf: 800,
 };
 
 function parseArgs(argv) {
@@ -62,6 +63,7 @@ function parseArgs(argv) {
     else if (a === "--index") o.index = resolve(argv[++i]);
     else if (a === "--max-nodes") o.maxNodes = Number(argv[++i]) || o.maxNodes;
     else if (a === "--max-edges") o.maxEdges = Number(argv[++i]) || o.maxEdges;
+    else if (a === "--max-inf") o.maxInf = Number(argv[++i]) || o.maxInf;
   }
   return o;
 }
@@ -112,7 +114,7 @@ function main() {
   const dropped = prune(idx, now);
   saveIndex(opts.index, idx, now);
 
-  const g = snapshot(idx, now, opts.maxNodes, opts.maxEdges);
+  const g = snapshot(idx, now, opts.maxNodes, opts.maxEdges, opts.maxInf);
   const regionCount = {};
   for (const n of g.nodes) regionCount[n.r] = (regionCount[n.r] || 0) + 1;
   const from = g.nodes.reduce((m, n) => (!m || (n.f && n.f < m) ? n.f : m), "");
@@ -126,6 +128,7 @@ function main() {
     sources,
     nodes: g.nodes.length,
     edges: g.edges.length,
+    inferred: g.inferred,
     total: g.total,
     totalEdges: g.totalEdges,
     truncated: g.nodes.length < g.total,
@@ -152,7 +155,7 @@ function main() {
   process.stdout.write(
     `脑已更新：${opts.out.replace(REPO, ".")}\n` +
       `  新增 ${added} 条（源 ${sources} 个）· 累计 ${idx.seen} 条事件 · 遗忘 ${dropped} 个\n` +
-      `  ${g.nodes.length} 实体 / ${g.edges.length} 边　${rl}\n` +
+      `  ${g.nodes.length} 实体 / ${g.edges.length} 边（推断 ${g.inferred}）　${rl}\n` +
       `  ${(from || "").slice(0, 10)} → ${(to || "").slice(0, 10)}　索引 ${(readFileSync(opts.index).length / 1024).toFixed(0)} KB\n`,
   );
 }
