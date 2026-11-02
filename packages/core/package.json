@@ -20,6 +20,7 @@
     "NOTICE"
   ],
   "scripts": {
+    "postinstall": "node tools/first-run-sweep.mjs",
     "test": "node tests/audit-isolation.mjs",
     "eval": "node tests/threat-eval.mjs hooks/guard.mjs",
     "bench": "node tests/token-bench.mjs hooks/guard.mjs",

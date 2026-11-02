@@ -38,9 +38,13 @@ import {
   REGIONS, applyEvent, applySeqLinks, classify, emptyIndex, entitiesOf, listSources, loadConfig,
   loadIndex, prune, readNewLines, reclassify, saveIndex, snapshot,
 } from "./lib/brain-core.mjs";
+import { syncDocs } from "./lib/brain-docs.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..", "..");
+/* 包根：仓库里是 `packages/core`，装到 node_modules 之后就是包自己。
+   文档源的路径在两个位置不同，`readDocs` 两个基都试。 */
+const PKG = resolve(HERE, "..");
 
 const DEFAULTS = {
   log: join(REPO, ".focus-guard", "AUDIT.log"),
@@ -223,10 +227,17 @@ function main() {
 
   const moved = reclassify(idx, cfg);
   const { added, sources } = readAll(o, idx, now, cfg);
+  // 文档源：日志记的是"我碰过什么"，文档记的是"我知道什么"。
+  // 只有前者的时候，脑认识 `docs/RULES.md` 被提到 85 次，却不知道那 85 次说了什么。
+  const docs = syncDocs(idx, REPO, o.docs, PKG);
   const dropped = prune(idx, now);
   saveIndex(o.index, idx, now);
 
   const g = snapshot(idx, now, o.maxNodes, o.maxEdges, o.maxInf);
+  // 每个点自证位置：分区是按什么判据定的。没有这一行，点开只看到"它在左脑"，
+  // 却不知道为什么——那正是"知识看起来莫名其妙"的来源。
+  // 记忆块的分区来自**它所在的文档**（法条→脑干、方法→小脑），不是词表打分，所以单独标。
+  for (const n of g.nodes) n.w = n.type === "memory" ? "source" : classify(n.type, n.name, cfg).why;
   const regionCount = {};
   for (const n of g.nodes) regionCount[n.r] = (regionCount[n.r] || 0) + 1;
   const from = g.nodes.reduce((m, n) => (!m || (n.f && n.f < m) ? n.f : m), "");
@@ -246,6 +257,10 @@ function main() {
     totalEdges: g.totalEdges,
     truncated: g.nodes.length < g.total,
     forgotten: dropped,
+    memories: docs.blocks,
+    // 实读数，不是配置数。界面要能说"这个脑是从几份文档长出来的"。
+    memorySources: docs.sources,
+    memoryMissing: docs.missing.length,
     from,
     to,
     regions: regionCount,
@@ -262,18 +277,37 @@ function main() {
   mkdirSync(dirname(o.out), { recursive: true });
   writeFileSync(o.out, tpl.replace("/*__FG_BRAIN_DATA__*/null", payload));
 
-  const rl = Object.entries(REGIONS)
-    .map(([k, v]) => `${v.label} ${regionCount[k] || 0}`)
-    .join(" · ");
   const cf = o.casefileWrite ? writeCaseFile(o.casefile, g, now, idx.seen) : 0;
+  report(o, { g, idx, added, sources, moved, dropped, docs, regionCount, from, to, cf });
+}
+
+/* 汇总输出单独成函数：它跟"跑一遍"本来就是两件事，混在 main() 里只会让流程读不清。
+   判据要的是"这一段能不能读懂"，不是"能不能压到 80 行"。 */
+function report(o, x) {
+  const rl = Object.entries(REGIONS)
+    .map(([k, v]) => `${v.label} ${x.regionCount[k] || 0}`)
+    .join(" · ");
   process.stdout.write(
     `脑已更新：${o.out.replace(REPO, ".")}\n` +
-      `  新增 ${added} 条（源 ${sources} 个）· 累计 ${idx.seen} 条事件 · 遗忘 ${dropped} 个 · 重分区 ${moved} 个\n` +
-      `  ${g.nodes.length} 实体 / ${g.edges.length} 边（推断 ${g.inferred}）　${rl}\n` +
-      `  知识簇：${g.clusters.map((c) => `${c.name}(${c.size})`).slice(0, 6).join(" · ") || "（无）"}\n` +
-      (o.casefileWrite ? `  卷宗【六】已写：${cf} 条相关条目 → ${o.casefile.replace(REPO, ".")}\n` : "") +
-      `  ${(from || "").slice(0, 10)} → ${(to || "").slice(0, 10)}　索引 ${(readFileSync(o.index).length / 1024).toFixed(0)} KB\n`,
+      `  新增 ${x.added} 条（源 ${x.sources} 个）· 累计 ${x.idx.seen} 条事件 · 遗忘 ${x.dropped} 个 · 重分区 ${x.moved} 个\n` +
+      `  记忆 ${x.docs.blocks} 块（实读 ${x.docs.sources} 份文档` +
+      (x.docs.missing.length ? `，缺 ${x.docs.missing.length} 份` : "") +
+      (x.docs.stale ? `，跳过作废 ${x.docs.stale} 条` : "") + `）\n` +
+      memLine(x.docs) +
+      `  ${x.g.nodes.length} 实体 / ${x.g.edges.length} 边（推断 ${x.g.inferred}）　${rl}\n` +
+      `  知识簇：${x.g.clusters.map((c) => `${c.name}(${c.size})`).slice(0, 6).join(" · ") || "（无）"}\n` +
+      (o.casefileWrite ? `  卷宗【六】已写：${x.cf} 条相关条目 → ${o.casefile.replace(REPO, ".")}\n` : "") +
+      // 空态下不报日期范围：那两头的日期来自**文档条目**的 mtime，跟"事件"没关系，
+      // 写着只是让人以为有 24 小时的数据。判据要用事件数，不能用 from 是否为空。
+      `  ${x.idx.seen ? `${x.from.slice(0, 10)} → ${x.to.slice(0, 10)}　` : "尚无审计事件　"}索引 ${(readFileSync(o.index).length / 1024).toFixed(0)} KB\n`,
   );
+}
+
+/* 关联要报**连上了多少**，不能只报"有连边"——孤岛多少同样是事实。
+   上一版只写「记忆 356 块」，于是"关联做好了"这句话成立了三周，图上一直是散点。 */
+function memLine(d) {
+  return `  记忆关联：痕迹 ${d.trace} · 互引 ${d.ref} · 同题 ${d.share}` +
+    (d.orphan ? `　落空 ${d.orphan} 处` : "") + "\n";
 }
 
 main();
