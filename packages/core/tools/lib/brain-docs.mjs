@@ -251,9 +251,7 @@ export function syncDocs(idx, repo, sources = DOC_SOURCES, pkg = "") {
     }
   }
 
-  // ── 第二趟：连边。
-  /* 记忆块只连"事实对象"（文件 / 条号 / 记忆块），**不连行动记录**（2026-11-02 人类批示）。
-     行动类实体是日志的产物，把它接进记忆会把"做过什么"混成"知道什么"。 */
+  // ── 第二趟：连边。记忆只锚定事实对象（文件/条号/记忆块），不连行动记录（2026-11-02 批示）
   const TRACE_DENY = new Set(["action", "trigger", "tool"]);
   let trace = 0, ref = 0, share = 0, orphan = 0;
   for (const b of blocks) {
@@ -264,8 +262,7 @@ export function syncDocs(idx, repo, sources = DOC_SOURCES, pkg = "") {
       // 自指：一块法条提到自己的条号，那是它的名字，不是关系。
       if (oid === mine) continue;
       const hit = idx.entities[oid];
-      if (hit && !TRACE_DENY.has(hit.t)) { linkEdge(idx, b.id, oid, "trace", t); trace++; continue; }
-      if (hit) continue; // 行动记录：记住了，但不连
+      if (hit) { if (!TRACE_DENY.has(hit.t)) { linkEdge(idx, b.id, oid, "trace", t); trace++; } continue; }
       const other = selfKey.get(oid);
       if (other && other !== b.id) { linkEdge(idx, b.id, other, "ref", t); ref++; continue; }
       orphan++;
