@@ -105,7 +105,7 @@ node packages/core/tools/collect-panel.mjs panel-runs.json
 node packages/core/tools/bench-ab.mjs --list
 ```
 
-### 3. 版本基线怎么取（重要取舍）
+## 3. 版本基线怎么取（重要取舍）
 
 **3.0.7 无法低成本隔离复跑**：FG 是以 `link:` 挂进 profile 的（`node_modules/focus-guard` 指向 `E:\DSH\focus-guard-main\packages\core`），
 `clean-a` 又共享 web 的 `node_modules` junction。想跑 3.0.7 得建 git worktree（`9399d5f`）并单独装一套依赖。

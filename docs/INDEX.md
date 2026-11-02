@@ -32,7 +32,7 @@
 | [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md) | 3.3→4.0 排期与完成态语义 | 权威 | 3.2.1 | 2026-10-28 |
 | [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 | 权威 | 3.2.1 | 2026-10-28 |
 | [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 | 权威 | 3.2.1 | 2026-10-27 |
-| [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 | 权威 | 3.2.1 | 2026-10-22 |
+| [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 | 权威 | 3.3.1 | 2026-11-02 |
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-29 |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 | 参考 | 4.0 前置 | 2026-10-19 |
 | [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 | 参考 | 4.5 前置 | 2026-10-30 |
