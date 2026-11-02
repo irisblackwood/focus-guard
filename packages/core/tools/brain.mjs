@@ -35,8 +35,8 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REGIONS, applyEvent, applySeqLinks, emptyIndex, entitiesOf, listSources, loadIndex,
-  prune, readNewLines, saveIndex, snapshot,
+  REGIONS, applyEvent, applySeqLinks, classify, emptyIndex, entitiesOf, listSources, loadConfig,
+  loadIndex, prune, readNewLines, reclassify, saveIndex, snapshot,
 } from "./lib/brain-core.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,21 +46,26 @@ const DEFAULTS = {
   log: join(REPO, ".focus-guard", "AUDIT.log"),
   out: join(REPO, ".focus-guard", "brain.html"),
   index: join(REPO, ".focus-guard", "brain-index.json"),
+  config: join(REPO, ".focus-guard", "brain-config.json"),
+  casefile: join(REPO, ".ai", "CASE_FILE.md"),
   maxNodes: 3000,
   maxEdges: 12000,
   maxInf: 800,
 };
 
 function parseArgs(argv) {
-  const o = { ...DEFAULTS, json: false, open: false, rebuild: false };
+  const o = { ...DEFAULTS, json: false, open: false, rebuild: false, unknown: false, casefileWrite: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") o.json = true;
     else if (a === "--open") o.open = true;
     else if (a === "--rebuild") o.rebuild = true;
+    else if (a === "--unknown") o.unknown = true;
+    else if (a === "--casefile") o.casefileWrite = true;
     else if (a === "--log") o.log = resolve(argv[++i]);
     else if (a === "--out") o.out = resolve(argv[++i]);
     else if (a === "--index") o.index = resolve(argv[++i]);
+    else if (a === "--config") o.config = resolve(argv[++i]);
     else if (a === "--max-nodes") o.maxNodes = Number(argv[++i]) || o.maxNodes;
     else if (a === "--max-edges") o.maxEdges = Number(argv[++i]) || o.maxEdges;
     else if (a === "--max-inf") o.maxInf = Number(argv[++i]) || o.maxInf;
@@ -69,7 +74,7 @@ function parseArgs(argv) {
 }
 
 /** 一批新行 → 索引。seq 链要跨行，所以按批聚合后再补边。 */
-function ingest(idx, lines, repo, now) {
+function ingest(idx, lines, repo, now, cfg) {
   const groups = new Map();
   let added = 0;
   for (const line of lines) {
@@ -79,9 +84,9 @@ function ingest(idx, lines, repo, now) {
     } catch {
       continue;
     }
-    added += applyEvent(idx, rec, repo, now);
+    added += applyEvent(idx, rec, repo, now, cfg);
     if (!rec.seq) continue;
-    const ids = entitiesOf(rec, repo).map((e) => `${e.type}:${e.name}`);
+    const ids = entitiesOf(rec, repo, cfg).map((e) => `${e.type}:${e.name}`);
     if (!ids.length) continue;
     const g = groups.get(rec.seq) || [];
     g.push({ ids, t: Date.parse(rec.ts || "") || now });
@@ -91,7 +96,7 @@ function ingest(idx, lines, repo, now) {
   return added;
 }
 
-function readAll(opts, idx, now) {
+function readAll(opts, idx, now, cfg) {
   let added = 0;
   let sources = 0;
   for (const src of listSources(opts.log)) {
@@ -99,29 +104,136 @@ function readAll(opts, idx, now) {
     idx.cursors[src.path] = cursor;
     if (!lines.length) continue;
     sources++;
-    added += ingest(idx, lines, REPO, now);
+    added += ingest(idx, lines, REPO, now, cfg);
   }
   return { added, sources };
 }
 
+/**
+ * 认不出来的东西，报出来——这是"灵活"的落点。
+ *
+ * 分类器没命中词表时**不猜**，标 fallback。但光标记没用，人看不见。
+ * 这里把 fallback 的实体按次数排序打出来，并附一条**共现建议**：
+ * 跟它连得最多的邻居都在哪个区，就建议归到哪个区。
+ *
+ * 为什么建议只进报告、不自动生效：分区决定位置（位置 = hash → 分区顶点池）。
+ * 让分区随图演化，同一个实体会今天在左脑、明天在右脑——那就看不出东西在长了。
+ * 自动学习只配**提议**，落地必须写进配置，由人拍板。
+ */
+function reportUnknown(idx, cfg, configPath) {
+  // 空索引说「没有认不出来的」是假绿——那是没东西可认，不是都认出来了。
+  if (!Object.keys(idx.entities || {}).length) {
+    process.stdout.write("索引为空（还没跑过，或索引版本已升级被丢弃）。先跑一次 npm run brain。\n");
+    return;
+  }
+  const adj = new Map();
+  for (const e of Object.values(idx.edges)) {
+    for (const [a, b] of [[e.s, e.t], [e.t, e.s]]) {
+      if (!adj.has(a)) adj.set(a, []);
+      adj.get(a).push(b);
+    }
+  }
+  const rows = [];
+  for (const [id, n] of Object.entries(idx.entities)) {
+    const c = classify(n.t, n.n, cfg);
+    if (c.why !== "fallback" && c.why !== "fallback-trigger") continue;
+    const tally = {};
+    for (const nb of adj.get(id) || []) {
+      const m = idx.entities[nb];
+      if (!m) continue;
+      tally[m.r] = (tally[m.r] || 0) + 1;
+    }
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    rows.push({ id, type: n.t, name: n.n, count: n.c, region: n.r, why: c.why, suggest: top ? top[0] : "", hits: top ? top[1] : 0 });
+  }
+  rows.sort((a, b) => b.count - a.count);
+
+  if (!rows.length) {
+    process.stdout.write("分类器：没有认不出来的实体（全部命中词表或结构判据）。\n");
+    return;
+  }
+  const lines = rows.slice(0, 40).map(
+    (r) =>
+      `  ${String(r.count).padStart(5)} 次  ${r.type.padEnd(7)} ${r.name.slice(0, 52).padEnd(52)}` +
+      `→ ${REGIONS[r.region].label}` +
+      (r.suggest ? `　（邻居多在${REGIONS[r.suggest].label} ${r.hits} 个）` : ""),
+  );
+  process.stdout.write(
+    `分类器：${rows.length} 个实体没命中词表，暂按兜底处理（共 ${rows.reduce((s, r) => s + r.count, 0)} 次）。\n` +
+      `补词表：在 ${String(configPath).replace(REPO, ".").replace(/\\/g, "/")} 里写 ` +
+      `{"lexicon":{"stem":["…"]}}，或 {"rules":[{"re":"…","region":"stem"}]}\n` +
+      `${lines.join("\n")}\n` +
+      (rows.length > 40 ? `  …另有 ${rows.length - 40} 个\n` : ""),
+  );
+}
+
+/**
+ * 卷宗反写：把推断关联写成【六】段，让卷宗自己长出「相关条目」。
+ *
+ * 为什么默认**不写**、要显式 `--casefile`：脑是只读面的工具，卷宗是判定面的文件。
+ * 每次跑脑都顺手改判定面的文件，测试里那条「软记录变化」就会被自己的噪音淹掉，
+ * 而且"只读审计"这条边界也就名存实亡。要写，就写成一个明确的动作。
+ */
+function writeCaseFile(casePath, g, now, events) {
+  const name = (i) => (g.nodes[i] ? g.nodes[i].name : "?");
+  // 两边都是盘符绝对路径（`E:/DSH/_install/*.mjs` 那批探针）互相关联，信息量最低：
+  // 它们本来就同目录同批产生。过滤掉，把位置让给本仓内的关联。
+  const external = (s) => /^[A-Za-z]:\//.test(String(s));
+  const cand = g.edges.filter((e) => e.k === "inf" && e.v >= 0.5 && !(external(name(e.s)) && external(name(e.t))));
+  const rows = cand.slice(0, 20).map(
+    (e) =>
+      `| \`${name(e.s)}\` | \`${name(e.t)}\` | ${e.v.toFixed(2)} | ${e.parts?.aa ?? "-"} | ${e.parts?.aff ?? "-"} | ${e.parts?.tmp ?? "-"} |`,
+  );
+  const block =
+    `### 【六】相关条目（脑推断 · 非人工填写）\n\n` +
+    `> 由 \`npm run brain -- --casefile\` 生成，${new Date(now).toISOString().slice(0, 16).replace("T", " ")}。\n` +
+    `> 判据：两个实体**从未在同一行出现**，但共享冷门中间物（结构）、同目录（亲缘）、\n` +
+    `> 或同一段时间一起活跃（共活跃）。只列综合分 ≥ 0.5 的前 20 条，分数逐项可复算。\n` +
+    `> 用途：查一个东西时先看它跟谁有关，不必把 ${events} 条事件从头读一遍。\n` +
+    `> 已排除「两边都是盘符绝对路径」的条目——那批探针同目录同批产生，关联是自明的。\n\n` +
+    `| 甲 | 乙 | 分 | 结构 | 亲缘 | 共活跃 |\n|---|---|---|---|---|---|\n` +
+    `${rows.join("\n")}\n`;
+
+  const old = existsSync(casePath) ? readFileSync(casePath, "utf8") : "";
+  const at = old.search(/^### 【六】/m);
+  let head = old;
+  if (at >= 0) {
+    // 只替换【六】这一段，后面的【七】…（如果哪天加了）原样保留
+    const nextAt = old.slice(at + 1).search(/^### 【/m);
+    head = old.slice(0, at) + (nextAt >= 0 ? old.slice(at + 1 + nextAt) : "");
+  } else if (old && !old.endsWith("\n")) {
+    head = `${old}\n`;
+  }
+  writeFileSync(casePath, head + (head.endsWith("\n\n") ? "" : "\n") + block);
+  return rows.length;
+}
+
 function main() {
-  const opts = parseArgs(process.argv.slice(2));
+  const o = parseArgs(process.argv.slice(2));
   const now = Date.now();
+  const cfg = loadConfig(o.config);
 
-  if (opts.rebuild && existsSync(opts.index)) rmSync(opts.index, { force: true });
-  const idx = opts.rebuild ? emptyIndex() : loadIndex(opts.index);
-  const { added, sources } = readAll(opts, idx, now);
+  if (o.rebuild && existsSync(o.index)) rmSync(o.index, { force: true });
+  const idx = o.rebuild ? emptyIndex() : loadIndex(o.index);
+
+  if (o.unknown) {
+    reportUnknown(idx, cfg, o.config);
+    return;
+  }
+
+  const moved = reclassify(idx, cfg);
+  const { added, sources } = readAll(o, idx, now, cfg);
   const dropped = prune(idx, now);
-  saveIndex(opts.index, idx, now);
+  saveIndex(o.index, idx, now);
 
-  const g = snapshot(idx, now, opts.maxNodes, opts.maxEdges, opts.maxInf);
+  const g = snapshot(idx, now, o.maxNodes, o.maxEdges, o.maxInf);
   const regionCount = {};
   for (const n of g.nodes) regionCount[n.r] = (regionCount[n.r] || 0) + 1;
   const from = g.nodes.reduce((m, n) => (!m || (n.f && n.f < m) ? n.f : m), "");
   const to = g.nodes.reduce((m, n) => (n.l && n.l > m ? n.l : m), "");
 
   const meta = {
-    log: opts.log.replace(REPO, "").replace(/\\/g, "/"),
+    log: o.log.replace(REPO, "").replace(/\\/g, "/"),
     generatedAt: new Date(now).toISOString(),
     events: idx.seen,
     added,
@@ -140,25 +252,27 @@ function main() {
     halfLives: Object.fromEntries(Object.entries(REGIONS).map(([k, v]) => [k, v.halfLife])),
   };
 
-  if (opts.json) {
+  if (o.json) {
     process.stdout.write(JSON.stringify({ meta, nodes: g.nodes, edges: g.edges }, null, 1));
     return;
   }
 
   const tpl = readFileSync(join(HERE, "brain-view.html"), "utf8");
   const payload = JSON.stringify({ meta, nodes: g.nodes, edges: g.edges }).replace(/<\//g, "<\\/");
-  mkdirSync(dirname(opts.out), { recursive: true });
-  writeFileSync(opts.out, tpl.replace("/*__FG_BRAIN_DATA__*/null", payload));
+  mkdirSync(dirname(o.out), { recursive: true });
+  writeFileSync(o.out, tpl.replace("/*__FG_BRAIN_DATA__*/null", payload));
 
   const rl = Object.entries(REGIONS)
     .map(([k, v]) => `${v.label} ${regionCount[k] || 0}`)
     .join(" · ");
+  const cf = o.casefileWrite ? writeCaseFile(o.casefile, g, now, idx.seen) : 0;
   process.stdout.write(
-    `脑已更新：${opts.out.replace(REPO, ".")}\n` +
-      `  新增 ${added} 条（源 ${sources} 个）· 累计 ${idx.seen} 条事件 · 遗忘 ${dropped} 个\n` +
+    `脑已更新：${o.out.replace(REPO, ".")}\n` +
+      `  新增 ${added} 条（源 ${sources} 个）· 累计 ${idx.seen} 条事件 · 遗忘 ${dropped} 个 · 重分区 ${moved} 个\n` +
       `  ${g.nodes.length} 实体 / ${g.edges.length} 边（推断 ${g.inferred}）　${rl}\n` +
       `  知识簇：${g.clusters.map((c) => `${c.name}(${c.size})`).slice(0, 6).join(" · ") || "（无）"}\n` +
-      `  ${(from || "").slice(0, 10)} → ${(to || "").slice(0, 10)}　索引 ${(readFileSync(opts.index).length / 1024).toFixed(0)} KB\n`,
+      (o.casefileWrite ? `  卷宗【六】已写：${cf} 条相关条目 → ${o.casefile.replace(REPO, ".")}\n` : "") +
+      `  ${(from || "").slice(0, 10)} → ${(to || "").slice(0, 10)}　索引 ${(readFileSync(o.index).length / 1024).toFixed(0)} KB\n`,
   );
 }
 

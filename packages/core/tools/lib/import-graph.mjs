@@ -16,6 +16,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname, resolve, relative } from 'node:path'
+import { reachClosure } from './reach.mjs'
 
 const IMPORT_RE =
   /(?:^|\n)\s*(?:import|export)\b[^\n]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|new\s+URL\s*\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g
@@ -91,19 +92,7 @@ export function buildImportGraph(repoRoot) {
     return out
   }
 
-  const reachFrom = (seeds) => {
-    const reached = new Set()
-    const queue = []
-    const push = (f) => {
-      if (srcSet.has(f) && !reached.has(f)) {
-        reached.add(f)
-        queue.push(f)
-      }
-    }
-    for (const s of seeds) for (const d of depsOf(s)) push(d)
-    while (queue.length) for (const d of depsOf(queue.pop())) push(d)
-    return reached
-  }
+  const reachFrom = (seeds) => reachClosure(srcSet, seeds, depsOf)
 
   // 反向索引：src 模块 ← 触达它的测试文件。变异测试靠这个选测试，不必跑全量。
   let reverse = null

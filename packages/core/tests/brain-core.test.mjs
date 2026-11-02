@@ -12,7 +12,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  applyEvent, decayTo, emptyIndex, prune, readNewLines, regionOf,
+  applyEvent, classify, decayTo, emptyIndex, isNoise, loadConfig, prune, readNewLines, regionOf,
 } from "../tools/lib/brain-core.mjs";
 import { inferRelations, pmi } from "../tools/lib/brain-relate.mjs";
 
@@ -24,6 +24,46 @@ test("分区：条号与高危进脑干，工具与机械动作进小脑，代�
   assert.equal(regionOf("action", "reset-fired"), "cerebellum");
   assert.equal(regionOf("file", "packages/core/src/core/state.mjs"), "left");
   assert.equal(regionOf("file", "packages/core/docs/RULES.md"), "right");
+});
+
+test("分区：代码靠扩展名认，不靠目录——根目录的 .mjs 也是代码", () => {
+  // 旧判据要求路径里有 src|tools|hooks|tests，于是 cleanup.mjs（228 次，最大的文件实体）
+  // 被当成"叙事"扔进右脑，按 30 天半衰期遗忘。
+  assert.equal(regionOf("file", "cleanup.mjs"), "left");
+  assert.equal(regionOf("file", "packages/core/docs/HANDOFF.md"), "right");
+});
+
+test("分区：触发器是判据的实例，不落叙事；屈折变化也能命中", () => {
+  // 旧判据没有 trigger 分支，22 个触发器全落右脑，high-risk-rm（1,729 次）被当故事忘掉。
+  assert.equal(regionOf("trigger", "high-risk-rm"), "stem");
+  assert.equal(regionOf("trigger", "evidence-gate"), "stem");
+  assert.equal(classify("trigger", "ttl:turn").why, "fallback-trigger");
+  assert.equal(regionOf("trigger", "ttl:turn"), "left");
+  // grants-swept 的 swept 不命中 sweep（硬正则的屈折问题）
+  assert.equal(regionOf("action", "grants-swept"), "cerebellum");
+  assert.equal(regionOf("action", "reject-no-form"), "stem");
+});
+
+test("分区：认不出来就说不认识，不硬猜；配置能追加词表并压过默认", () => {
+  const c = classify("action", "zzz-unknown-thing");
+  assert.equal(c.why, "fallback");
+  assert.equal(c.r, "right");
+
+  const cfg = loadConfig(null);
+  cfg.lexicon.stem = [...cfg.lexicon.stem, "zzz"];
+  assert.equal(classify("action", "zzz-unknown-thing", cfg).r, "stem");
+
+  // rules 最优先：连"条号必进脑干"也能被人工推翻
+  const ruled = { ...cfg, rules: [{ re: "^第99条$", region: "right" }] };
+  assert.equal(classify("rule", "第99条", ruled).r, "right");
+  assert.equal(classify("rule", "第43条", ruled).r, "stem");
+});
+
+test("噪音：内置判据挡临时路径，配置只能追加、关不掉内置的", () => {
+  assert.equal(isNoise("C:/Users/x/AppData/Local/Temp/a.txt"), true);
+  assert.equal(isNoise("src/core/state.mjs"), false);
+  assert.equal(isNoise("vendor/thing.js", ["vendor/"]), true);
+  assert.equal(isNoise("C:/tmp/x.txt", []), true);
 });
 
 test("遗忘曲线：正好过一个半衰期，强度减半", () => {

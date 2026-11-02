@@ -24,34 +24,12 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { detectClusters, inferRelations, pmi } from "./brain-relate.mjs";
+import { REGIONS, isNoise, regionOf } from "./brain-regions.mjs";
+
+// 分区判据在 brain-regions.mjs，这里原样转出去——调用方（工具与测试）不必知道它搬家了。
+export { DEFAULT_LEXICON, REGIONS, classify, isNoise, loadConfig, regionOf } from "./brain-regions.mjs";
 
 /* ── 分区与半衰期 ────────────────────────────────────────────── */
-export const REGIONS = {
-  stem: { label: "脑干", halfLife: Infinity, note: "硬约束，永不遗忘" },
-  cerebellum: { label: "小脑", halfLife: 180, note: "程序记忆，半年" },
-  left: { label: "大脑·左", halfLife: 60, note: "判据与代码，两个月" },
-  right: { label: "大脑·右", halfLife: 30, note: "叙事与文档，一个月" },
-};
-
-/** 硬约束动作：熔断、拒绝、红线、高危。这些是"生命维持"，不参与遗忘。 */
-const STEM_RE = /fuse|deny|block|redline|high-risk|refuse|stall|pardon/i;
-/** 机械动作：每次会话/每个回合都会发生的程序性动作，属"肌肉记忆"。 */
-const MECH_RE = /fired|check|kpi|budget|audit|start|reset|register|pre-push|version|handover|session|sweep|record/i;
-/** 代码路径：左脑管"怎么算"。其余（文档、记录、配置）归右脑。 */
-const CODE_RE = /(^|\/)(src|tools|hooks|tests)\//;
-
-export function regionOf(type, name) {
-  if (type === "rule") return "stem";
-  if (type === "tool") return "cerebellum";
-  if (type === "action") {
-    if (STEM_RE.test(name)) return "stem";
-    if (MECH_RE.test(name)) return "cerebellum";
-    return "right";
-  }
-  if (type === "file") return CODE_RE.test(name) ? "left" : "right";
-  return "right";
-}
-
 export const lambdaOf = (halfLife) => (halfLife === Infinity ? 0 : Math.LN2 / halfLife);
 const DAY = 86400e3;
 const days = (a, b) => (a && b ? Math.max(0, (b - a) / DAY) : 0);
@@ -72,13 +50,6 @@ const RULE_CN_RE = /第[一二三四五六七八九十百零〇\d]{1,6}条/g;
 const RULE_NUM_RE = /(?:^|[^\d.])(\d{1,3})条/g;
 const SEC_RE = /§\s?[一二三四五六七八九十]{1,4}/g;
 
-/**
- * 噪音路径：测试临时文件、运行时状态、日志本身。
- * 实测 437 个实体里 179 个是这些——半个脑是测试残留，那不是记忆，是垃圾。
- * 判据是"路径里带 temp/tmp 段"或"是本仓自己写的状态文件"，不是按文件名猜。
- */
-const NOISE_RE = /(^|\/)tmp\/|temp\/|AppData\/Local\/Temp|focus-guard-(session|hermes|atomic-state)|\.tmp$/i;
-
 export function normPath(raw, repo) {
   let s = String(raw).replace(/\\/g, "/");
   const r = repo.replace(/\\/g, "/").toLowerCase();
@@ -92,7 +63,7 @@ function pushUnique(list, v, cap) {
   list.push(v);
 }
 
-export function entitiesOf(rec, repo) {
+export function entitiesOf(rec, repo, opts = {}) {
   const out = [];
   if (rec.action) out.push({ type: "action", name: String(rec.action) });
   if (rec.tool) out.push({ type: "tool", name: String(rec.tool) });
@@ -101,7 +72,7 @@ export function entitiesOf(rec, repo) {
   const text = `${rec.evidence || ""} ${rec.command || ""}`;
   const files = [];
   for (const m of text.matchAll(FILE_RE)) pushUnique(files, normPath(m[0], repo), PER_LINE_FILES);
-  for (const f of files) if (f && f.includes(".") && !NOISE_RE.test(f)) out.push({ type: "file", name: f });
+  for (const f of files) if (f && f.includes(".") && !isNoise(f, opts.noise)) out.push({ type: "file", name: f });
   const rules = [];
   for (const m of text.matchAll(RULE_CN_RE)) pushUnique(rules, m[0], PER_LINE_RULES);
   for (const m of text.matchAll(RULE_NUM_RE)) pushUnique(rules, `第${m[1]}条`, PER_LINE_RULES);
@@ -111,7 +82,7 @@ export function entitiesOf(rec, repo) {
 }
 
 /* ── 索引：加载 / 增量更新 / 落盘 ───────────────────────────── */
-export const INDEX_VERSION = 2; // v2：实体新增 `h` 按天直方图（供共活跃信号）
+export const INDEX_VERSION = 3; // v2 加按天直方图；v3 分区判据重写（旧索引里的 r 是旧判据算的，必须重算）
 const MAX_ENTITIES = 20000;
 const MAX_EDGES = 60000;
 const FORGET_STRENGTH = 0.05; // 低于这个且一年没动 → 真的忘了，删
@@ -134,9 +105,28 @@ export function loadIndex(path) {
   }
 }
 
+/**
+ * 按**当前**判据重算所有实体的分区。
+ *
+ * 分区在实体创建时就固化了，可判据会变（补了词表、改了配置、升级了默认表）。
+ * 不重算的话，改配置对老实体不生效——"灵活"就成了只对新数据灵活，那等于没有。
+ * 只改 `r`，不动强度：强度是历史累积的结果，换分区只影响「以后衰减多快」。
+ */
+export function reclassify(idx, opts = {}) {
+  let n = 0;
+  for (const e of Object.values(idx.entities || {})) {
+    const r = regionOf(e.t, e.n, opts);
+    if (r !== e.r) {
+      e.r = r;
+      n++;
+    }
+  }
+  return n;
+}
+
 /** 一条事件并入索引。同一个实体两次命中之间按半衰期衰减，然后 +1。 */
-export function applyEvent(idx, rec, repo, now) {
-  const ents = entitiesOf(rec, repo);
+export function applyEvent(idx, rec, repo, now, opts = {}) {
+  const ents = entitiesOf(rec, repo, opts);
   if (!ents.length) return 0;
   const ts = String(rec.ts || new Date(now).toISOString());
   const t = Date.parse(ts) || now;
@@ -145,7 +135,7 @@ export function applyEvent(idx, rec, repo, now) {
     const id = `${e.type}:${e.name}`;
     let n = idx.entities[id];
     if (!n) {
-      n = idx.entities[id] = { t: e.type, n: e.name, r: regionOf(e.type, e.name), c: 0, f: ts, l: ts, s: 0, x: [] };
+      n = idx.entities[id] = { t: e.type, n: e.name, r: regionOf(e.type, e.name, opts), c: 0, f: ts, l: ts, s: 0, x: [] };
     }
     const hl = REGIONS[n.r].halfLife;
     n.s = n.s * Math.exp(-lambdaOf(hl) * days(Date.parse(n.l), t)) + 1;

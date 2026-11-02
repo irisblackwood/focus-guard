@@ -9,6 +9,8 @@
  * 三个导出都是纯函数：不碰 fs、不 spawn、同输入必同输出。
  */
 
+import { reachClosure } from './reach.mjs'
+
 /**
  * 房规问题按层分栏。
  *
@@ -47,19 +49,7 @@ export function splitLintByLayer(findings) {
 export function classifyReach({ srcFiles, testSeeds, frozenSeeds, depsOf }) {
   const srcSet = new Set(srcFiles)
 
-  const closure = (seeds) => {
-    const reached = new Set()
-    const queue = []
-    const push = (f) => {
-      if (srcSet.has(f) && !reached.has(f)) {
-        reached.add(f)
-        queue.push(f)
-      }
-    }
-    for (const s of seeds) for (const d of depsOf(s)) push(d)
-    while (queue.length) for (const d of depsOf(queue.pop())) push(d)
-    return reached
-  }
+  const closure = (seeds) => reachClosure(srcSet, seeds, depsOf)
 
   const byTests = closure(testSeeds)
   const byFrozen = closure(frozenSeeds)
