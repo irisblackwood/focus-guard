@@ -118,6 +118,18 @@ function fib(i, n) {
   return [Math.cos(th) * r, y, Math.sin(th) * r];
 }
 
+const smooth01 = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/* 半轴。按参考图反解：侧面剪影前后 360 : 上下 285 = 1.26，所以 y 不能再压到 0.68
+   （那是 1.47，太扁——"像鸡蛋"的根源）。
+   三个半轴支持 URL 覆盖（?ax=&ay=&az=），这是给视觉门控做参数搜索用的：
+   "像不像"必须能被脚本量出来，否则我只能靠肉眼猜，猜一次错一次。 */
+const Q = new URLSearchParams(location.search);
+const AX = +(Q.get("ax") || 0.78), AY = +(Q.get("ay") || 0.96), AZ = +(Q.get("az") || 1.0);
+
 function buildMesh() {
   const pos = new Float32Array(NPTS * 3);
   const col = new Float32Array(NPTS * 3);
@@ -133,35 +145,74 @@ function buildMesh() {
     const w = 0.030 * Math.sin(6.0 * th + 1.3) * Math.cos(5.0 * Math.PI * y)
             + 0.018 * Math.sin(11.0 * th - 2.2) * Math.cos(9.0 * Math.PI * y + 0.7);
     const r = 1 + w;
-    // 人脑不是球：左右宽、上下扁、前后长
-    x *= r * 0.94; y *= r * 0.82; z *= r * 1.06;
-    // 颞叶：中下段向外鼓一点，否则侧面看是个鸡蛋
-    const tl = Math.exp(-Math.pow((y + 0.22) / 0.32, 2)) * Math.exp(-Math.pow((z - 0.08) / 0.6, 2));
-    x *= 1 + 0.09 * tl;
-    // 纵裂：以 x=0 为轴把两半球推开。高斯比二次衰减"深"，因为要的是**一条沟**不是一圈鼓
-    x += Math.sign(x || 1) * 0.125 * Math.exp(-Math.pow(x / 0.15, 2));
+    x *= r * AX; y *= r * AY; z *= r * AZ;
+
+    // 额极略收、枕叶略平（前后不对称才是脑子）
+    z += 0.045 * smooth01(0.2, 1.0, z) * (1 - Math.abs(y));
+    // 颞叶：中下段向外鼓。没有它，侧面看是个鸡蛋。
+    const tl = Math.exp(-Math.pow((y + 0.20) / 0.26, 2)) * Math.exp(-Math.pow((z - 0.06) / 0.55, 2));
+    x *= 1 + 0.055 * tl;
+
+    /* 纵裂：**窄、浅、不到底**。
+       旧版是把 |x|<0.15 的点整体外推 0.125，等于把两个半球掰开——
+       那是东非大裂谷，不是纵裂。真实纵裂宽约 3mm（相对脑宽 0.02），
+       深约半球高的 1/3，底面由胼胝体连着，沟到不了底。 */
+    const up = smooth01(-0.16, 0.30, y);          // 越往上越深，下半部合拢
+    x += Math.sign(x || 1) * 0.030 * Math.exp(-Math.pow(x / 0.040, 2)) * up;
+
+    /* 底面：按该高度的**截面半径**缩放，做成平底（颅底）。
+       只把 y 往上抬、不动 x，会把极点压成一个尖锥——正面看是心形，不是脑子。 */
+    const FLOOR = -0.80;
+    if (y < FLOOR) {
+      const cut = Math.sqrt(Math.max(1e-6, 1 - Math.pow(FLOOR / AY, 2)));
+      const rr = Math.max(0.02, Math.sqrt(Math.max(1e-6, 1 - Math.pow(y / AY, 2))));
+      const sc = Math.min(3, cut / rr);
+      x *= sc; z *= sc;
+      y = FLOOR + (y - FLOOR) * 0.22;
+    }
+
     const k = 0.45 + 0.55 * rnd() + (w > 0 ? 0.18 : 0);
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
     col[p * 3] = 0.16 * k; col[p * 3 + 1] = 0.62 * k; col[p * 3 + 2] = 1.00 * k;
     siz[p] = 0.0052 + 0.0022 * rnd();
     p++;
   }
-  // 小脑：细密褶皱，压在后下方
+
+  /* ── 小脑：扁、宽、贴在后下方，表面是横向叶片 ────────────────
+     旧版是个 0.40×0.25×0.33 的孤立椭球，悬在脑干后面、亮橙色——
+     那不是小脑，那是长在脑子上的肿瘤。
+     真实小脑：左右两半球 + 中间蚓部，宽约为大脑的 0.72，高只有 0.30，
+     上缘**嵌进**枕叶下方（小脑幕之上），表面是一层层横纹（folia）。 */
+  const CB = { cx: 0, cy: -0.560, cz: -0.600, ax: 0.345, ay: 0.155, az: 0.230 };
   for (let i = 0; i < NB; i++) {
     const [bx, by, bz] = fib(i, NB);
-    const w = 1 + 0.055 * Math.sin(26 * bx + 1.1) * Math.sin(24 * by) + 0.03 * Math.sin(31 * bz + 1.7);
-    const x = bx * 0.40 * w, y = by * 0.25 * w - 0.62, z = bz * 0.33 * w - 0.60;
-    const k = 0.5 + 0.5 * rnd();
+    // folia：沿 z 的密集横纹，这是小脑最好认的特征
+    const folia = 0.011 * Math.sin(bz * 44 + 0.6) + 0.005 * Math.sin(bz * 73 - 1.2);
+    // 蚓部：中线略凹，把两个小脑半球分开
+    const vermis = 1 - 0.10 * Math.exp(-Math.pow(bx / 0.075, 2));
+    const w = 1 + folia;
+    const x = CB.cx + bx * CB.ax * w * vermis;
+    const y = CB.cy + by * CB.ay * w;
+    const z = CB.cz + bz * CB.az * w;
+    const k = 0.46 + 0.40 * rnd();
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    col[p * 3] = 1.00 * k; col[p * 3 + 1] = 0.58 * k; col[p * 3 + 2] = 0.20 * k;
+    // 橙色压暗、压灰：它该融进整体，不该跳出来
+    col[p * 3] = 0.92 * k; col[p * 3 + 1] = 0.58 * k; col[p * 3 + 2] = 0.34 * k;
     siz[p] = 0.0044 + 0.0020 * rnd();
     p++;
   }
   // 脑干
   for (let i = 0; i < NS; i++) {
-    const a = rnd() * TAU, h = rnd(), rr = 0.085 * (1 - 0.35 * h);
-    const x = Math.cos(a) * rr, z = Math.sin(a) * rr - 0.30, y = -0.70 - h * 0.44;
-    const k = 0.45 + 0.4 * rnd();
+    const t = rnd();                       // 0=中脑（上） → 1=延髓（下）
+    const y = -0.42 - t * 0.32;
+    const bulge = Math.exp(-Math.pow((t - 0.36) / 0.20, 2)); // 脑桥
+    const taper = 1 - 0.34 * smooth01(0.55, 1.0, t);
+    const rad = (0.072 + 0.048 * bulge) * taper;
+    const zc = -0.255 + t * 0.10;          // 向下略前倾
+    const a = rnd() * TAU;
+    const x = Math.cos(a) * rad * 1.15;    // 横断面左右宽、前后扁
+    const z = zc + Math.sin(a) * rad * 0.82;
+    const k = 0.55 + 0.35 * rnd();
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
     col[p * 3] = 0.62 * k; col[p * 3 + 1] = 0.38 * k; col[p * 3 + 2] = 0.98 * k;
     siz[p] = 0.0046 + 0.0020 * rnd();
