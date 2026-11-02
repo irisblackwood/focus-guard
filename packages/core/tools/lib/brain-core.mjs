@@ -23,6 +23,7 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
+import { detectClusters, inferRelations, pmi } from "./brain-relate.mjs";
 
 /* ── 分区与半衰期 ────────────────────────────────────────────── */
 export const REGIONS = {
@@ -71,6 +72,13 @@ const RULE_CN_RE = /第[一二三四五六七八九十百零〇\d]{1,6}条/g;
 const RULE_NUM_RE = /(?:^|[^\d.])(\d{1,3})条/g;
 const SEC_RE = /§\s?[一二三四五六七八九十]{1,4}/g;
 
+/**
+ * 噪音路径：测试临时文件、运行时状态、日志本身。
+ * 实测 437 个实体里 179 个是这些——半个脑是测试残留，那不是记忆，是垃圾。
+ * 判据是"路径里带 temp/tmp 段"或"是本仓自己写的状态文件"，不是按文件名猜。
+ */
+const NOISE_RE = /(^|\/)tmp\/|temp\/|AppData\/Local\/Temp|focus-guard-(session|hermes|atomic-state)|\.tmp$/i;
+
 export function normPath(raw, repo) {
   let s = String(raw).replace(/\\/g, "/");
   const r = repo.replace(/\\/g, "/").toLowerCase();
@@ -93,7 +101,7 @@ export function entitiesOf(rec, repo) {
   const text = `${rec.evidence || ""} ${rec.command || ""}`;
   const files = [];
   for (const m of text.matchAll(FILE_RE)) pushUnique(files, normPath(m[0], repo), PER_LINE_FILES);
-  for (const f of files) if (f && f.includes(".")) out.push({ type: "file", name: f });
+  for (const f of files) if (f && f.includes(".") && !NOISE_RE.test(f)) out.push({ type: "file", name: f });
   const rules = [];
   for (const m of text.matchAll(RULE_CN_RE)) pushUnique(rules, m[0], PER_LINE_RULES);
   for (const m of text.matchAll(RULE_NUM_RE)) pushUnique(rules, `第${m[1]}条`, PER_LINE_RULES);
@@ -103,7 +111,7 @@ export function entitiesOf(rec, repo) {
 }
 
 /* ── 索引：加载 / 增量更新 / 落盘 ───────────────────────────── */
-export const INDEX_VERSION = 1;
+export const INDEX_VERSION = 2; // v2：实体新增 `h` 按天直方图（供共活跃信号）
 const MAX_ENTITIES = 20000;
 const MAX_EDGES = 60000;
 const FORGET_STRENGTH = 0.05; // 低于这个且一年没动 → 真的忘了，删
@@ -144,6 +152,10 @@ export function applyEvent(idx, rec, repo, now) {
     n.c += 1;
     if (!n.f || ts < n.f) n.f = ts;
     if (!n.l || ts > n.l) n.l = ts;
+    // 按天直方图：共活跃信号的原料。稀疏存，只记有事件的那几天。
+    const day = ts.slice(0, 10);
+    n.h = n.h || {};
+    n.h[day] = (n.h[day] || 0) + 1;
     const ev = String(rec.evidence || "").replace(/\s+/g, " ").slice(0, 200);
     if (ev && n.x.length < 3 && !n.x.includes(ev)) n.x.push(ev);
   }
@@ -197,6 +209,12 @@ export function prune(idx, now) {
       delete idx.entities[id];
       dropped++;
     }
+  }
+  // 直方图只留最近 180 天：它表达的是"最近一起活跃过"，太老的没有信息量，只会让索引膨胀
+  const cutoff = new Date(now - 180 * DAY).toISOString().slice(0, 10);
+  for (const n of Object.values(idx.entities)) {
+    if (!n.h) continue;
+    for (const d of Object.keys(n.h)) if (d < cutoff) delete n.h[d];
   }
   const kept = Object.entries(idx.entities);
   if (kept.length > MAX_ENTITIES) {
@@ -253,55 +271,12 @@ export function saveIndex(path, idx, now) {
 
 /* ── 出图 ───────────────────────────────────────────────────── */
 /**
- * 推断边：A 与 B 从没在同一行出现过，但**结构上显然有关系**。
+ * 出图：节点 + 事实边 + 推断边 + 知识簇。
  *
- * 判据用 Adamic-Adar：score(A,B) = Σ_{z∈N(A)∩N(B)} 1/ln(2+|N(z)|)。
- * 为什么是它而不是"数共同邻居"：共同邻居越热门，说明力越弱——`reset-fired` 那种
- * 几千次的枢纽跟谁都"共同"，数它等于把噪音当信号。AA 用 1/ln(度) 把这个衰减掉，
- * 所以真正把 A、B 拉到一起的，是那些**冷门但两者都碰过**的中间物。
- *
- * 为什么不用 embedding：本仓零依赖，而且闸门的记忆必须**可复算、可解释**——
- * 你问"为什么这两条连上了"，我要能回答"因为它们共有 3 个中间物，其中 2 个很冷门"，
- * 而不是"因为向量余弦 0.83"。前者能复跑，后者不能。
- *
- * 门槛两条：共同邻居 ≥ 2（一个中间物不足以叫"关系"），score ≥ 0.5。
- * 0.5 不是拍数：AA 里 2 个共同邻居、各自度数 ~50 时正好落在 0.5 附近——
- * 也就是说"两个独立桥梁，且都不是超级枢纽"才算数。
+ * 事实边的强度**不再用原始计数**，改用 PMI。原因：reset-fired 出现 3220 次，
+ * 它跟谁共现 50 次都不稀奇——原始计数会把这种"因为太常见"读成"强相关"，
+ * 于是满屏都是枢纽拉出来的白线。PMI 减去偶然，只留"超出预期"的那部分。
  */
-export function inferEdges(edges, maxInf) {
-  const adj = new Map();
-  for (const e of edges) {
-    if (e.k !== "co") continue;
-    if (!adj.has(e.s)) adj.set(e.s, new Set());
-    if (!adj.has(e.t)) adj.set(e.t, new Set());
-    adj.get(e.s).add(e.t);
-    adj.get(e.t).add(e.s);
-  }
-  const score = new Map();
-  for (const [z, set] of adj) {
-    const arr = [...set];
-    if (arr.length < 2) continue;
-    const w = 1 / Math.log(2 + arr.length);
-    for (let i = 0; i < arr.length; i++) {
-      for (let j = i + 1; j < arr.length; j++) {
-        const a = Math.min(arr[i], arr[j]);
-        const b = Math.max(arr[i], arr[j]);
-        const k = `${a}:${b}`;
-        const cur = score.get(k) || { a, b, v: 0, n: 0 };
-        cur.v += w;
-        cur.n += 1;
-        score.set(k, cur);
-      }
-    }
-  }
-  const has = new Set(edges.map((e) => `${Math.min(e.s, e.t)}:${Math.max(e.s, e.t)}`));
-  return [...score.values()]
-    .filter((x) => !has.has(`${x.a}:${x.b}`) && x.n >= 2 && x.v >= 0.5)
-    .sort((p, q) => q.v - p.v)
-    .slice(0, maxInf)
-    .map((x) => ({ s: x.a, t: x.b, w: x.n, k: "inf", v: +x.v.toFixed(2) }));
-}
-
 export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000, maxInf = 800) {
   const rows = Object.entries(idx.entities).map(([id, n]) => {
     const hl = REGIONS[n.r].halfLife;
@@ -312,23 +287,43 @@ export function snapshot(idx, now, maxNodes = 3000, maxEdges = 12000, maxInf = 8
   const idxOf = new Map();
   const nodes = kept.map((n, i) => {
     idxOf.set(n.id, i);
-    return { i, id: n.id, type: n.t, name: n.n, r: n.r, c: n.c, s: +n.sNow.toFixed(3), f: n.f, l: n.l, ev: n.x };
+    return {
+      i, id: n.id, type: n.t, name: n.n, r: n.r, c: n.c,
+      s: +n.sNow.toFixed(3), f: n.f, l: n.l, ev: n.x, h: n.h,
+    };
   });
+
   const edges = [];
   for (const e of Object.values(idx.edges)) {
     const s = idxOf.get(e.s);
     const t = idxOf.get(e.t);
     if (s === undefined || t === undefined) continue;
-    edges.push({ s, t, w: e.w, k: e.k, v: +e.s2.toFixed(2) });
+    const raw = pmi(e.w, kept[s].c, kept[t].c, idx.seen);
+    // w=1 的单次撞见，PMI 会虚高（小样本），乘个 1/3 折价
+    edges.push({ s, t, w: e.w, k: e.k, v: +(raw * Math.min(1, e.w / 3)).toFixed(2) });
   }
   edges.sort((a, b) => b.v - a.v);
   const keptEdges = edges.slice(0, maxEdges);
-  const inferred = inferEdges(keptEdges, maxInf);
+  const inferred = inferRelations(nodes, keptEdges, { maxInf });
+  const all = keptEdges.concat(inferred);
+
+  // 分簇只用**事实边**：簇应当反映真实结构，而不是我自己推断出来的结构。
+  // 把 800 条推断边也喂进去，等于拿猜测去证明猜测。
+  const clusters = detectClusters(nodes, keptEdges);
+  const summary = [];
+  clusters.forEach((c, ci) => {
+    for (const m of c.members) nodes[m].cl = ci;
+    // 注意 i 用的是**原始下标**：summary 是过滤后的前 12 个，若用过滤后的序号，
+    // 界面按 cl 去找簇名会全部错位。
+    if (c.members.length >= 3 && summary.length < 12) summary.push({ i: ci, name: c.name, size: c.members.length });
+  });
+
   return {
     nodes,
-    edges: keptEdges.concat(inferred),
+    edges: all,
     total: rows.length,
     totalEdges: Object.keys(idx.edges).length,
     inferred: inferred.length,
+    clusters: summary,
   };
 }

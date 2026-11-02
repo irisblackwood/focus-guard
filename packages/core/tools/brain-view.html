@@ -342,8 +342,8 @@ DATA.edges.forEach((e, i) => {
     : [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
   eCol.set([...c, ...c], i * 6);
   eBase[i] = e.k === "inf"
-    ? Math.min(0.085, 0.018 + e.v * 0.016)
-    : Math.min(0.135, 0.022 + Math.min(e.w, 6) * 0.019);
+    ? Math.min(0.095, 0.014 + e.v * 0.032)
+    : Math.min(0.165, 0.010 + Math.min(e.v, 8) * 0.019);
   eAlp[i * 2] = eBase[i]; eAlp[i * 2 + 1] = eBase[i];
 });
 const bEPos = buffer(ePos), bECol = buffer(eCol), bEAlp = buffer(eAlp, gl.DYNAMIC_DRAW);
@@ -581,7 +581,10 @@ function showCard(i) {
   const n = nodes[i];
   const hlv = m.halfLives ? m.halfLives[n.r] : null;
   const hl = hlv === null || hlv === undefined ? "∞" : `${hlv}d`;
-  document.getElementById("cardKind").textContent = `${REGION_LABEL[n.r] || n.r} · ${TYPE_LABEL[n.type] || n.type} · 半衰期 ${hl}`;
+  const cl = m.clusters ? m.clusters.find((c) => c.i === n.cl) : null;
+  document.getElementById("cardKind").textContent =
+    `${REGION_LABEL[n.r] || n.r} · ${TYPE_LABEL[n.type] || n.type} · 半衰期 ${hl}` +
+    (cl ? ` · 簇「${cl.name}」${cl.size} 个` : "");
   document.getElementById("cardName").textContent = n.name;
   document.getElementById("cardMeta").textContent =
     `出现 ${n.c} 次　强度 ${n.s}　${(n.f || "").slice(0, 16).replace("T", " ")} → ${(n.l || "").slice(0, 16).replace("T", " ")}`;
@@ -592,10 +595,11 @@ function showCard(i) {
     .sort((a, b) => b.v - a.v)
     .slice(0, 6);
   const infHtml = infs.length
-    ? `<div class="k" style="margin-top:11px">推断关联 · 从未同现，共享冷门中间物</div>` +
+    ? `<div class="k" style="margin-top:11px">推断关联 · 从未同现，三个信号合成</div>` +
       infs.map((e) => {
         const o = nodes[e.s === i ? e.t : e.s];
-        return `<div class="ev inf">↔ ${esc(o.name)}　<span class="dim">${e.w} 个中间物 · 分 ${e.v}</span></div>`;
+        const p = e.parts || {};
+        return `<div class="ev inf">↔ ${esc(o.name)}<br><span class="dim">结构 ${p.aa ?? "-"} · 亲缘 ${p.aff ?? "-"} · 共活跃 ${p.tmp ?? "-"}　→ ${e.v}</span></div>`;
       }).join("")
     : "";
   document.getElementById("cardEv").innerHTML = evHtml + infHtml;

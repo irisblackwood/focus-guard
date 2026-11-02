@@ -129,6 +129,7 @@ function main() {
     nodes: g.nodes.length,
     edges: g.edges.length,
     inferred: g.inferred,
+    clusters: g.clusters,
     total: g.total,
     totalEdges: g.totalEdges,
     truncated: g.nodes.length < g.total,
@@ -156,6 +157,7 @@ function main() {
     `脑已更新：${opts.out.replace(REPO, ".")}\n` +
       `  新增 ${added} 条（源 ${sources} 个）· 累计 ${idx.seen} 条事件 · 遗忘 ${dropped} 个\n` +
       `  ${g.nodes.length} 实体 / ${g.edges.length} 边（推断 ${g.inferred}）　${rl}\n` +
+      `  知识簇：${g.clusters.map((c) => `${c.name}(${c.size})`).slice(0, 6).join(" · ") || "（无）"}\n` +
       `  ${(from || "").slice(0, 10)} → ${(to || "").slice(0, 10)}　索引 ${(readFileSync(opts.index).length / 1024).toFixed(0)} KB\n`,
   );
 }
