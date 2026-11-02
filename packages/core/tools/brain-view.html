@@ -107,9 +107,17 @@ const hash = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h
 const rng32 = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
 /* ── 自有皮层网格 ───────────────────────────────────────────────
-   不是解剖模型，是三个椭球 + 几组正弦褶皱。理由：memory-brain 的 cortex/*.bin
-   是 CC BY-SA 3.0，不能打包；自己算出来的东西没有许可证问题。 */
-const NC = 66000, NB = 20000, NS = 4000, NPTS = NC + NB + NS;
+   不是解剖模型，是几个解析曲面 + 褶皱。理由：memory-brain 的 cortex/*.bin
+   是 CC BY-SA 3.0，不能打包；自己算出来的东西没有许可证问题。
+
+   比例按真实人脑取：前后长 167mm / 左右宽 140mm / 上下高 93mm
+   → 大脑 x:y:z = 0.84 : 0.56 : 1.00。**宽度永远大于高度**，这是硬约束。
+
+   上一版为了"凑"侧面剪影的高度，把 y 拉到 0.96（x 只有 0.78），
+   于是脑子比宽还高——竖着的鸡蛋。错在**把高度算在大脑头上**：
+   真实侧面轮廓之所以接近 1.3:1，是因为脑干垂在大脑下面，不是大脑本身高。
+   剪影该由"大脑 + 下垂的脑干"共同给出，不能拿大脑去补。 */
+const NC = 62000, NB = 9000, NS = 4500, NPTS = NC + NB + NS;
 
 function fib(i, n) {
   const y = 1 - (i / (n - 1)) * 2;
@@ -123,17 +131,57 @@ const smooth01 = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-/* 半轴。按参考图反解：侧面剪影前后 360 : 上下 285 = 1.26，所以 y 不能再压到 0.68
-   （那是 1.47，太扁——"像鸡蛋"的根源）。
-   三个半轴支持 URL 覆盖（?ax=&ay=&az=），这是给视觉门控做参数搜索用的：
-   "像不像"必须能被脚本量出来，否则我只能靠肉眼猜，猜一次错一次。 */
+/* 半轴。前后长 : 左右宽 : 上下高 = 1.00 : 0.84 : 0.56（真实人脑 167:140:93）。
+   三个半轴支持 URL 覆盖（?ax=&ay=&az=），供视觉门控做参数搜索。
+   注意：门控只能验"剪影吻合"，验不了"这是不是脑子"——上一轮就是照着
+   一张 AI 生成的参考图把 y 拉到 0.96，IoU 涨了，东西更丑了。
+   参考图本身也要被怀疑。 */
 const Q = new URLSearchParams(location.search);
-const AX = +(Q.get("ax") || 0.78), AY = +(Q.get("ay") || 0.96), AZ = +(Q.get("az") || 1.0);
+const AX = +(Q.get("ax") || 0.84), AY = +(Q.get("ay") || 0.56), AZ = +(Q.get("az") || 1.0);
+const AXIS2 = [AX * AX, AY * AY, AZ * AZ];
+
+/* 光从上前右来。lambert 只跟法线有关、跟视角无关，所以**在 CPU 上烘进顶点色**：
+   每帧省掉 5 万个顶点上的 dot + normalize。真正需要每帧算的只剩深度测试本身。
+   "让显卡硬算"的反面不是少画点，是**把跟视角无关的东西提前算完**。 */
+const LD = (() => { const v = [0.42, 0.76, 0.50], l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; })();
+function lamAt(nx, ny, nz) {
+  const l = Math.hypot(nx, ny, nz) || 1;
+  return Math.max(0, (nx * LD[0] + ny * LD[1] + nz * LD[2]) / l);
+}
+
+/* 三维值噪声。
+   之前用"四组正弦叠加"当沟回，问题是**正弦有主方向**：叠加几条就出几套平行长脊，
+   整个脑子像一条切了花刀的面包。真实沟回是各向同性的迷宫，没有主方向。
+   值噪声在立方格点上取随机值再平滑插值，天生各向同性，叠三个倍频就有细节层次。 */
+const PERM = (() => {
+  const r = rng32(0x5BF03635), a = new Uint8Array(512);
+  for (let i = 0; i < 256; i++) a[i] = i;
+  for (let i = 255; i > 0; i--) { const j = (r() * (i + 1)) | 0; const t = a[i]; a[i] = a[j]; a[j] = t; }
+  for (let i = 0; i < 256; i++) a[i + 256] = a[i];
+  return a;
+})();
+const fade5 = (t) => t * t * (3 - 2 * t);
+function vnoise(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const u = fade5(x - xi), v = fade5(y - yi), w = fade5(z - zi);
+  const h = (a, b, c) => PERM[(PERM[(PERM[a & 255] + (b & 255)) & 255] + (c & 255)) & 255] / 255;
+  const c000 = h(xi, yi, zi), c100 = h(xi + 1, yi, zi);
+  const c010 = h(xi, yi + 1, zi), c110 = h(xi + 1, yi + 1, zi);
+  const c001 = h(xi, yi, zi + 1), c101 = h(xi + 1, yi, zi + 1);
+  const c011 = h(xi, yi + 1, zi + 1), c111 = h(xi + 1, yi + 1, zi + 1);
+  const x00 = c000 + (c100 - c000) * u, x10 = c010 + (c110 - c010) * u;
+  const x01 = c001 + (c101 - c001) * u, x11 = c011 + (c111 - c011) * u;
+  const y0 = x00 + (x10 - x00) * v, y1 = x01 + (x11 - x01) * v;
+  return y0 + (y1 - y0) * w;
+}
 
 function buildMesh() {
   const pos = new Float32Array(NPTS * 3);
   const col = new Float32Array(NPTS * 3);
   const siz = new Float32Array(NPTS);
+  /* 每个点自带一个**朝外法线**。实体要贴到皮层表面外侧才不会被深度测试埋掉，
+     靠 normalize(坐标) 反推是错的（脑干离原点很远，会被推成竖直方向）。 */
+  const nrm = new Float32Array(NPTS * 3);
   const rnd = rng32(0x9E3779B9);
   const TAU = Math.PI * 2;
   let p = 0;
@@ -141,84 +189,138 @@ function buildMesh() {
   // 大脑：椭球 + 纵裂 + 脑回褶皱
   for (let i = 0; i < NC; i++) {
     let [x, y, z] = fib(i, NC);
-    const th = Math.atan2(z, x);
-    const w = 0.030 * Math.sin(6.0 * th + 1.3) * Math.cos(5.0 * Math.PI * y)
-            + 0.018 * Math.sin(11.0 * th - 2.2) * Math.cos(9.0 * Math.PI * y + 0.7);
+    /* 抖动只往**切向**加：加完再归一化，径向那部分被吃掉。
+       上一版是三轴纯随机抖动，径向分量留在里面，fib 的螺旋被椭球缩放后
+       显成一圈圈同心环——俯视像洋葱，侧看像水波纹。 */
+    x += (rnd() - 0.5) * 0.034; y += (rnd() - 0.5) * 0.034; z += (rnd() - 0.5) * 0.034;
+    const il = 1 / (Math.hypot(x, y, z) || 1);
+    x *= il; y *= il; z *= il;
+
+    /* 沟回：值噪声给的是**块**，而脑沟是**窄线**。
+       直接拿噪声当高度，明暗出来是一块块黑斑（像石头上的苔痕）；
+       真实沟回是"宽的圆顶 + 窄的深沟"——沟只占表面很小一条。
+       做法：不取噪声值本身，取它**等值线**附近的一个窄带（n≈0.5 的等高线），
+       那是一条条细曲线，正好当沟底。 */
+    const n1 = vnoise(x * 6.0, y * 6.0, z * 6.0);
+    const n2 = vnoise(x * 12.0 + 3.1, y * 12.0 + 1.7, z * 12.0 + 5.3);
+
+    /* 几何只做轻微起伏：幅度必须小。大了会把点云撑出缝，露出背景，
+       就成了"黑洞"——那是几何位移的锅，不是明暗的锅。 */
+    let w = 0.020 * (n1 - 0.5) + 0.008 * (n2 - 0.5);
+
+    /* 外侧裂（Sylvian fissure）：侧面最好认的一条沟，从前下走向后上，
+       把颞叶和额顶叶分开。没有它，侧脸就是个椭圆。 */
+    const zs = smooth01(-0.30, 0.10, z) * smooth01(1.00, 0.40, z);
+    const ys = -0.36 + 0.26 * (z + 0.30);
+    const syl = zs * Math.exp(-Math.pow((y - ys) / 0.055, 2));
+    w -= 0.020 * syl;
+
     const r = 1 + w;
     x *= r * AX; y *= r * AY; z *= r * AZ;
 
-    // 额极略收、枕叶略平（前后不对称才是脑子）
-    z += 0.045 * smooth01(0.2, 1.0, z) * (1 - Math.abs(y));
-    // 颞叶：中下段向外鼓。没有它，侧面看是个鸡蛋。
-    const tl = Math.exp(-Math.pow((y + 0.20) / 0.26, 2)) * Math.exp(-Math.pow((z - 0.06) / 0.55, 2));
-    x *= 1 + 0.055 * tl;
+    /* 顶点略平、两极略收：真脑的顶不是圆弧，额极和枕极都比中间窄。
+       再给一点前后不对称：枕侧（z<0）略高、额侧略低。完全对称的椭圆
+       一眼就是"画的"，人脑侧脸永远是歪的。 */
+    y *= 1 - 0.115 * smooth01(0.10, 1.0, y) * (1 - Math.abs(z) * 0.55);
+    y += 0.050 * (1 - smooth01(-1.0, 0.45, z));
+
+    /* 颞叶：前下方垂下来的一块。
+       这是侧脸最重要的形状线索——真实脑的**底缘不是椭圆弧**：
+       额叶底 → 颞极下垂 → 颞叶底面 → 枕前切迹上收 → 小脑。
+       少了这一块，再好的沟回也只是一颗有花纹的蛋。 */
+    const tp = Math.exp(-Math.pow((z - 0.16) / 0.44, 2)) * Math.exp(-Math.pow((y + 0.30) / 0.26, 2));
+    y -= 0.155 * tp;
+    x *= 1 + 0.085 * tp;
+
+    // 枕极略平、颞叶外鼓（前后上下不对称才是脑子）
+    z += 0.040 * smooth01(0.2, 1.0, z) * (1 - Math.abs(y));
+    const tl = Math.exp(-Math.pow((y + 0.22) / 0.24, 2)) * Math.exp(-Math.pow((z - 0.06) / 0.52, 2));
+    x *= 1 + 0.060 * tl;
 
     /* 纵裂：**窄、浅、不到底**。
        旧版是把 |x|<0.15 的点整体外推 0.125，等于把两个半球掰开——
        那是东非大裂谷，不是纵裂。真实纵裂宽约 3mm（相对脑宽 0.02），
        深约半球高的 1/3，底面由胼胝体连着，沟到不了底。 */
-    const up = smooth01(-0.16, 0.30, y);          // 越往上越深，下半部合拢
-    x += Math.sign(x || 1) * 0.030 * Math.exp(-Math.pow(x / 0.040, 2)) * up;
+    const up = smooth01(-0.14, 0.28, y);          // 越往上越深，下半部合拢
+    x += Math.sign(x || 1) * 0.026 * Math.exp(-Math.pow(x / 0.036, 2)) * up;
 
-    /* 底面：按该高度的**截面半径**缩放，做成平底（颅底）。
-       只把 y 往上抬、不动 x，会把极点压成一个尖锥——正面看是心形，不是脑子。 */
-    const FLOOR = -0.80;
-    if (y < FLOOR) {
-      const cut = Math.sqrt(Math.max(1e-6, 1 - Math.pow(FLOOR / AY, 2)));
-      const rr = Math.max(0.02, Math.sqrt(Math.max(1e-6, 1 - Math.pow(y / AY, 2))));
-      const sc = Math.min(3, cut / rr);
-      x *= sc; z *= sc;
-      y = FLOOR + (y - FLOOR) * 0.22;
-    }
+    /* 底面**不裁**。
+       上一版为了"颅底是平的"按截面半径裁切，结果极点附近的 rr→0，
+       `cut/rr` 直接顶到上限 2.2——底部被撑出一圈 2.2 倍半径的裙边，
+       侧看是一张飞碟，把小脑和脑干全盖住了。
+       真实颅底不是平盘：是颞叶下缘 + 小脑 + 脑干凑出来的。让它们自己凑。 */
 
-    const k = 0.45 + 0.55 * rnd() + (w > 0 ? 0.18 : 0);
+    /* 明暗一次烘进去：lambert（光）+ 沟回。
+       沟 = 噪声等值线附近的窄带，宽度用高斯控制（0.05 是带宽），
+       两个倍频各一层，粗沟 + 细沟。外侧裂再单独压一道更深的。
+       这样"沟"是一条条线，不是一块块斑——线才是沟回，斑只是脏。 */
+    const sul = 0.70 * Math.exp(-Math.pow((n1 - 0.5) / 0.050, 2))
+              + 0.30 * Math.exp(-Math.pow((n2 - 0.5) / 0.045, 2))
+              + 0.55 * syl;
+    const cav = 1 - Math.min(0.90, sul);
+    const nx = x / AXIS2[0], ny = y / AXIS2[1], nz = z / AXIS2[2];
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    const k = (0.15 + 1.00 * lamAt(nx, ny, nz)) * cav * (0.86 + 0.20 * rnd());
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    col[p * 3] = 0.16 * k; col[p * 3 + 1] = 0.62 * k; col[p * 3 + 2] = 1.00 * k;
-    siz[p] = 0.0052 + 0.0022 * rnd();
+    nrm[p * 3] = nx / nl; nrm[p * 3 + 1] = ny / nl; nrm[p * 3 + 2] = nz / nl;
+    col[p * 3] = 0.13 * k; col[p * 3 + 1] = 0.52 * k; col[p * 3 + 2] = 0.88 * k;
+    siz[p] = 0.0245 + 0.005 * rnd();
     p++;
   }
 
-  /* ── 小脑：扁、宽、贴在后下方，表面是横向叶片 ────────────────
-     旧版是个 0.40×0.25×0.33 的孤立椭球，悬在脑干后面、亮橙色——
-     那不是小脑，那是长在脑子上的肿瘤。
-     真实小脑：左右两半球 + 中间蚓部，宽约为大脑的 0.72，高只有 0.30，
+  /* ── 小脑：扁、宽、塞在枕叶下方，表面是横向叶片 ──────────────
+     旧版是个孤立椭球悬在脑干后面、亮橙色——那不是小脑，那是长在脑子上的肿瘤。
+     真实小脑：左右两半球 + 中间蚓部，宽约为大脑的 0.7，高只有 0.3，
      上缘**嵌进**枕叶下方（小脑幕之上），表面是一层层横纹（folia）。 */
-  const CB = { cx: 0, cy: -0.560, cz: -0.600, ax: 0.345, ay: 0.155, az: 0.230 };
+  const CB = { cx: 0, cy: -0.395, cz: -0.640, ax: 0.225, ay: 0.140, az: 0.165 };
+  const CB2 = [CB.ax * CB.ax, CB.ay * CB.ay, CB.az * CB.az];
   for (let i = 0; i < NB; i++) {
-    const [bx, by, bz] = fib(i, NB);
+    let [bx, by, bz] = fib(i, NB);
+    bx += (rnd() - 0.5) * 0.10; by += (rnd() - 0.5) * 0.10; bz += (rnd() - 0.5) * 0.10;
+    const il = 1 / (Math.hypot(bx, by, bz) || 1);
+    bx *= il; by *= il; bz *= il;
     // folia：沿 z 的密集横纹，这是小脑最好认的特征
-    const folia = 0.011 * Math.sin(bz * 44 + 0.6) + 0.005 * Math.sin(bz * 73 - 1.2);
+    const folia = 0.020 * Math.sin(bz * 24 + 0.6) + 0.009 * Math.sin(bz * 41 - 1.2);
     // 蚓部：中线略凹，把两个小脑半球分开
-    const vermis = 1 - 0.10 * Math.exp(-Math.pow(bx / 0.075, 2));
+    const vermis = 1 - 0.12 * Math.exp(-Math.pow(bx / 0.30, 2));
     const w = 1 + folia;
     const x = CB.cx + bx * CB.ax * w * vermis;
     const y = CB.cy + by * CB.ay * w;
     const z = CB.cz + bz * CB.az * w;
-    const k = 0.46 + 0.40 * rnd();
+    const nx = (x - CB.cx) / CB2[0], ny = (y - CB.cy) / CB2[1], nz = (z - CB.cz) / CB2[2];
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    const k = (0.22 + 0.90 * lamAt(nx, ny, nz)) * (0.80 + 0.20 * Math.tanh(folia * 70)) * (0.80 + 0.30 * rnd());
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    // 橙色压暗、压灰：它该融进整体，不该跳出来
-    col[p * 3] = 0.92 * k; col[p * 3 + 1] = 0.58 * k; col[p * 3 + 2] = 0.34 * k;
-    siz[p] = 0.0044 + 0.0020 * rnd();
+    nrm[p * 3] = nx / nl; nrm[p * 3 + 1] = ny / nl; nrm[p * 3 + 2] = nz / nl;
+    // 灰褐、压暗：它该融进整体，不该跳出来抢视线
+    col[p * 3] = 0.58 * k; col[p * 3 + 1] = 0.44 * k; col[p * 3 + 2] = 0.38 * k;
+    siz[p] = 0.0080 + 0.0026 * rnd();
     p++;
   }
-  // 脑干
+
+  /* ── 脑干：中脑 → 脑桥（膨大）→ 延髓，从小脑**前方**垂下 ──────
+     旧版是一根等径细管、直直吊在正中——那是输液管。
+     真实脑干在小脑前方（z 更靠前），脑桥处明显向前膨出，延髓渐细。
+     它同时是**整个侧面轮廓的高度来源**：大脑只到 -0.56，剩下的靠它。 */
   for (let i = 0; i < NS; i++) {
     const t = rnd();                       // 0=中脑（上） → 1=延髓（下）
-    const y = -0.42 - t * 0.32;
-    const bulge = Math.exp(-Math.pow((t - 0.36) / 0.20, 2)); // 脑桥
-    const taper = 1 - 0.34 * smooth01(0.55, 1.0, t);
-    const rad = (0.072 + 0.048 * bulge) * taper;
-    const zc = -0.255 + t * 0.10;          // 向下略前倾
+    const y = -0.44 - t * 0.30;
+    const bulge = Math.exp(-Math.pow((t - 0.32) / 0.18, 2)); // 脑桥
+    const taper = 1 - 0.30 * smooth01(0.55, 1.0, t);
+    const rad = (0.075 + 0.045 * bulge) * taper;
+    const zc = -0.215 + t * 0.075;         // 向下略前倾
     const a = rnd() * TAU;
-    const x = Math.cos(a) * rad * 1.15;    // 横断面左右宽、前后扁
-    const z = zc + Math.sin(a) * rad * 0.82;
-    const k = 0.55 + 0.35 * rnd();
+    const dx = Math.cos(a) * 1.18, dz = Math.sin(a) * 0.80;  // 横断面左右宽、前后扁
+    const x = dx * rad, z = zc + dz * rad;
+    const nl = Math.hypot(dx, 0, dz) || 1;
+    const k = (0.22 + 0.86 * lamAt(dx, 0, dz)) * (0.80 + 0.30 * rnd());
     pos[p * 3] = x; pos[p * 3 + 1] = y; pos[p * 3 + 2] = z;
-    col[p * 3] = 0.62 * k; col[p * 3 + 1] = 0.38 * k; col[p * 3 + 2] = 0.98 * k;
-    siz[p] = 0.0046 + 0.0020 * rnd();
+    nrm[p * 3] = dx / nl; nrm[p * 3 + 1] = 0; nrm[p * 3 + 2] = dz / nl;
+    col[p * 3] = 0.50 * k; col[p * 3 + 1] = 0.38 * k; col[p * 3 + 2] = 0.68 * k;
+    siz[p] = 0.0078 + 0.0026 * rnd();
     p++;
   }
-  return { pos, col, siz, n: NPTS };
+  return { pos, col, siz, nrm, n: NPTS };
 }
 
 /* ── 实体落点 ───────────────────────────────────────────────── */
@@ -251,12 +353,16 @@ const nodes = DATA.nodes.map((n) => {
   const vi = pool[hash(n.id) % pool.length];
   const j = hash(n.id + "#") / 4294967296;
   const a = hash(n.id + "@") / 4294967296 * Math.PI * 2;
-  const r = 0.012 + 0.02 * j;
+  /* 沿**表面法线往外**顶一点，不要随机方向。
+     随机方向有一半落到皮层里面，深度测试一开就全被埋掉；
+     贴着表面又和皮层 z-fighting。往外 0.02 刚好浮在表面上方。 */
+  const r = 0.020 + 0.022 * j;
+  const nx = mesh.nrm[vi * 3], ny = mesh.nrm[vi * 3 + 1], nz = mesh.nrm[vi * 3 + 2];
   return {
     ...n,
-    x: mesh.pos[vi * 3] + Math.cos(a) * r,
-    y: mesh.pos[vi * 3 + 1] + (j - 0.5) * 0.03,
-    z: mesh.pos[vi * 3 + 2] + Math.sin(a) * r,
+    x: mesh.pos[vi * 3] + nx * r + Math.cos(a) * 0.012,
+    y: mesh.pos[vi * 3 + 1] + ny * r + (j - 0.5) * 0.016,
+    z: mesh.pos[vi * 3 + 2] + nz * r + Math.sin(a) * 0.012,
     color: TYPE_COLOR[n.type] || [0.8, 0.8, 0.8],
   };
 });
@@ -271,7 +377,11 @@ const GEN = Date.parse(DATA.meta.generatedAt) || Date.now();
 const GRAY = [0.30, 0.33, 0.38];
 for (const n of nodes) {
   const k = Math.log1p(n.s || 0) / LOG_MAX;
-  n.size = 0.005 + 0.034 * Math.pow(k, 0.8);
+  /* 同一套大小放到不同器官上尺度不一样：脑干半径只有大脑的 1/8，
+     0.039 的球贴上去就是一颗亮瘤子。按区域缩。
+     脑干 41 个实体挤在那么细的一根管上，不缩就是一团加法混合的白光。 */
+  const shrink = n.r === "stem" ? 0.42 : n.r === "cerebellum" ? 0.66 : 1;
+  n.size = (0.005 + 0.034 * Math.pow(k, 0.8)) * shrink;
   n.fade = 0.22 + 0.78 * Math.pow(k, 0.5);
   const hl = DATA.meta.halfLives ? DATA.meta.halfLives[n.r] : null;
   const age = (GEN - Date.parse(n.l || "")) / 86400e3;
@@ -292,36 +402,65 @@ if (!gl) {
   e.textContent = "这个浏览器/面板没有 WebGL。用 Chrome / Edge 打开本地文件即可。";
 }
 
-const POINT_VS = `
-attribute vec3 aPos; attribute vec3 aCol; attribute float aSize; attribute float aAlpha;
-uniform mat4 uMVP; uniform vec3 uEye; uniform float uPix; uniform float uAlphaMul;
-varying vec3 vCol; varying float vA;
+/* 皮层：**不透明、写深度**。
+   上一版是加法混合 + 关深度测试，于是每一条视线都要穿过 100 层点，
+   84k 点叠出来的是一团雾——你看到的是"点云的统计"，不是"表面"。
+   深度一开，只画看得见的那一面，填充率掉一个数量级，形也立起来了。 */
+const SHELL_VS = `
+attribute vec3 aPos; attribute vec3 aCol; attribute float aSize;
+uniform mat4 uMVP; uniform vec3 uEye; uniform float uPix;
+varying vec3 vCol;
 void main(){
-  vec4 p = uMVP * vec4(aPos,1.0);
+  vec4 p = uMVP * vec4(aPos, 1.0);
   gl_Position = p;
-  gl_PointSize = clamp(aSize * uPix / max(p.w,0.05), 1.0, 64.0);
-  vec3 nrm = normalize(aPos + vec3(0.0001));
-  vec3 viewDir = normalize(uEye - aPos);
-  float facing = max(0.0, dot(nrm, viewDir));
-  vCol = aCol; vA = aAlpha * uAlphaMul * (0.22 + 0.78 * facing);
+  gl_PointSize = clamp(aSize * uPix / max(p.w, 0.05), 1.5, 40.0);
+  /* 漫反射在 CPU 上烘好了（跟视角无关）。这里只补一项**跟视角有关**的边缘光，
+     它负责把轮廓从背景里勾出来——没有它，深蓝的脑贴在近黑的背景上是一团糊。 */
+  vec3 n = normalize(aPos);
+  vec3 v = normalize(uEye - aPos);
+  float rim = pow(1.0 - max(0.0, dot(n, v)), 2.4);
+  vCol = aCol + vec3(0.11, 0.21, 0.34) * rim;
 }`;
 
-const POINT_FS = `
+const SHELL_FS = `
+precision mediump float;
+varying vec3 vCol;
+void main(){
+  vec2 d = gl_PointCoord - vec2(0.5);
+  if (dot(d, d) > 0.25) discard;
+  gl_FragColor = vec4(vCol, 1.0);
+}`;
+
+/* 节点：加法混合（要发光），但不写深度——否则后面画的高光会被它挡住。 */
+const NODE_VS = `
+attribute vec3 aPos; attribute vec3 aCol; attribute float aSize; attribute float aAlpha;
+uniform mat4 uMVP; uniform float uPix; uniform float uAlphaMul;
+varying vec3 vCol; varying float vA;
+void main(){
+  vec4 p = uMVP * vec4(aPos, 1.0);
+  gl_Position = p;
+  gl_PointSize = clamp(aSize * uPix / max(p.w, 0.05), 2.0, 64.0);
+  vCol = aCol; vA = aAlpha * uAlphaMul;
+}`;
+
+const NODE_FS = `
 precision mediump float;
 varying vec3 vCol; varying float vA;
 void main(){
   vec2 d = gl_PointCoord - vec2(0.5);
-  float r2 = dot(d,d);
+  float r2 = dot(d, d);
   if (r2 > 0.25) discard;
-  float a = 1.0 - smoothstep(0.02, 0.25, r2);
-  gl_FragColor = vec4(vCol, a * vA);
+  gl_FragColor = vec4(vCol, (1.0 - smoothstep(0.02, 0.25, r2)) * vA);
 }`;
 
+/* 边：整体外扩 1.5%，免得和皮层共面 z-fighting。
+   深度测试一开，穿过脑内部的长弦自动被前面那层皮挡掉——
+   "蜘蛛网"是**没有深度**造成的，不是边太多。 */
 const LINE_VS = `
 attribute vec3 aPos; attribute vec3 aCol; attribute float aAlpha;
 uniform mat4 uMVP;
 varying vec3 vCol; varying float vA;
-void main(){ gl_Position = uMVP*vec4(aPos,1.0); vCol=aCol; vA=aAlpha; }`;
+void main(){ gl_Position = uMVP * vec4(aPos * 1.015, 1.0); vCol = aCol; vA = aAlpha; }`;
 
 const LINE_FS = `
 precision mediump float;
@@ -335,19 +474,24 @@ function shader(type, src) {
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
   return s;
 }
-function program(vs, fs) {
+/* 位置在链接后**取一次**就存起来。
+   上一版每次 draw 都调 getAttribLocation / getUniformLocation——那是字符串查表，
+   一帧 17 次、60 帧 1000+ 次。这不叫渲染，这叫每帧重新问一遍"这个变量在哪"。 */
+function program(vs, fs, attrs, unis) {
   const p = gl.createProgram();
   gl.attachShader(p, shader(gl.VERTEX_SHADER, vs));
   gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(p);
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-  return p;
+  const a = {}, u = {};
+  for (const n of attrs) a[n] = gl.getAttribLocation(p, n);
+  for (const n of unis) u[n] = gl.getUniformLocation(p, n);
+  return { p, a, u };
 }
 
-const pPoint = program(POINT_VS, POINT_FS);
-const pLine = program(LINE_VS, LINE_FS);
-const loc = (p, n) => gl.getAttribLocation(p, n);
-const uni = (p, n) => gl.getUniformLocation(p, n);
+const pShell = program(SHELL_VS, SHELL_FS, ["aPos", "aCol", "aSize"], ["uMVP", "uEye", "uPix"]);
+const pNode = program(NODE_VS, NODE_FS, ["aPos", "aCol", "aSize", "aAlpha"], ["uMVP", "uPix", "uAlphaMul"]);
+const pLine = program(LINE_VS, LINE_FS, ["aPos", "aCol", "aAlpha"], ["uMVP"]);
 
 function buffer(data, usage) {
   const b = gl.createBuffer();
@@ -356,17 +500,15 @@ function buffer(data, usage) {
   return b;
 }
 function bindAttr(prog, name, buf, size) {
-  const l = loc(prog, name);
-  if (l < 0) return;
+  const l = prog.a[name];
+  if (l === undefined || l < 0) return;
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.enableVertexAttribArray(l);
   gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0);
 }
 
-/* 皮层 */
+/* 皮层（法线也传上去——不给它用，但以后要加边缘光就不用改缓冲） */
 const bShellPos = buffer(mesh.pos), bShellCol = buffer(mesh.col), bShellSiz = buffer(mesh.siz);
-const shellAlpha = new Float32Array(NPTS).fill(0.33);
-const bShellA = buffer(shellAlpha);
 
 /* 节点 */
 const N = nodes.length;
@@ -378,26 +520,17 @@ nodes.forEach((n, i) => {
 });
 const bNPos = buffer(nPos), bNCol = buffer(nCol), bNSiz = buffer(nSiz), bNAlp = buffer(nAlp, gl.DYNAMIC_DRAW);
 
-/* 边：事实（同行共现 / 同 seq）画成线，**推断（共同中间物）画成雾**。
-   两者必须一眼可分——不然你没法判断眼前这条线是"发生过"还是"我猜的"。
-   事实边亮度也跟着权重走，但封顶压得很低：枢纽节点（度数 201）否则会拉出满屏白线。 */
-const E = DATA.edges.length;
-const ePos = new Float32Array(E * 6), eCol = new Float32Array(E * 6), eAlp = new Float32Array(E * 2);
-const eBase = new Float32Array(E);
+/* 边只在**选中某个实体时**画，平时一条都不画。
+   理由不是"太卡"，是**它本来就不该出现在那个位置**：边是关系，不是几何。
+   A 和 B 在同一条日志里出现过，不代表它们之间有一根结构——把它画成穿过
+   脑内部的弦，等于凭空造出一根不存在的东西；1210 条这样的弦铺满屏幕
+   就是"蜘蛛网 / 裂纹玻璃"。点开实体时它才有意义：那时你要看"这个跟谁连着"。
+   而且那时它是**覆盖层**，不参与深度测试——关系不该被皮肉挡住。 */
+const MAXSEL = 256;
+const selPos = new Float32Array(MAXSEL * 6), selCol = new Float32Array(MAXSEL * 6), selAlp = new Float32Array(MAXSEL * 2);
+const bSelPos = buffer(selPos, gl.DYNAMIC_DRAW), bSelCol = buffer(selCol, gl.DYNAMIC_DRAW), bSelAlp = buffer(selAlp, gl.DYNAMIC_DRAW);
+let selN = 0;
 const INF_COLOR = [0.58, 0.63, 0.76];
-DATA.edges.forEach((e, i) => {
-  const a = nodes[e.s], b = nodes[e.t];
-  ePos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
-  const c = e.k === "inf"
-    ? INF_COLOR
-    : [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
-  eCol.set([...c, ...c], i * 6);
-  eBase[i] = e.k === "inf"
-    ? Math.min(0.095, 0.014 + e.v * 0.032)
-    : Math.min(0.165, 0.010 + Math.min(e.v, 8) * 0.019);
-  eAlp[i * 2] = eBase[i]; eAlp[i * 2 + 1] = eBase[i];
-});
-const bEPos = buffer(ePos), bECol = buffer(eCol), bEAlp = buffer(eAlp, gl.DYNAMIC_DRAW);
 
 /* 悬停高亮：单顶点缓冲，避免每帧新建 */
 const bHovPos = buffer(new Float32Array(3), gl.DYNAMIC_DRAW);
@@ -437,17 +570,24 @@ function mul(out, a, b) {
 }
 
 /* ── 相机 ───────────────────────────────────────────────────── */
+/* 这几个状态在 resize() 里就会被写，所以必须先声明（let 有 TDZ，晚一步就是
+   ReferenceError: Cannot access 'dirty' before initialization）。 */
+let pixBase = 1, dirty = true, lastT = 0, msAcc = 0, msN = 0;
+
 const FOV = Math.PI / 4.4;
-let yaw = 0.78, pitch = -0.06, dist = 3.05;
-let autoRotate = true, dragging = false, lastT = 0;
+let yaw = Math.PI / 2, pitch = 0.10, dist = 3.15;
+let autoRotate = true, dragging = false;
 const proj = new Float32Array(16), view = new Float32Array(16), mvp = new Float32Array(16);
 const eye = [0, 0, 0];
 
+/* DPR 上限 1.75：再往上画的是像素，不是信息。掉帧时由 frame() 降到 1。 */
+let dprCur = Math.min(1.75, window.devicePixelRatio || 1);
 function resize() {
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor(innerWidth * dpr);
-  canvas.height = Math.floor(innerHeight * dpr);
+  canvas.width = Math.floor(innerWidth * dprCur);
+  canvas.height = Math.floor(innerHeight * dprCur);
   gl.viewport(0, 0, canvas.width, canvas.height);
+  updPix();
+  dirty = true;
 }
 addEventListener("resize", resize);
 resize();
@@ -458,6 +598,7 @@ const typeCount = {};
 for (const n of nodes) typeCount[n.type] = (typeCount[n.type] || 0) + 1;
 
 function applyFilters() {
+  dirty = true;
   nodes.forEach((n, i) => { nAlp[i] = offTypes.has(n.type) ? 0 : n.fade; });
   gl.bindBuffer(gl.ARRAY_BUFFER, bNAlp);
   gl.bufferSubData(gl.ARRAY_BUFFER, 0, nAlp);
@@ -466,18 +607,35 @@ function applyFilters() {
 
 let selected = -1, neighbors = null, showInf = true;
 
-function applyEdgeFilter() {
-  for (let i = 0; i < E; i++) {
-    const e = DATA.edges[i];
-    let a = eBase[i];
-    const aOff = offTypes.has(nodes[e.s].type), bOff = offTypes.has(nodes[e.t].type);
-    if (aOff || bOff) a = 0;
-    else if (!showInf && e.k === "inf") a = 0;
-    else if (selected >= 0) a = (e.s === selected || e.t === selected) ? Math.min(0.62, a * 2.4) : a * 0.12;
-    eAlp[i * 2] = a; eAlp[i * 2 + 1] = a;
+/* 选中某个实体时，把它的边装进一个小缓冲（上限 256 条）。
+   只装这一个实体的边，所以缓冲很小、只在选中时重建一次，不占每帧成本。 */
+function buildSelEdges() {
+  selN = 0;
+  if (selected < 0) return;
+  for (const e of DATA.edges) {
+    if (e.s !== selected && e.t !== selected) continue;
+    if (selN >= MAXSEL) break;
+    if (offTypes.has(nodes[e.s].type) || offTypes.has(nodes[e.t].type)) continue;
+    if (!showInf && e.k === "inf") continue;
+    const a = nodes[e.s], b = nodes[e.t];
+    const i = selN++;
+    selPos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
+    const c = e.k === "inf"
+      ? INF_COLOR
+      : [(a.color[0] + b.color[0]) / 2, (a.color[1] + b.color[1]) / 2, (a.color[2] + b.color[2]) / 2];
+    selCol.set([...c, ...c], i * 6);
+    const al = e.k === "inf" ? Math.min(0.30, 0.10 + e.v * 0.10) : Math.min(0.55, 0.22 + Math.min(e.v, 8) * 0.05);
+    selAlp[i * 2] = al; selAlp[i * 2 + 1] = al;
   }
-  gl.bindBuffer(gl.ARRAY_BUFFER, bEAlp);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, eAlp);
+  if (!selN) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, bSelPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, selPos);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bSelCol); gl.bufferSubData(gl.ARRAY_BUFFER, 0, selCol);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bSelAlp); gl.bufferSubData(gl.ARRAY_BUFFER, 0, selAlp);
+}
+
+function applyEdgeFilter() {
+  dirty = true;
+  buildSelEdges();
   // 选中时把邻居点亮
   nodes.forEach((n, i) => {
     let v = offTypes.has(n.type) ? 0 : n.fade;
@@ -489,29 +647,53 @@ function applyEdgeFilter() {
 }
 
 /* ── 渲染 ───────────────────────────────────────────────────── */
-function drawPoints(bufPos, bufCol, bufSiz, bufAlp, count, sizeMul, alphaMul) {
-  gl.useProgram(pPoint);
-  gl.uniformMatrix4fv(uni(pPoint, "uMVP"), false, mvp);
-  gl.uniform3fv(uni(pPoint, "uEye"), eye);
-  gl.uniform1f(uni(pPoint, "uPix"), (canvas.height / (2 * Math.tan(FOV / 2))) * sizeMul);
-  gl.uniform1f(uni(pPoint, "uAlphaMul"), alphaMul);
-  bindAttr(pPoint, "aPos", bufPos, 3);
-  bindAttr(pPoint, "aCol", bufCol, 3);
-  bindAttr(pPoint, "aSize", bufSiz, 1);
-  bindAttr(pPoint, "aAlpha", bufAlp, 1);
+function updPix() { pixBase = canvas.height / (2 * Math.tan(FOV / 2)); }
+
+function drawShell() {
+  gl.useProgram(pShell.p);
+  gl.uniformMatrix4fv(pShell.u.uMVP, false, mvp);
+  gl.uniform3fv(pShell.u.uEye, eye);
+  gl.uniform1f(pShell.u.uPix, pixBase);
+  bindAttr(pShell, "aPos", bShellPos, 3);
+  bindAttr(pShell, "aCol", bShellCol, 3);
+  bindAttr(pShell, "aSize", bShellSiz, 1);
+  gl.drawArrays(gl.POINTS, 0, NPTS);
+}
+
+function drawNodes(bufPos, bufCol, bufSiz, bufAlp, count, sizeMul, alphaMul) {
+  gl.useProgram(pNode.p);
+  gl.uniformMatrix4fv(pNode.u.uMVP, false, mvp);
+  gl.uniform1f(pNode.u.uPix, pixBase * sizeMul);
+  gl.uniform1f(pNode.u.uAlphaMul, alphaMul);
+  bindAttr(pNode, "aPos", bufPos, 3);
+  bindAttr(pNode, "aCol", bufCol, 3);
+  bindAttr(pNode, "aSize", bufSiz, 1);
+  bindAttr(pNode, "aAlpha", bufAlp, 1);
   gl.drawArrays(gl.POINTS, 0, count);
 }
 
-function drawLines() {
-  gl.useProgram(pLine);
-  gl.uniformMatrix4fv(uni(pLine, "uMVP"), false, mvp);
-  bindAttr(pLine, "aPos", bEPos, 3);
-  bindAttr(pLine, "aCol", bECol, 3);
-  bindAttr(pLine, "aAlpha", bEAlp, 1);
-  gl.drawArrays(gl.LINES, 0, E * 2);
+function drawSelLines() {
+  if (!selN) return;
+  gl.useProgram(pLine.p);
+  gl.uniformMatrix4fv(pLine.u.uMVP, false, mvp);
+  bindAttr(pLine, "aPos", bSelPos, 3);
+  bindAttr(pLine, "aCol", bSelCol, 3);
+  bindAttr(pLine, "aAlpha", bSelAlp, 1);
+  gl.drawArrays(gl.LINES, 0, selN * 2);
 }
 
-function frame(t) {  if (!dragging && autoRotate) yaw += 0.0016;
+/* 静止时一帧都不算。
+   上一版不管有没有变化都每帧重画 8.4 万点——那是"让显卡硬算"最直白的样子：
+   画面一动不动，GPU 照样满载。 */
+function frame(t) {
+  requestAnimationFrame(frame);
+  const dt = lastT ? t - lastT : 16;
+  lastT = t;
+
+  if (!autoRotate && !dragging && !dirty) return;
+  dirty = false;
+  if (!dragging && autoRotate) yaw += 0.0016;
+
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   eye[0] = dist * cp * Math.sin(yaw); eye[1] = dist * sp; eye[2] = dist * cp * Math.cos(yaw);
   lookAt(view, eye, [0, -0.04, 0], [0, 1, 0]);
@@ -520,28 +702,42 @@ function frame(t) {  if (!dragging && autoRotate) yaw += 0.0016;
 
   gl.clearColor(0.016, 0.023, 0.047, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.disable(gl.DEPTH_TEST);
+
+  /* 皮层：不透明 + 写深度。只画看得见的那一面，后面的点被深度挡掉。 */
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+  drawShell();
+
+  /* 边与节点：测深度但不写深度——否则先画的点会把后面同位置的点挡住。 */
+  gl.depthMask(false);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 2.6, 0.07);   // 晕
+  drawNodes(bNPos, bNCol, bNSiz, bNAlp, N, 1.0, 1.0);    // 核
 
-  // 皮层：一遍就够，亮度已按朝向衰减
-  drawPoints(bShellPos, bShellCol, bShellSiz, bShellA, NPTS, 1.0, 1.0);
+  /* 选中的边最后画、关深度测试：它是**覆盖层**。
+     关系不是长在肉上的，不该被前面的皮层挡住——挡住就等于没画。 */
+  if (selN) { gl.disable(gl.DEPTH_TEST); drawSelLines(); gl.enable(gl.DEPTH_TEST); }
 
-  if (E) drawLines();
-
-  // 节点：先晕后核
-  drawPoints(bNPos, bNCol, bNSiz, bNAlp, N, 3.4, 0.10);
-  drawPoints(bNPos, bNCol, bNSiz, bNAlp, N, 1.0, 1.0);
-
-  // 悬停：在实体外面再套一圈光
   if (hover >= 0) {
     const n = nodes[hover];
     gl.bindBuffer(gl.ARRAY_BUFFER, bHovPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([n.x, n.y, n.z]));
     gl.bindBuffer(gl.ARRAY_BUFFER, bHovCol); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(n.color));
     gl.bindBuffer(gl.ARRAY_BUFFER, bHovSiz); gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([n.size]));
-    drawPoints(bHovPos, bHovCol, bHovSiz, bHovAlp, 1, 4.2, 0.45);
+    drawNodes(bHovPos, bHovCol, bHovSiz, bHovAlp, 1, 4.2, 0.45);
   }
-  requestAnimationFrame(frame);
+
+  /* 自适应分辨率：连续掉帧就降 DPR，不再硬扛。
+     数字摆在 HUD 上，省得又变成我口头保证"它不卡"。 */
+  msAcc += dt; msN++;
+  if (msN >= 45) {
+    const avg = msAcc / msN;
+    msAcc = 0; msN = 0;
+    if (avg > 26 && dprCur > 1) { dprCur = 1; resize(); }
+    showPerf(avg);
+  }
 }
 
 /* ── 拾取 ───────────────────────────────────────────────────── */
@@ -589,8 +785,15 @@ metaEl.innerHTML =
   (m.truncated ? `（原 ${m.total}，按强度截断）` : "") +
   `<br>${regionLine}`;
 
-document.getElementById("foot").innerHTML =
-  `位置 = <b>FNV-1a(实体名)</b> → 分区顶点（不变）　大小 = <b>遗忘曲线</b>（在用则亮，久不用则灰）`;
+const footEl = document.getElementById("foot");
+const FOOT_TEXT = `位置 = <b>FNV-1a(实体名)</b> → 分区顶点（不变）　大小 = <b>遗忘曲线</b>（在用则亮，久不用则灰）`;
+footEl.innerHTML = FOOT_TEXT;
+
+/* 把帧时间摆出来。性能这件事不能靠我口头保证，得让人一眼看见。 */
+function showPerf(ms) {
+  const t = ms.toFixed(1);
+  footEl.innerHTML = `${FOOT_TEXT}　·　<b>${t} ms</b>/帧 @ ${dprCur}x`;
+}
 
 const lgs = document.getElementById("lgs");
 for (const tp of TYPE_ORDER) {
@@ -690,15 +893,16 @@ canvas.addEventListener("pointermove", (e) => {
     px = e.clientX; py = e.clientY;
   } else {
     const i = pick(e.clientX, e.clientY);
-    if (i !== hover) { hover = i; canvas.style.cursor = i >= 0 ? "pointer" : "grab"; }
+    if (i !== hover) { hover = i; dirty = true; canvas.style.cursor = i >= 0 ? "pointer" : "grab"; }
   }
 });
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   dist = Math.max(1.7, Math.min(7.5, dist * Math.exp(e.deltaY * 0.0012)));
+  dirty = true;
 }, { passive: false });
 addEventListener("keydown", (e) => {
-  if (e.code === "Space") { e.preventDefault(); autoRotate = !autoRotate; }
+  if (e.code === "Space") { e.preventDefault(); autoRotate = !autoRotate; dirty = true; }
   if (e.code === "Escape") { selected = -1; neighbors = null; hideCard(); applyFilters(); }
 });
 
