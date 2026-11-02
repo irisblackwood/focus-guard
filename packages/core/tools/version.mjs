@@ -130,7 +130,10 @@ function writeEngineVersion(version, dry) {
 function writeChangelogSection(version, dry) {
   const path = join(ROOT, CHANGELOG)
   const text = readFileSync(path, 'utf8')
-  if (new RegExp(`^## ${version.replace(/\./g, '\\.')}\\b`, 'm').test(text)) return false
+  // 不用 RegExp 拼版本号：CodeQL js/regex-injection 的正确解法是不把变量塞进正则。
+  const marker = `## ${version}`
+  const exists = text.split(/\r?\n/).some((line) => line === marker || line.startsWith(`${marker} `) || line.startsWith(`${marker}·`))
+  if (exists) return false
   const at = text.search(/^## /m)
   if (at < 0) throw new Error(`${CHANGELOG} 里找不到任何 ## 段，不敢插`)
   const day = new Date().toISOString().slice(0, 10)

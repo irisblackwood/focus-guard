@@ -187,8 +187,8 @@ function checkImports(file, src) {
 
   for (const imp of list) {
     for (const { local } of imp.names) {
-      // 只保留 ASCII 标识符边界，避免中文注释里的同名字串误判
-      const re = new RegExp(`(?<![\\w$])${local.replace(/\$/g, '\\$')}(?![\\w$])`)
+      // 只保留 ASCII 标识符边界，避免中文注释里的同名字串误判；元字符全转义（CodeQL regex-injection）
+      const re = new RegExp(`(?<![\\w$])${local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`)
       if (!re.test(body)) report(file, imp.start + 1, 'unused-import', `${local}（来自 ${imp.source}）`)
     }
   }

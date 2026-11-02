@@ -44,11 +44,13 @@ for (const [file, src] of sources) {
     let uses = 0
     for (const [other, osrc] of sources) {
       if (other === file) continue
-      // 粗略：出现该符号名即算一次使用（含 import 与调用）
-      const re = new RegExp(`\\b${name.replace(/[$]/g, '\\$')}\\b`, 'g')
+      // 粗略：出现该符号名即算一次使用（含 import 与调用）；元字符全转义（CodeQL regex-injection）
+      const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const re = new RegExp(`\\b${esc}\\b`, 'g')
       uses += (osrc.match(re) || []).length
     }
-    const inTests = new RegExp(`\\b${name.replace(/[$]/g, '\\$')}\\b`).test(testsText)
+    const escName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const inTests = new RegExp(`\\b${escName}\\b`).test(testsText)
     if (uses === 0) findings.push({ rel, name, inTests })
   }
 }

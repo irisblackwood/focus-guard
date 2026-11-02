@@ -212,7 +212,8 @@ export function loadCaseRecords(p) {
 
 /** 卷宗表格单元格转义：`|` 会撑破列数（A3，2026-11-01 红队实测 8 列被撑成 11 段）。 */
 function cell(v) {
-  return String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  // 先转义反斜杠、再转义竖线：顺序反了会留下 `\|`（CodeQL incomplete-sanitization）
+  return String(v ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 export function saveCaseRecords(projDir, records) {
