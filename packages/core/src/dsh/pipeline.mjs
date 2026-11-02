@@ -94,7 +94,9 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
     // 这是"司法救济"通道——个案当场申辩，不必等修法（见 RULES 第八十三条(四)）。
     if (String((exec && exec.name) || '') === 'fg_appeal') {
       try {
-        const { appealAsk } = await import('../adapters/dsh/eligibility-gate.mjs')
+        const { recoverAppeal, appealAsk } = await import('../adapters/dsh/eligibility-gate.mjs')
+        // 宿主 approval=never 时的离线通道：人类在终端 approve 过 → 直接生效
+        if (await recoverAppeal(exec, warn)) return next()
         const ask = await appealAsk(exec, warn)
         if (ask) return ask
       } catch (error) {

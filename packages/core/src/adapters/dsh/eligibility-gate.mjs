@@ -610,6 +610,18 @@ export async function appealAsk(exec, warn) {
   })
   if (typeof warn === 'function') warn('申辩已提交人类裁决：', `${target} ${blocked.slice(0, 80)}`)
 
+  /* 宿主 approval 策略可能是 never（DSH 的 danger-full-access 会话即如此）：
+     此时 {kind:"ask"} 会被自动拒绝、根本不弹窗。所以同时落一份 FG 自己的待批队列，
+     人类可在终端 `focusguard pending` → `approve <id>` 走离线通道；
+     下一次同样的 fg_appeal 调用由 recoverAppeal() 消费该批准并生效。 */
+  let reqId = null
+  try {
+    const req = createApprovalRequest({ session, tool: 'fg_appeal', command: blocked, gateId: 'appeal', reason })
+    reqId = req && req.id
+  } catch {
+    /* 队列写不了不阻塞申辩：ask 仍是主通道 */
+  }
+
   return {
     kind: 'ask',
     reason:
@@ -617,9 +629,42 @@ export async function appealAsk(exec, warn) {
       `工具：${target}\n` +
       `被拦命令：${blocked.slice(0, 200) || '(未提供)'}\n` +
       `反例锚点：${counterExample.slice(0, 300) || '(未提供)'}\n` +
-      `理由：${reason.slice(0, 300)}\n\n` +
-      `批准 → 为该工具开通一次授权（ttl=turn），并豁免本次命中的红线；拒绝 → 维持拦截。`,
+      `理由：${reason.slice(0, 300)}\n` +
+      (reqId ? `离线审批（宿主不弹窗时）：node packages/core/tools/focusguard.mjs approve ${reqId}\n` : '') +
+      `\n批准 → 为该工具开通一次授权（ttl=turn），并豁免本次命中的红线；拒绝 → 维持拦截。`,
   }
+}
+
+/**
+ * 离线申诉恢复（2026-11-02）：宿主 approval=never 时，人类在终端 approve 后，
+ * 下一次 fg_appeal 直接消费该批准并生效，不依赖宿主弹窗。
+ * @returns {Promise<boolean>} 是否已恢复
+ */
+export async function recoverAppeal(exec, warn) {
+  const args = (exec && exec.arguments) || {}
+  const tool = String(args.tool ?? '').trim()
+  const command = String(args.command ?? '')
+  if (!tool) return false
+  let consumed
+  try {
+    consumed = consumeApproval('fg_appeal', command, sessionOf(exec))
+  } catch {
+    return false
+  }
+  if (!consumed || !consumed.consumed) return false
+  await grantFromAppeal({ session: sessionOf(exec), tool, command })
+  auditEligibility({
+    session: sessionOf(exec),
+    action: 'appeal-granted',
+    tool,
+    command: command.slice(0, 120),
+    layer: 'appeal',
+    decision: 'allow',
+    modelSignal: null,
+    evidence: `离线批准（approvals ${consumed.id}），授予 ttl=turn`,
+  })
+  if (typeof warn === 'function') warn('申辩（离线批准）已生效：', tool)
+  return true
 }
 
 /**
