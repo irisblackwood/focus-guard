@@ -84,7 +84,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L5** | 无 `[文件:行号]` 打回 | 已 | `src/dsh/stopGuard.mjs` |
 | **L5** | 体积刺客阻断（禁裸 cat 等） | 已 | `guard/volume.mjs` 体积三闸 + `guard/hardCheck.mjs` 硬校验 |
 | **L5** | 高危操作拦截 | 已 | 红线 + 资格闸 + 语义层观察模式 |
-| **L5** | 反规避 · 不可预测检查点 | 已 **默认开** | 抽查A：`RANDOM_AUDIT_EVERY`（确定性每 5 次全量审计，`postProgress.mjs:362`）。抽查B（2026-10-19 参数化）：独立参数 `FG_RANDOM_FUSE=1`（间隔 `[2,5]` 随机，`core/constants.mjs` 的 `RANDOM_FUSE_MIN/MAX`）或 `FG_RANDOM_FUSE_EVERY=N`（固定）；post-execute 只挂检查点（`postProgress.mjs:374`）。**2026-10-27 改：默认只留痕不打断**——pre-execute 第 3 层只清 `randomFusePending`，不再 deny（理由：拒一次必然多一次工具往返，而它不核对任何内容，理由原文就是"重试即放行"；实测 20 天 61 次全在 1 个长会话）。旧语义保留在 `FG_RANDOM_FUSE_BLOCK=1`（`guard/evidence.mjs` 的 `layer3Check`）。与抽查A 完全独立。**默认开**（2026-10-19 晚人类批示；FG_RANDOM_FUSE=0 关闭） |
+| **L5** | 反规避 · 不可预测检查点 | 已 **默认开** | 抽查A：`RANDOM_AUDIT_EVERY`（确定性每 5 次全量审计，`postProgress.mjs:362`）。抽查B（2026-10-19 参数化）：独立参数 `FG_RANDOM_FUSE=1`（间隔 `[2,5]` 随机，`core/constants.mjs` 的 `RANDOM_FUSE_MIN/MAX`）或 `FG_RANDOM_FUSE_EVERY=N`（固定）；post-execute 只挂检查点（`postProgress.mjs:374`）。**2026-10-27 改：默认只留痕不打断**——pre-execute 第 3 层只清 `randomFusePending`，不再 deny（理由：拒一次必然多一次工具往返，而它不核对任何内容，理由原文就是"重试即放行"；实测 20 天 61 次全在 1 个长会话）。旧语义保留在 `FG_RANDOM_FUSE_BLOCK=1`（`guard/evidence.mjs` 的 `layer3Check`）。与抽查A 完全独立。**默认开**（2026-10-19 晚定；FG_RANDOM_FUSE=0 关闭） |
 | **L5** | 反规避 · 意图预警（重复试探侦测） | 部分 | 停滞/无效调用计数存在（`stalledStreak`/`ineffCalls`），未做"意图"级预警 |
 | **L5** | 反规避 · 状态一致性 | 已 | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
 | **L5** | 压缩监察 | 已 | 同 P0 |

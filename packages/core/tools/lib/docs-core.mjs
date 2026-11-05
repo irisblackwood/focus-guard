@@ -70,6 +70,42 @@ export function changelogLatest(root) {
 }
 
 /** 七个清单的 version + ENGINE_VERSION + CHANGELOG 最新段必须一致。 */
+/**
+ * 已推送版本锚点：`tests/changelog-audience.test.mjs` 里的 `PUBLISHED_MAX`。
+ * 读不到返回 null——**不假红**（测试文件被改名不该让文档闸门误报）。
+ */
+function publishedMax(root) {
+  try {
+    const text = readFileSync(join(root, 'packages/core/tests/changelog-audience.test.mjs'), 'utf8')
+    const m = text.match(/PUBLISHED_MAX\s*=\s*["']([^"']+)["']/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
+/** 粗比 semver（只比 x.y.z 三段数字）；任一侧不可解析返回 0（不比较）。 */
+function cmpVersion(a, b) {
+  const pa = String(a).split('.').map(Number)
+  const pb = String(b).split('.').map(Number)
+  if (pa.length !== 3 || pb.length !== 3) return 0
+  if ([...pa, ...pb].some((n) => !Number.isFinite(n))) return 0
+  for (let i = 0; i < 3; i += 1) if (pa[i] !== pb[i]) return pa[i] > pb[i] ? 1 : -1
+  return 0
+}
+
+/**
+ * 版本面检查（2026-11-05 改判据）。
+ *
+ * **改之前的病**：拿"本地 CHANGELOG 最新段"当唯一真值，于是每写一条还没推送的记录，
+ * 所有清单都被逼着改成那个号——**闸门在逼着文档说谎**。对外读者看到的应当是"已发布"，
+ * 不是"作者本地写到哪了"。这就是"四套版本号并存"的机械成因。
+ *
+ * **现在三条判据，各管一件事**：
+ *   ① 清单之间必须互相一致（内部自洽；本地可以领先发布，但不能自相矛盾）；
+ *   ② CHANGELOG 最新段不得**落后**于清单（可以领先，领先就是"未推送"）；
+ *   ③ 对外展示（README badge / 状态头）必须等于 `PUBLISHED_MAX`（已推送），不跟本地开发版本走。
+ */
 export function checkVersionFace(root) {
   const findings = []
   const versions = []
@@ -89,17 +125,121 @@ export function checkVersionFace(root) {
   const constText = readFileSync(constFile, 'utf8')
   const em = constText.match(/ENGINE_VERSION\s*=\s*["']([^"']+)["']/)
   versions.push({ where: 'packages/core/src/core/constants.mjs ENGINE_VERSION', value: em ? em[1] : null })
-  const latest = changelogLatest(root)
-  versions.push({ where: 'CHANGELOG.md 最新段', value: latest })
 
-  const bad = versions.filter((v) => v.value !== latest)
-  for (const v of bad) {
+  // ① 清单之间一致。基准取**众数**而非第一个：否则"改坏第一个"会把其余全部报红，
+  //    一条错变成七条错，红的数量跟病灶无关，人就学会忽略红。
+  const tally = new Map()
+  for (const v of versions) if (v.value) tally.set(v.value, (tally.get(v.value) || 0) + 1)
+  let base = versions[0]?.value
+  let best = 0
+  for (const [value, n] of tally) {
+    if (n > best) {
+      base = value
+      best = n
+    }
+  }
+  for (const v of versions) {
+    if (base && v.value !== base) {
+      findings.push({
+        rule: 'version-inconsistent',
+        file: v.where,
+        line: 1,
+        detail: `${v.value} ≠ ${base}（清单之间必须一致）`,
+      })
+    }
+  }
+
+  // ② CHANGELOG 不得落后于清单
+  const latest = changelogLatest(root)
+  if (latest && base && cmpVersion(latest, base) < 0) {
     findings.push({
-      rule: 'version-mismatch',
-      file: v.where,
+      rule: 'version-changelog-behind',
+      file: 'CHANGELOG.md',
       line: 1,
-      detail: `${v.value} ≠ CHANGELOG 最新段 ${latest}`,
+      detail: `最新段 ${latest} 落后于清单 ${base}`,
     })
+  }
+
+  // ③ 对外展示盯远端
+  const published = publishedMax(root)
+  if (published) findings.push(...checkReadmeVersionFace(root, published))
+
+  return findings
+}
+
+/**
+ * 对外展示的版本号（README badge / 状态头）必须等于 `PUBLISHED_MAX`。
+ *
+ * 单独成函数有两个理由：① `checkVersionFace` 会超长函数阈值；
+ * ② 这条判据管的是"读者看到的" ，与"清单之间是否自洽"是两件事，分开才改得动。
+ */
+function checkReadmeVersionFace(root, published) {
+  const findings = []
+  let readme = ''
+  try {
+    readme = readFileSync(join(root, 'README.md'), 'utf8')
+  } catch {
+    return findings
+  }
+  const shown = []
+  const badge = readme.match(/badge\/version-(\d+\.\d+\.\d+)/)
+  if (badge) shown.push({ where: 'README.md badge', value: badge[1] })
+  const head = readme.match(/适用版本\s*(\d+\.\d+\.\d+)/)
+  if (head) shown.push({ where: 'README.md 状态头', value: head[1] })
+  for (const s of shown) {
+    if (s.value !== published) {
+      findings.push({
+        rule: 'version-face-stale',
+        file: s.where,
+        line: 1,
+        detail: `${s.value} ≠ 已推送 ${published}（对外展示盯远端，不盯本地）`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * 对外文档不得出现"某月某日人类说了什么"（2026-11-05 定）。
+ *
+ * 决策只写**规则 + 日期**，主语省略；原话属过程材料，归 `HANDOFF`。
+ * 反例：`超预算不裁剪（2026-10-30 人类批示「半句比不写危害大的多」）`
+ * 正例：`超预算不裁剪（2026-10-30）`
+ *
+ * 为什么不靠自觉：PATTERNS.md 建库 27 天零条就是"只有规矩没有闸门"的下场。
+ *
+ * 范围只含**活跃对外文档**：`README` / `CHANGELOG` / `docs/`（排除 `archive` 与 `vault-notes`）。
+ * 这两处 2026-11-05 已按要求清过一次，但**不纳入闸门**：归档是历史证据，闸门管到它
+ * 等于逼后人改历史；`vault-notes` 是外部资料摘录，会被重新生成覆盖。
+ */
+const CITATION_RE = /人类批示|人类原话|人类报告/
+export function checkCitationStyle(root) {
+  const findings = []
+  const targets = ['README.md', 'CHANGELOG.md']
+  for (const abs of listMarkdownFiles(root)) {
+    const rel = relative(root, abs).split('\\').join('/')
+    if (!rel.startsWith('docs/')) continue
+    if (rel.startsWith('docs/archive/') || rel.startsWith('docs/vault-notes/')) continue
+    targets.push(rel)
+  }
+  for (const rel of targets) {
+    let text = ''
+    try {
+      text = readFileSync(join(root, rel), 'utf8')
+    } catch {
+      continue
+    }
+    const lines = text.split('\n')
+    for (let i = 0; i < lines.length; i += 1) {
+      if (CITATION_RE.test(lines[i])) {
+        findings.push({
+          rule: 'citation-style',
+          file: rel,
+          line: i + 1,
+          detail: '决策写规则与日期，不写"谁说的"（原话归 HANDOFF）',
+        })
+      }
+    }
   }
   return findings
 }

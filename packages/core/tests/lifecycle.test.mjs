@@ -185,7 +185,13 @@ describe("3.0.8 · stop 缝（agent/turn-stopping · 移植批 4）", () => {
     assert.equal(st.fused, true, "声明熔断应置位");
     assert.ok(auditLines().some((r) => r.action === "shuanggui-declared"), "应留痕 shuanggui-declared");
     assert.ok(existsSync(join(ROOT, ".ai", "PATTERNS.md")), "应创建经验库 PATTERNS.md");
-    console.log("熔断声明 → fused =", st.fused, "| PATTERNS.md 已建");
+    // 2026-11-03：原实现只建空壳、零追加，建库 27 天零条。现在熔断必须落一条事实骨架。
+    assert.match(
+      readFileSync(join(ROOT, ".ai", "PATTERNS.md"), "utf8"),
+      /教训：<待补/,
+      "熔断应写入事实骨架（触发/证据/待补教训），而不是只建空文件",
+    );
+    console.log("熔断声明 → fused =", st.fused, "| PATTERNS.md 已建并记骨架");
     rmSync(statePath(sid), { force: true });
   });
 

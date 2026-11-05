@@ -27,7 +27,7 @@
 //   stop     (Stop)                回合边界 + 锚点核验 + 额度台账落卷
 import {
   readFileSync, writeFileSync, rmSync, statSync, appendFileSync,
-  mkdirSync, existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
+  existsSync, renameSync, realpathSync, readdirSync, copyFileSync,
 } from "node:fs";
 import { join, dirname, sep, basename, relative } from "node:path";
 import { tmpdir } from "node:os";
@@ -38,6 +38,7 @@ import { OUTPUT_GATE_BYTES, RANDOM_AUDIT_EVERY, BUDGET_DEFAULT, BUDGET_CAP, REFI
 // 本文件是封存版，只替换判定来源，不改变任何行为——参数语义仍按本宿主的工具 schema 翻译。
 import { judgeReadGate, judgeGrepGate, judgeCatGate } from "../src/core/outputGate.mjs";
 import { MUTATOR_HEAD_RE, CMD_PREFIX_RE, isMutatingBashCmd, FILE_REDIRECT_RE, DANGEROUS_PATTERNS, SQL_NOWHERE_RE, sqlNowhere, CURL_DATA_RE, SCRIPT_FILE_RE, GIT_OPT_WITH_VALUE, GIT_OPT_VALUELESS, gitHighRisk, cmdKey, isDangerousCmd } from "../src/core/redlines.mjs";
+import { appendPatternStub } from "../src/core/patterns.mjs";
 import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail, setProjectDirProvider } from "../src/core/audit.mjs";
 // 2026-10-25 分层：收尾判定搬到母版 `core/stopPolicy.mjs`，本文件只做"取结果 → 打回/审计"。
 import { declaresFuse, needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from "../src/core/stopPolicy.mjs";
@@ -1048,22 +1049,18 @@ if (mode === "stop") {
   if (formalFuse || text.includes("查无依据") || text.includes("查无实据")) {
     state.unknownStreak = (state.unknownStreak || 0) + 1;
     if (formalFuse || state.unknownStreak >= 2) {
+      const wasFused = state.fused === true; // 只在"未熔断→熔断"跃迁上写骨架，重复声明不重复记账
       state.fused = true;
       state.violations = Math.max(state.violations || 0, 3);
       audit(sid, "shuanggui-declared", { level: 3, evidence: formalFuse ? "明示熔断" : `连续 ${state.unknownStreak} 次未知声明` });
-      // 2.5.1：熔断时确保经验库存在（79条：解除后 AI 追加经验，卡点时 Grep 检索）
-      if (formalFuse) {
+      // 2.5.1 → 2026-11-03：原为"不存在才建"，零追加点，建库 27 天零条。
+      // 改为引擎写事实骨架（触发/证据/时间），「教训」一行留给模型补——引擎不替模型下结论。
+      if (formalFuse && !wasFused) {
         try {
           const pd = projectDir();
-          if (pd) {
-            const pat = join(pd, ".ai", "PATTERNS.md");
-            if (!existsSync(pat)) {
-              mkdirSync(dirname(pat), { recursive: true });
-              writeFileSync(pat, "# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时 Grep 检索（79条）。\n");
-            }
-          }
+          if (pd) appendPatternStub(pd, { sid, reason: "明示熔断" });
         } catch {
-          noteFail(sid, "PATTERNS.md 经验库创建");
+          noteFail(sid, "PATTERNS.md 经验库写入");
         }
       }
     }

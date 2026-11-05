@@ -67,7 +67,7 @@ test("版本面：七处清单 + ENGINE_VERSION + CHANGELOG 最新段必须一�
   put("packages/core/package.json", JSON.stringify({ version: "1.2.2" }));
   const bad = checkVersionFace(root);
   assert.equal(bad.length, 1, JSON.stringify(bad));
-  assert.equal(bad[0].rule, "version-mismatch");
+  assert.equal(bad[0].rule, "version-inconsistent");
   assert.match(bad[0].detail, /1\.2\.2/);
   rmSync(root, { recursive: true, force: true });
 });

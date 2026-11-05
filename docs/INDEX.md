@@ -25,6 +25,7 @@
 |---|---|---|---|---|
 | [README.md](../README.md) | 入口页：30 秒速览 / 快速开始 / 文档地图 | 权威 | 3.2.1 | 2026-10-28 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） | 权威 | 3.2.1 | 2026-10-29 |
+| [GOVERNANCE-LAYERS.md](GOVERNANCE-LAYERS.md) | 五层治理对账 + 四条待裁决 + 编排版本 | 参考 | 3.3.2 / 3.5.0 / 4.0-P2 / 4.5 | 2026-11-03 |
 | [INSTALL.md](../INSTALL.md) | 唯一安装源 | 权威 | 3.2.1 | 2026-10-24 |
 | [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） | 权威 | 3.2.1 | 2026-10-28 |
 | [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 | 权威 | 3.2.1 | 2026-10-27 |

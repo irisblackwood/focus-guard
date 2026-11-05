@@ -1,8 +1,8 @@
 # 变更记录（CHANGELOG）
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.3.2 · 最后核对 2026-11-05
 
-> **受众口径**（2026-10-27 人类批示，全文见 `docs/RELEASE-POLICY.md` 第一节）
+> **受众口径**（2026-10-27 定，全文见 `docs/RELEASE-POLICY.md` 第一节）
 > - 本文件是**发布记录**。`fix(...)` 前缀只表示「这一条改的是缺陷」，**不表示用户已受影响**。
 > - 「修复」二字仅用于**已对外分发版本**里的缺陷。开发期发现并处理掉的缺陷，正文写「某某改为…／收敛为…／加固…」，不写「修复某某问题」——那会让读者去核对一个自己不可能踩到的坑。
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
@@ -10,11 +10,11 @@
 
 ## 3.3.2 · 2026-11-02
 
-> 版本号依据（2026-11-02 人类批示「版本号嘛看 github」）：`origin/main` 上的 `ENGINE_VERSION`
+> 版本号依据：以 `origin/main` 上的 `ENGINE_VERSION` 为准（2026-11-02 定）
 > 是 **3.3.1**（`6bf25cb`），本地另有 4 个提交未推 → 下一个补丁位就是 **3.3.2**。
 > `3.4.0` / `3.5.0` 是内容里程碑名，按 `VERSION-PLAN.md` §1.1 的 B 方案只作内部代号，
 > 实际仍走 `3.3.x`——「满 10 条才升次版本」与「里程碑」的冲突由此解掉，不再挂着。
-> 发布状态：**未推送**。本段内容都在本地，`PUBLISHED_MAX` 仍是 3.3.1（判据盯的是远端）。
+> 发布状态：**已推送**——`PUBLISHED_MAX` = 3.3.2，与本段一致。此后的本地改动尚未成段，满批再记。
 > 影响面：开发期。
 
 ### 缺陷 P0-1 · 临时目录残留
@@ -719,7 +719,7 @@
   - **改法**：`[goal]` 永不淘汰且注入、`[done]`/`[note]` 不注入；`fg case --tag/--drop/--score` 交人治。
   - **测试**：变异「淘汰退回 `slice(-10)`」→ 红，报「长期目标不该被闲话挤掉」。
 - fix(workspace): 〔影响面：3.2.1〕**超预算不再裁剪——半句比不写危害大得多**
-  - **人类批示**：「超预算可以允许留着，有时候半句比不写危害大的多」。
+  - **依据**：超预算允许留着——半句比不写危害大得多。
   - **改法**：删掉渲染闸（1200 字），上限由 10×200 兜底；测试断言超 1200 仍全部保留。
 - docs(memory): **立 4.5 里程碑**：记忆系统独立成模块、静态知识库改革、与伪 RLHF 联动。
 - feat(case): **人工动作留痕**——`--drop` / `--tag` / 列表各写一条审计
@@ -1089,7 +1089,7 @@
 ### 文档与口径
 
 - docs(writing): **定「排版」规矩，并按它重排 3.2.0 段**
-  - **起因**：人类两次批示「讲一点格式啊，排版一点没有」「你这乱的，都要丢给模型才能读明白」。
+  - **起因**：文档排版散乱，必须丢给模型才读得明白。
   - **先量再定**：237 条条目平均 **220 字**、97 条超 200、35 条超 400、最长 **865**——一条 bullet 就是一篇短文。
   - **规矩**：新增 `docs/WRITING-STYLE.md` 七条（首句结论 / 条目 ≤120 / 子项带标签 ≤150、裸写 ≤80 / 层级 ≤2 / 三件以上上表 / 论证进 HANDOFF / 段标题信息不重复）。
   - **根因**：`CHANGELOG` 回答「变了什么」，`HANDOFF` 回答「为什么」。混写就是 865 字 bullet 的来源。
@@ -1192,7 +1192,7 @@
   - **缝只保留**：落状态 + 写审计 + 给提示；边界 `≥ cap` 即熔断、refill 不越 cap、侦查池 `>` 才算超限。
   - **测试**：`progress-policy.test.mjs` 4 条；回归 449/449。`hooks/guard.mjs` 三处留待阶段 2 第二刀。
 - refactor(layers): **收尾判定搬进母版（阶段 1）**
-  - **判据**：人类原话"母版是逻辑，适配只做翻译"。
+  - **判据**：母版是逻辑，适配只做翻译。
   - **原状**：`needsDowngrade` / `needsAccount` / `needsAnchorCheck` / `declaresFuse` / `hasAnchor` 在两个宿主缝各写一份。
   - **现**：统一到 `src/core/stopPolicy.mjs`（纯函数），缝只保留"取结果 → 打回/提示/写审计"。
   - **等价**：`guard.mjs` 仍打回、`stopGuard.mjs` 仍只审计（DSH 无 stop 拦截口）；5 条用例，回归 445/445。
@@ -1280,7 +1280,7 @@
 
 > v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3
 
-> 版本策略（人类批示 2026-10-22）：**每 10 次修复合为一次变更（x.x.0）**，其余按补丁号递增；细则见 `docs/RELEASE-POLICY.md`。
+> 版本策略（2026-10-22）：**每 10 次修复合为一次变更（x.x.0）**，其余按补丁号递增；细则见 `docs/RELEASE-POLICY.md`。
 > 3.0.8（2026-10-19，未发布 npm）内容：v3.0.8 - Implemented Lazy Liveness to reduce prompt token overhead; Relicensed under AGPLv3；本版在其上继续累积。
 >
 > 发布状态：npm 未发布（npm 最新 `3.0.7`，MIT 授权、不可撤销）；**源码已推 GitHub `main`，属已对外分发**。
@@ -1385,7 +1385,7 @@
   - **`FG_PTC_AUTO_GRANT=1`**：静默秒批。可逆类别（publish / global-install / chmod-wide）自动批准并留痕 `ptc-auto-grant`；不可逆类别不批。
   - **`FG_PTC_STRICT_IRREVERSIBLE=1`**：修口径漏洞——`applyOneEligibility` 审核期给的**临时授权**会让母版 L3 全部放行，`rm -rf ./src` 这类不可逆删除**自证自批**。
   - **严格档**：不可逆类别（rm-rf / format-volume / drop-database / git-push-force / write-system-path）申请返回 `needApproval`，不授予授权，留痕 `ptc-irreversible-blocked`。
-- feat(gate): **人工闸门改为默认开（B 方案）+ 文件审批链路**——上面那条"严格档默认关"等于安全幻觉，人类批示改为默认拦截 `rm -rf`：
+- feat(gate): **人工闸门改为默认开（B 方案）+ 文件审批链路**——上面那条"严格档默认关"等于安全幻觉，改为默认拦截 `rm -rf`：
   - **拦截落盘**：写 `.focus-guard/approvals/pending_request.json`，`id = sha256(工具+命令) 前 12 位`（换一个字符即失效，防偷换）。
   - **理由可照抄**：理由里直接给出 `node packages/core/tools/focusguard.mjs approve <id>`。
   - **CLI**：新增 `tools/focusguard.mjs`，子命令 `pending` / `approve <id>` / `list` / `status`（`npm run focusguard -- approve <id>`）。
@@ -1510,7 +1510,7 @@
   - **口径修正**：`evidence-gate` 的 deny 是设计内「首次改动提醒」（拒一次、重试即放行），`bench:cost` 的 `falsePositiveRatio` 必须扣除它，否则高估误伤。
   - 边界：不做自动调参、不做无人批准的回写；自动化只允许只读汇总。
 - docs: `ARCH-MAP.md` 同步——L6 闭塞项补「回流台账已建、本轮 0 条可批」，缺口 #3 改为「缺测量侧而非回流侧」。
-- feat(audit): **审计行补 `turn`/`step` 元数据 + 熔断浪费按会话独立计数**（人类批示）——此前 `AUDIT.log` 只有 `seq`，"熔断后浪费了几步"算不出来。
+- feat(audit): **审计行补 `turn`/`step` 元数据 + 熔断浪费按会话独立计数**——此前 `AUDIT.log` 只有 `seq`，"熔断后浪费了几步"算不出来。
   - **原状**：`seq` 是进程内序号，跨会话不可比，`stalledFuse.threshold` 无从校准（缺口 #3）。
   - **来源单一**：`{turn, step}` 取自 `agent/pre-step` 载荷（`dsh-agent-loop/lib/index.js:956`）。
   - **不由 exec 猜**：`tools/pre-execute` 的 exec 里没有这两个字段（`dsh-tools/lib/index.js:3239`），故由 `src/dsh/traceMeta.mjs` 记录。
@@ -1526,9 +1526,9 @@
 - docs: `BENCH.md` 增「熔断浪费（fuse-waste）」小节（来源、口径、命令）。
   - **ARCH-MAP**：缺口 #3 改为「T3 指标已补、待样本」。
   - **PROFILE-TUNING**：T3 状态改为「指标已可达（待样本）」并补 `fuse-waste` 快照行。
-- feat(gate): **反规避抽查B 参数化（不可预测检查点，人类批示）**——`ARCH-MAP` L5 的「2-5 次随机熔断」此前只有抽查A，两者混在一个参数里。
+- feat(gate): **反规避抽查B 参数化（不可预测检查点）**——`ARCH-MAP` L5 的「2-5 次随机熔断」此前只有抽查A，两者混在一个参数里。
   - **原状**：抽查A 是确定性每 5 次全量审计。
-  - **独立参数**：**与抽查A 完全独立**，**默认开**（人类批示；`FG_RANDOM_FUSE=0` 关闭）。
+  - **独立参数**：**与抽查A 完全独立**，**默认开**（`FG_RANDOM_FUSE=0` 关闭）。
   - **间隔**：在 `[RANDOM_FUSE_MIN=2, RANDOM_FUSE_MAX=5]` 次写操作间**随机**（`core/constants.mjs`）；`FG_RANDOM_FUSE_EVERY=N` → 固定间隔（运维/测试用，优先级更高）。
   - **语义**：post-execute 只能"挂检查点"（那次写已经发生，无法回滚），由 pre-execute 第 3 层对**下一次**变更型调用**拒一次**。
   - **手感**：与取证闸一致——审计 `trigger:"random-fuse"`，重试即放行；状态回写失败时**不拒**（宁可不拦也不做永久死锁）。
@@ -1543,7 +1543,7 @@
   - **条款口径**：默认开、2–5 随机、拒一次即放行、`random-fuse` 留痕、会话级计数。
   - **实施差异备忘**：新增 **v3.0.8 现状对齐**条目（收录 3.0.x 的按需自证/人工闸门/审计 turn·step/取证键归一化/evasionRisk/AGPL）。
 - docs: `ARCH-MAP.md` L5「反规避 · 不可预测检查点」部分 → 已（默认关）。
-  - **缺口 #4**：改为「默认关闭 + 未写入 RULES，待人类批示」。
+  - **缺口 #4**：改为「默认关闭 + 未写入 RULES，待裁决」。
 - fix(gate): **取证闸「读过仍被拒一次」的真根因——取证键没归一化**——同一文件两种写法，查不到即判「未读」。
   - **原状**：读记录侧 `rememberReads` 存宿主给的**原始路径**（相对），查证侧存 `resolveToolPath()` 后的**绝对路径**（`join(cwd, rel)`，Windows 带反斜杠）。
   - **后果**：靠 `evidenceBlockedOnce` 的「拒一次」逃生阀放行，表现就是"每次首次改都要被拦一次"。
@@ -1763,7 +1763,7 @@
 - test: 新增 `tests/gates.test.mjs`（8 用例）。CI 闸门至此 **6 套 / 248 个断言**。
 
 - refactor: **审批单机制退役（`fg_apply` 为唯一授权入口）**
-  - **缘起**：按人类批示（2026-10-10），审批单只需敲一个 `y`，**无目的、无范围、无留档**；与 `fg_apply`（要求 purpose/scope 结构化留档）并存时，人会本能选省事的那条，使"事前结构化申请"形同虚设。
+  - **缘起**：按 2026-10-10 的定案，审批单只需敲一个 `y`，**无目的、无范围、无留档**；与 `fg_apply`（要求 purpose/scope 结构化留档）并存时，人会本能选省事的那条，使"事前结构化申请"形同虚设。
   - **判据**：**留一条能绕过主设计的旁路，等于没有主设计。**
   - **代码**：`seams.mjs` 移除批 1 照搬的 y/n 批示识别（`Y_TOKEN`/`N_TOKEN`/`LEAD`/`TAIL`）与待批队列处理，以及 `highRiskDeniedThisTurn` 死字段（保留退役说明注释）。
   - **修法**：RULES 第七十五条(三) **实质保留**（"推送远端属对外发布行为，须审批"），授权方式由"出具【高危申请】审批单 + 领导回复 y"改为"**须先调 `fg_apply` 取得授权**（附 purpose/scope 结构化留档）"。
@@ -1824,7 +1824,7 @@
   - **子代理闸**：熔断期委派 = 越权绕行 L4/L5 · 48 条继承留痕 · 蜂群因果子链 `/dN` · **委托池消耗**。
   - **熔断期白名单**：只读放行/改动拒绝，且**熔断期不是高危命令的免检通道**。
   - **L2 强制取证 / L5 降权**：改动类一律拒绝。
-  - **委托池至此闭环**：追加侧在批 1 的 `preStepListener`（人类批示『追加额度』三池各 +10），消耗侧在本批（每次委派 −1）与 KPI 结算（委托池奖惩）。
+  - **委托池至此闭环**：追加侧在批 1 的 `preStepListener`（『追加额度』三池各 +10），消耗侧在本批（每次委派 −1）与 KPI 结算（委托池奖惩）。
 - fix: **工具名口径（适配层缺失，跨批次影响）**
   - **原状**：母版 `risk.mjs` 的 `isMutating` / `isInvestigation` 按 **ZCode 命名**精确判定（`tool === "Write"`、`["Read","Grep","Glob",…]`）。
   - **症状**：而 DSH 传**小写**（`write` / `read` / `pwsh` / `subagent`）→ 恒不匹配。
@@ -1853,7 +1853,7 @@
   - **教训**：**测试发现不了，因为测试造的就是自己假设的形状**——"单元测试全绿 ≠ 真实载荷正确"的典型。
   - **根因② 混有非人类消息**：DSH 的 pre-step 默认 next 是 `{ messages: [...claimed, context] }`（`dsh-agent-loop/lib/index.js:911-918`）。
   - **细节**：**渲染后的系统提示也会作为一条消息追加进来**。
-  - **后果**：若无条件拼接，会把系统提示当成人类批示——**比"取不到"更危险的方向**。
+  - **后果**：若无条件拼接，会把系统提示当成用户指令——**比"取不到"更危险的方向**。
   - **做法**：改为健壮提取——**优先只取 `role === 'user'` 的消息**（排除 pre-step 追加的 context）。
   - **兜底**：对 `content[]` 文本块 / `content` 字符串 / `text` / `parts[]` / 裸字符串逐层兜底；无 role 信息时退回全量。
   - **诊断**：`reset-fired` 增加文本长度诊断（`prompt:有(N字)`），下次真实回合即可确认。
@@ -1863,7 +1863,7 @@
   - **实测**：hermes-loop 的复盘子代理（`ctx.agents.create({ meta: { origin: 'subagent' } })`）会**同样触发 `agent/created` 与 `agent/pre-step`**，而 FG 未加区分。
   - **后果①**：做完整环境检测、载入 **39 条卷宗记录**（实测白占 20KB 状态文件）。
   - **后果②**：**重写工作区 `.ai/CASE_FILE.md` 的卷宗【一】**（每次 agent 创建写一次 → 文件抖动、并发时可能互相覆盖）。
-  - **后果③**：把它**由父 agent 生成的 prompt 当成人类批示**去识别（实测复盘 prompt 命中 `KEY50_RE` → 额度误判为 50，并记了无意义的 `goal-preauth`）。
+  - **后果③**：把它**由父 agent 生成的 prompt 当成用户指令**去识别（实测复盘 prompt 命中 `KEY50_RE` → 额度误判为 50，并记了无意义的 `goal-preauth`）。
   - **做法**：现按 `origin === 'subagent'`（兜底 `delegationDepth > 0`）分流：子代理只落一份最小状态、只做回合重置，跳过环境检测 / 卷宗读写 / 规则备案 / 巡视 / 批示识别。
 - fix: **42 条版本核验误报**
   - **原状**：核验把 `packages/core/hooks/guard.mjs` 的版本号与 `ENGINE_VERSION` 比较，但该文件是**封存版、版本号独立**（header 写明不随 FG 主版本更新，见 `HANDOFF.md` §九）。

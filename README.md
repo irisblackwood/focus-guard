@@ -1,13 +1,16 @@
 # FocusGuard 聚焦护栏
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.3.2 · 最后核对 2026-11-05
 
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.2.1-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.3.2-369eff)](CHANGELOG.md)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
+
+> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 仍停在 `3.0.7`（3.3.x 未发 npm）。
+> 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
 **AGPL-3.0-only + 商业双授权**：个人 / 学习 / 研究 / 非营利社区免费；商业使用（SaaS、闭源内部部署、收费产品）需单独授权。商标 `FocusGuard` / `聚焦护栏` 保留，衍生版本不得沿用。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
 

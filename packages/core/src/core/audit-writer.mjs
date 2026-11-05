@@ -13,9 +13,12 @@
  */
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -28,6 +31,15 @@ export const AUDIT_FILE = fileURLToPath(new URL('../../../../.focus-guard/AUDIT.
 
 /** 审计日志体积上限（字节）；`FG_AUDIT_MAX_BYTES` 可覆盖。默认 5 MB ≈ 2 万条记录。 */
 export const AUDIT_MAX_BYTES = Number(process.env.FG_AUDIT_MAX_BYTES) || 5 * 1024 * 1024
+
+/**
+ * 审计日志**年龄**上限（毫秒）；`FG_AUDIT_MAX_AGE_MS` 可覆盖。默认 30 天。
+ *
+ * 2026-11-03 人类报「AUDIT.log 有极旧数据都不清理」——实测成立：只有体积判据时，
+ * 27 天写 2.76 MB（10,256 条）离 5 MB 还差一半，于是首条 2026-10-06 的记录一直留在活动日志里，
+ * 按当时速率约 45–50 天才轮转一次。**体积约束的是磁盘，年龄约束的是可读性**，两件事。
+ */
+export const AUDIT_MAX_AGE_MS = Number(process.env.FG_AUDIT_MAX_AGE_MS) || 30 * 24 * 60 * 60 * 1000
 
 /** 归档保留份数；超出则删最旧。`FG_AUDIT_ARCHIVE_KEEP` 可覆盖。 */
 export const AUDIT_ARCHIVE_KEEP = Number(process.env.FG_AUDIT_ARCHIVE_KEEP) || 10
@@ -167,17 +179,45 @@ function normalizeRow(row) {
   return out
 }
 
+/** 读首条记录的 `ts`（只读头部 512 字节，不整读日志）。无记录或不可解析返回 null。 */
+function firstEntryTs(file) {
+  try {
+    const fd = openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(512)
+      const n = readSync(fd, buf, 0, 512, 0)
+      if (n <= 0) return null
+      const m = /"ts":"([^"]+)"/.exec(buf.subarray(0, n).toString('utf8'))
+      const t = m ? Date.parse(m[1]) : NaN
+      return Number.isFinite(t) ? t : null
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
- * 体积轮转：超出上限则把当前日志移入同目录 `archive/`，并立刻重建空文件。
- * 纪律三条：① 只归档、不删除（执法记录不得丢）；② 任何失败只 warn；
- * ③ 轮转失败时继续追加原文件——宁可文件变大，不可丢记录。
+ * 轮转：体积超上限**或**首条记录早于年龄上限，就把当前日志移入同目录 `archive/` 并重建空文件。
+ * 纪律三条：① 只归档活动日志、不删记录（归档保留最近 `AUDIT_ARCHIVE_KEEP` 份，更早的才清）；
+ * ② 任何失败只 warn；③ 轮转失败时继续追加原文件——宁可文件变大，不可丢记录。
+ * @param {string} [file] 日志路径
+ * @param {number} [max] 体积上限（字节）
+ * @param {number} [maxAgeMs] 年龄上限（毫秒）；传 `Infinity` 关闭年龄判据
  * @returns {string|null} 归档目标路径；未轮转或失败返回 null
  */
-export function rotateAuditIfNeeded(file = auditFilePath(), max = AUDIT_MAX_BYTES) {
+export function rotateAuditIfNeeded(file = auditFilePath(), max = AUDIT_MAX_BYTES, maxAgeMs = AUDIT_MAX_AGE_MS) {
   try {
     if (!existsSync(file)) return null
     const size = statSync(file).size
-    if (size < max) return null
+    const tooBig = size >= max
+    let tooOld = false
+    if (!tooBig && Number.isFinite(maxAgeMs)) {
+      const ts = firstEntryTs(file)
+      tooOld = ts !== null && Date.now() - ts >= maxAgeMs
+    }
+    if (!tooBig && !tooOld) return null
     const dir = join(dirname(file), 'archive')
     mkdirSync(dir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -195,7 +235,7 @@ export function rotateAuditIfNeeded(file = auditFilePath(), max = AUDIT_MAX_BYTE
         /* 清理旧存档失败可忽略 */
       }
     }
-    console.warn(`[focus-guard] 审计日志已轮转：${dest}（原 ${size} 字节）`)
+    console.warn(`[focus-guard] 审计日志已轮转：${dest}（原 ${size} 字节${tooOld ? '，首条超龄' : '，超体积'}）`)
     return dest
   } catch (error) {
     console.warn('[focus-guard] 审计轮转失败（继续追加原文件，不丢记录）:', (error && error.message) || error)

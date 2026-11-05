@@ -244,7 +244,7 @@ node packages/core/tools/bench-cost.mjs --since 2026-10-18 --json
 注意：关 FG 的轮次**不会写** `AUDIT.log`，所以拦截数只能从 B 臂拿，A 臂的 0 拦截
 是"没记录"而不是"实测无误报"，两者不可混为一谈。
 
-### 熔断浪费（fuse-waste，2026-10-19 人类批示）
+### 熔断浪费（fuse-waste，2026-10-19）
 
 `AUDIT.log` 每行自 2026-10-19 起带 `turn`（回合号）与 `step`（回合内步号）。来源**只有一个**：
 宿主 `agent/pre-step` 的载荷 `{ messages, turn, step, signal }`（`dsh-agent-loop/lib/index.js:956`）；

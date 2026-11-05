@@ -3,7 +3,7 @@
  *
  * 移植自 guard.mjs 的 stop 段（L908-1107）。KPI 结算已在 seams.mjs（批 1）完成，
  * 本模块补其余收尾判定：任务规模声明 · 绝境模式豁免 · **《授权识别与留痕条例》核验** ·
- * 触发⑤（熔断声明与未知跟踪）· 双规后交代 · 经验库创建（79条）· 触发②（本回合调用≥5 无锚点）。
+ * 触发⑤（熔断声明与未知跟踪）· 双规后交代 · 经验库写入（2026-11-03 起写事实骨架）· 触发②（本回合调用≥5 无锚点）。
  *
  * ⚠ 两个刻意的取舍（与 guard.mjs 不同，均因 DSH 的现实）：
  *  ① **只审计、不打回**。guard.mjs 用 `block()` 打回，靠 `input.stop_hook_active` 这个
@@ -18,9 +18,8 @@
  *
  * 纪律：审计走 DSH 统一入口；异常只 warn，绝不断开主流程。
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { statePath, loadState, saveState } from '../core/state.mjs'
+import { appendPatternStub } from '../core/patterns.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
 import { needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from '../core/stopPolicy.mjs'
 import {
@@ -174,18 +173,13 @@ function handlePardonDeclaration({ sid, file, state, text, warn }) {
   return true
 }
 
-/** 79条：熔断时确保经验库存在（解除后 AI 追加经验，卡点时 Grep 检索）。 */
+/** 熔断时写经验库（2026-11-03：原为"不存在才建"、零追加，建库 27 天零条）。
+ *  改为引擎写事实骨架（触发/证据/时间），教训一行留给模型补。 */
 function ensurePatternsFile(sid, projDir) {
   try {
-    const pat = join(projDir, '.ai', 'PATTERNS.md')
-    if (existsSync(pat)) return
-    mkdirSync(dirname(pat), { recursive: true })
-    writeFileSync(
-      pat,
-      '# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时 Grep 检索（79条）。\n',
-    )
+    appendPatternStub(projDir, { sid, reason: '明示熔断' })
   } catch {
-    audit(sid, 'note-fail', { evidence: 'PATTERNS.md 经验库创建失败（降级继续）' })
+    audit(sid, 'note-fail', { evidence: 'PATTERNS.md 经验库写入失败（降级继续）' })
   }
 }
 
