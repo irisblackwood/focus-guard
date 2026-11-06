@@ -109,7 +109,7 @@ node packages/core/tools/brain.mjs --open      # 跑完顺手打开
 
 ## 版本
 
-当前 **v3.2.1**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前 **v3.3.2**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 

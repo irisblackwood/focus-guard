@@ -13,6 +13,7 @@ const {
   checkIndexCoverage,
   checkReadmeMetrics,
 } = await import("../tools/lib/docs-core.mjs");
+const { checkVersionClaims } = await import("../tools/lib/docs-version.mjs");
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "fg-docs-"));
@@ -125,5 +126,15 @@ test("README 硬指标：超行数/超标题/三位数正文必须报（版本�
 
   put("README.md", "# R\n\n> **状态**：权威 · 适用版本 3.2.1 · 最后核对 2026-10-28\n\n只有版本 3.2.1 与日期 2026-10-28。\n");
   assert.deepEqual(checkReadmeMetrics(root), []);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("版本断言句：正文「当前 vX」与已发布不符必须报，相等则放行", () => {
+  const { root, put } = fixture();
+  put("README.md", "# R\n\n当前 **v3.2.1**\n\n当前 **v3.3.2**\n");
+  const findings = checkVersionClaims(root, "3.3.2");
+  assert.equal(findings.length, 1, JSON.stringify(findings));
+  assert.equal(findings[0].rule, "version-claim-stale");
+  assert.equal(findings[0].line, 3);
   rmSync(root, { recursive: true, force: true });
 });

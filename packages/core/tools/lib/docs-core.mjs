@@ -74,7 +74,7 @@ export function changelogLatest(root) {
  * 已推送版本锚点：`tests/changelog-audience.test.mjs` 里的 `PUBLISHED_MAX`。
  * 读不到返回 null——**不假红**（测试文件被改名不该让文档闸门误报）。
  */
-function publishedMax(root) {
+export function publishedMax(root) {
   try {
     const text = readFileSync(join(root, 'packages/core/tests/changelog-audience.test.mjs'), 'utf8')
     const m = text.match(/PUBLISHED_MAX\s*=\s*["']([^"']+)["']/)
