@@ -19,7 +19,7 @@ dsh plugin --profile <你的 profile> add github:irisblackwood/focus-guard#path:
 
 装完 **重启会话** 生效。bundle 补丁由本包的 `package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`。
 
-> **npm 上有包，但落后**：`npm install focus-guard` 可安装——registry 为 **3.0.7**，本仓为 **3.3.3**（尚未发 npm）。上面那条 GitHub 路径跟的是仓库最新代码。
+> **npm 已发布**：`npm install focus-guard` 装到 **3.3.3**（2026-11-07，GitHub OIDC 受信发布 + 签名 provenance）。上面那条 GitHub 路径跟的是仓库最新代码。
 
 注意 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路同时挂载会双跑（同一条缝双监听），**二选一**。
 
