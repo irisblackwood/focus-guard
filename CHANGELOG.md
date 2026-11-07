@@ -8,6 +8,43 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
+## 3.3.3 · 2026-11-07
+
+> 发布状态：**待推送**——本段成于推送前；推送后 `PUBLISHED_MAX` 与本段同步为 3.3.3。
+> 影响面：混合段。版本断言、审计轮转删除行为两处缺陷存在于已推 `main` 的 3.3.2；其余为治理收口与新增判据。
+
+### 版本真值
+
+- fix(docs): 〔影响面：3.3.2〕根 `README.md` 结尾写「当前 **v3.2.1**」，与同文件开头 3.3.2 冲突；
+  `packages/core/README.md` 与 `README.zh-CN.md` 整份停在 3.0.8，并对外宣称
+  「repo is 3.0.8, not yet released」。clone 即见，读者据此判断装哪个版本会拿到错值。
+- fix(skill): 〔影响面：3.3.2〕`skills/focus-thinking/SKILL.md` 向模型声称引擎版本为 3.0.8。
+  这份文件是喂给模型的，比 README 写错更危险。
+- 判据：`docs:lint` 新增 `version-claim-stale`。正文「当前 / Currently / repo is / 本仓为 + 版本号」
+  必须等于 `PUBLISHED_MAX`；「适用版本」状态头是**滞后标记**，不入此规则——强行拉平等于
+  逼文档宣称没做过的核对。
+- 判据：`checkVersionFace` 由「清单 = CHANGELOG 最新段」改为三条——清单互洽、CHANGELOG 不落后
+  于清单、对外展示等于 `PUBLISHED_MAX`。旧判据把本地未推送的最新段当真值，等于逼对外文档跟着漂。
+
+### 治理
+
+- 五层治理对账写入 `docs/GOVERNANCE-LAYERS.md`：硬核 / 协作层 / 授权主体 / 记忆 / 治理，
+  含四条待裁决与编排版本排期。
+- 经验库 `PATTERNS.md` 由「只建空壳」改为熔断首次跃迁写事实骨架：时间 / 环境 / 触发 / 证据
+  由引擎填，`教训` 一行留空给模型补。两个入口（`hooks/guard.mjs`、`src/dsh/stopGuard.mjs`）
+  收敛到 `src/core/patterns.mjs`，不再各写一份。
+- 审计轮转加年龄维度（`AUDIT_MAX_AGE_MS`，默认 30 天）。原判据只看体积：27 天写了 2.76 MB，
+  离 5 MB 阈值还差一半，约 45–50 天才轮一次——体积约束磁盘，年龄约束可读性，此前只做了一件。
+- fix(audit): 〔影响面：3.3.2〕`audit-writer.mjs` 注释写「只归档、不删除」，代码却在超出 10 份时
+  `rmSync` 删除旧档。改为如实描述：只归档活动日志、不删记录，归档保留最近 10 份。
+- 对外文档清除「某月某日某人批示「原话」」引用体（28 处），改写成规则 + 日期；
+  `docs:lint` 新增 `citation-style` 规则兜底。
+
+### 结构
+
+- `docs-core.mjs` 回到 392 行（阈值 400）：新增的版本断言判据独立成 `tools/lib/docs-version.mjs`，
+  没有抬高阈值。
+
 ## 3.3.2 · 2026-11-02
 
 > 版本号依据：以 `origin/main` 上的 `ENGINE_VERSION` 为准（2026-11-02 定）
