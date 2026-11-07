@@ -32,6 +32,12 @@ const STATE_DEPENDENT = /取证记录|状态校验|熔断|降权/;
 // 同一条 read 理应放行（2026-10-27：pipeline.mjs 1242 → 106 行，3 条旧样本因此失效）。
 // 夹具重放必须校验前提：前提成立 → 仍须 deny；前提已不成立 → 必须 allow（否则是"过时的拦"）。
 const WHOLE_FILE_LIMIT = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300;
+// 「本机环境」样本的前提是 `.ai/env-fingerprint.json`——**私有面文件，不入版本库**
+// （privacy 闸专门保证 `.ai` 不被跟踪）。没有它，命令硬校验按设计 fail-open，
+// 同一条 `cat` 在作者机上 deny、在任何干净 clone 与 CI 上 allow。
+// 这与「整文件闸要求目标文件存在」同类：前提缺失时，断言本身失效，不是回归。
+const ENV_FP = join(REPO_ROOT, ".ai", "env-fingerprint.json");
+const envPremiseMissing = (fx) => /本机环境/.test(String(fx.reason || "")) && !existsSync(ENV_FP);
 function lineCountOf(file) {
   const buf = readFileSync(absOf(file));
   let n = 0;
@@ -57,6 +63,7 @@ if (!existsSync(FIXTURES)) {
     .filter((fx) => DETERMINISTIC.test(String(fx.reason || "")))
     .filter((fx) => !STATE_DEPENDENT.test(String(fx.reason || "")))
     .filter(replayable)
+    .filter((fx) => !envPremiseMissing(fx))
     .slice(0, 40);
 
   /** 整文件闸样本按当前文件行数重算期望：文件缩水后，同一条 read 必须放行。 */
