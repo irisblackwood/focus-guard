@@ -9,6 +9,7 @@
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname, delimiter } from "node:path";
 import { execFileSync } from "node:child_process";
+import { buildEnvMap, droppedAlternatives } from "./lib/envMap.mjs";
 
 // PATH 补全：宿主进程的 PATH 可能是启动时的旧快照，补上常见安装位置后再探测（只影响本脚本）。
 const EXTRA_PATH_DIRS = [
@@ -71,7 +72,7 @@ const fingerprint = {
   generated_at: new Date().toISOString(),
   platform: { os: process.platform, shell: detectShell(), encoding: detectEncoding() },
   tools: { available, unavailable },
-  map: { ...MAP },
+  map: buildEnvMap(MAP, available),
 };
 
 const outIdx = process.argv.indexOf("--out");
@@ -79,10 +80,10 @@ const out = outIdx >= 0 ? process.argv[outIdx + 1] : join(process.cwd(), ".ai", 
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(fingerprint, null, 2) + "\n", "utf8");
 
-const missingAlt = Object.entries(MAP).filter(([, v]) => !available.includes(v)).map(([k, v]) => `${k}→${v}`);
+const missingAlt = droppedAlternatives(MAP, available);
 console.log(`env-fingerprint：${out}`);
 console.log(`  平台 ${fingerprint.platform.os} / shell ${fingerprint.platform.shell} / 编码 ${fingerprint.platform.encoding}`);
 console.log(`  可用 ${available.join(" ") || "-"}`);
 console.log(`  不可用 ${unavailable.join(" ") || "-"}`);
 console.log(`  map ${Object.entries(MAP).map(([k, v]) => `${k}→${v}`).join(" ")}`);
-if (missingAlt.length) console.log(`  [警示] 替代工具未安装：${missingAlt.join(" ")}——硬校验生效后这些 key 会被拒且无本机替代`);
+if (missingAlt.length) console.log(`  [已剔除] 替代工具未安装：${missingAlt.join(" ")}——这些 key 不进 map，硬校验不会拒它们（否则会建议一个不存在的命令）`);

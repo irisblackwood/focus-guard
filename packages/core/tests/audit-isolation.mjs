@@ -150,6 +150,9 @@ childEnv.FG_RUN_ID = runId
 // 一处改动覆盖全部测试文件，且对将来新增的测试同样生效。
 const testStateDir = mkdtempSync(join(tmpdir(), 'fg-test-'))
 childEnv.FG_STATE_DIR = testStateDir
+// 测试不生成环境指纹（2026-11-07）：会话启动会自动 spawn 生成器，测试里那属于副作用噪音，
+// 且会让「真实工作区未被触碰」类断言多一个写入者。显式关掉，行为回到可预期。
+childEnv.FG_ENV_FP_AUTO = '0'
 childEnv.TEMP = testStateDir
 childEnv.TMP = testStateDir
 childEnv.TMPDIR = testStateDir

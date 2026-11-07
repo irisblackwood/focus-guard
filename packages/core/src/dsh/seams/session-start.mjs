@@ -14,6 +14,8 @@
  */
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import {
   statePath,
   loadState,
@@ -30,6 +32,9 @@ import { sidOf, projDirOf, isSubagent, auditRow } from './shared.mjs'
 /** 42条 版本核验的候选清单（封存版单列，命中即豁免——见下方 checkVersionDrift 注释）。 */
 const SEALED = new Set(['packages/core/hooks/guard.mjs'])
 const VERSION_CANDIDATES = ['hooks/guard.mjs', 'focus-guard/hooks/guard.mjs', 'packages/core/hooks/guard.mjs']
+
+/** 指纹生成器（安装后目录结构不变：src/dsh/seams → ../../../tools）。 */
+const ENV_FP_TOOL = fileURLToPath(new URL('../../../tools/env-fingerprint.mjs', import.meta.url))
 
 export function sessionStartListener({ warn } = {}) {
   return async ({ agent } = {}) => {
@@ -104,10 +109,38 @@ function detectEnvInto(state, projDir) {
   }
 }
 
+/**
+ * 环境指纹自动补齐（2026-11-07）。
+ *
+ * 病根：全仓没有任何生成入口——`INSTALL.md` 没写、会话启动不做、`postinstall` 也不做。
+ * 于是第 1.5 层命令硬校验在**大多数机器上等于没开**（缺文件即 fail-open），
+ * 而作者机上恰好有一份手工生成的，造成「同一条命令这边拦、那边放」。
+ *
+ * 为什么后台 spawn 而不是同步算：探测 5 个工具正常几百毫秒，但工具挂起时最坏要 7 秒以上，
+ * 不该压在会话启动路径上。生成后下一回合即生效；本次仍 fail-open，与旧行为一致。
+ */
+function ensureEnvFingerprint(projDir) {
+  if (process.env.FG_ENV_FP_AUTO === '0') return
+  try {
+    const fp = join(projDir, '.ai', 'env-fingerprint.json')
+    if (existsSync(fp)) return
+    const child = spawn(process.execPath, [ENV_FP_TOOL, '--out', fp], {
+      cwd: projDir,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    child.unref()
+  } catch {
+    /* 生成失败不阻断：缺文件时该层仍 fail-open，与旧行为一致 */
+  }
+}
+
 /** 2.0~42条：卷宗载入 + 环境声明落卷 + 交叉巡视 + 部署版本核验。 */
 function prepareProject({ sid, projDir, state }) {
   loadCaseInto(state, sid, projDir)
   writeEnvDeclaration(state, sid, projDir)
+  ensureEnvFingerprint(projDir)
   // 36条 异地交叉巡视：新会话接手 → 复核前任结论
   inspectHandover(sid, projDir)
   checkVersionDrift(sid, projDir)
