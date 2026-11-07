@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
@@ -11,6 +11,12 @@ import { tmpdir } from "node:os";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures", "real-calls");
+// 夹具里的路径是**仓库相对**的（`packages/core/package.json`）。此前本文件把会话 cwd
+// 写死成作者本机的 `E:\DSH\focus-guard-main`，于是只在作者机器上成立：换台机器（CI）
+// 该路径不存在 → 整文件闸 stat 失败 → 无声放行 → 4 条样本全变「漏拦回归」。
+// 改从文件位置推仓库根：任何 cwd、任何机器都指向同一棵树。
+const REPO_ROOT = join(HERE, "..", "..", "..");
+const absOf = (p) => (p && !isAbsolute(p) ? join(REPO_ROOT, p) : p);
 
 process.env.FG_AUDIT_FILE = join(tmpdir(), `fg-real-fx-${process.pid}-${Date.now()}.log`);
 process.env.FG_SHELL = "";
@@ -27,7 +33,7 @@ const STATE_DEPENDENT = /取证记录|状态校验|熔断|降权/;
 // 夹具重放必须校验前提：前提成立 → 仍须 deny；前提已不成立 → 必须 allow（否则是"过时的拦"）。
 const WHOLE_FILE_LIMIT = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300;
 function lineCountOf(file) {
-  const buf = readFileSync(file);
+  const buf = readFileSync(absOf(file));
   let n = 0;
   for (let i = 0; i < buf.length; i += 1) if (buf[i] === 10) n += 1;
   return n;
@@ -44,7 +50,7 @@ if (!existsSync(FIXTURES)) {
   const replayable = (fx) => {
     if (!/整文件闸/.test(String(fx.reason || ""))) return true;
     const p = targetOf(fx);
-    return Boolean(p) && existsSync(p);
+    return Boolean(p) && existsSync(absOf(p));
   };
   const cases = all
     .filter((fx) => fx.verdict === "deny")
@@ -77,7 +83,7 @@ if (!existsSync(FIXTURES)) {
           sessionId: sid,
           name: fx.tool,
           arguments: fx.args,
-          agent: { session: { header: { id: sid, cwd: "E:\\DSH\\focus-guard-main" } } },
+          agent: { session: { header: { id: sid, cwd: REPO_ROOT } } },
         },
         () => ({ kind: "allow" }),
       );
