@@ -10,5 +10,12 @@
     "command": "cat packages/core/package.json | head -20"
   },
   "verdict": "deny",
-  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20 [FG 存活 15/15]\"}]"
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20 [FG 存活 15/15]\"}]",
+  "envMap": {
+    "grep": "rg",
+    "find": "fd",
+    "ls": "eza",
+    "cat": "bat",
+    "sed": "sd"
+  }
 }

@@ -11,5 +11,12 @@
     "workdir": "E:\\DSH\\focus-guard-main"
   },
   "verdict": "deny",
-  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20\"}]"
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20\"}]",
+  "envMap": {
+    "grep": "rg",
+    "find": "fd",
+    "ls": "eza",
+    "cat": "bat",
+    "sed": "sd"
+  }
 }

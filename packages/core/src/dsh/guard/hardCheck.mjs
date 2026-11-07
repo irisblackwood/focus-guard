@@ -13,9 +13,20 @@ const ENV_FINGERPRINT_REL = join('.ai', 'env-fingerprint.json')
 let envFpCache = { path: null, mtimeMs: 0, map: null }
 let envFpMissingWarned = false
 
+/**
+ * 指纹文件位置：`FG_ENV_FP_FILE` 是**测试隔离口**（与 `FG_AUDIT_FILE` / `FG_CASE_FILE` 同思路）。
+ *
+ * 为什么需要它：真实调用夹具把录制时的 `map` 一起存了下来，重放时必须能指到那份 map，
+ * 否则同一条 `cat` 在录制机 deny、在干净 clone 上 allow（该闸按设计 fail-open），
+ * 样本会被判成「漏拦回归」。没有这个口，那几条样本只能在作者机器上成立。
+ */
+function fingerprintPath(cwd) {
+  return process.env.FG_ENV_FP_FILE || join(cwd || process.cwd(), ENV_FINGERPRINT_REL)
+}
+
 /** 读环境指纹的 map 表；缺失或损坏返回 null（fail-open）。 */
 function readEnvMap(warn, cwd = process.cwd()) {
-  const p = join(cwd, ENV_FINGERPRINT_REL)
+  const p = fingerprintPath(cwd)
   try {
     const mtimeMs = statSync(p).mtimeMs
     if (envFpCache.path !== p || envFpCache.mtimeMs !== mtimeMs) {

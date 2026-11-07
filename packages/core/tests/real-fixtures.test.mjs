@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -32,12 +32,13 @@ const STATE_DEPENDENT = /取证记录|状态校验|熔断|降权/;
 // 同一条 read 理应放行（2026-10-27：pipeline.mjs 1242 → 106 行，3 条旧样本因此失效）。
 // 夹具重放必须校验前提：前提成立 → 仍须 deny；前提已不成立 → 必须 allow（否则是"过时的拦"）。
 const WHOLE_FILE_LIMIT = Number(process.env.FG_WHOLE_FILE_MAX_LINES) || 300;
-// 「本机环境」样本的前提是 `.ai/env-fingerprint.json`——**私有面文件，不入版本库**
-// （privacy 闸专门保证 `.ai` 不被跟踪）。没有它，命令硬校验按设计 fail-open，
-// 同一条 `cat` 在作者机上 deny、在任何干净 clone 与 CI 上 allow。
-// 这与「整文件闸要求目标文件存在」同类：前提缺失时，断言本身失效，不是回归。
-const ENV_FP = join(REPO_ROOT, ".ai", "env-fingerprint.json");
-const envPremiseMissing = (fx) => /本机环境/.test(String(fx.reason || "")) && !existsSync(ENV_FP);
+// 「本机环境」样本的规则来源是 `.ai/env-fingerprint.json`——**私有面文件，不入版本库**
+// （privacy 闸专门保证 `.ai` 不被跟踪）。没有它，命令硬校验按设计 fail-open：同一条 `cat`
+// 在录制机上 deny、在任何干净 clone 与 CI 上 allow。
+// 所以夹具自带 `envMap`（采集时一并写下），重放时用 `FG_ENV_FP_FILE` 指到临时文件还原现场。
+// 没有 `envMap` 的老样本前提不可复原，只能跳过——与「整文件闸要求目标文件存在」同类。
+const envPremiseMissing = (fx) => /本机环境/.test(String(fx.reason || "")) && !fx.envMap;
+const ENV_TMP = join(tmpdir(), `fg-envmap-${process.pid}-${Date.now()}`);
 function lineCountOf(file) {
   const buf = readFileSync(absOf(file));
   let n = 0;
@@ -81,10 +82,20 @@ if (!existsSync(FIXTURES)) {
     const listener = preExecuteListener({ warn: () => {} });
     const misses = [];
     const overs = [];
+    const envFiles = [];
     let i = 0;
     for (const fx of cases) {
       const sid = `fx-${process.pid}-${(i += 1)}`;
       saveState(statePath(sid), { fused: false, probation: false, readSet: {}, caseCache: {} });
+      // 有 envMap 的样本自带现场：把 map 落到临时文件，让命令硬校验按录制时的规则判。
+      if (fx.envMap) {
+        const p = `${ENV_TMP}-${i}.json`;
+        writeFileSync(p, JSON.stringify({ map: fx.envMap }));
+        process.env.FG_ENV_FP_FILE = p;
+        envFiles.push(p);
+      } else {
+        delete process.env.FG_ENV_FP_FILE;
+      }
       const r = await listener(
         {
           sessionId: sid,
@@ -100,10 +111,11 @@ if (!existsSync(FIXTURES)) {
       if (wantDeny && kind === "allow") misses.push(label);
       if (!wantDeny && kind !== "allow") overs.push(`${label}（目标现已 ≤ ${WHOLE_FILE_LIMIT} 行，闸不应再拦）`);
       try {
-        const { rmSync } = await import("node:fs");
         rmSync(statePath(sid), { force: true });
       } catch {}
     }
+    delete process.env.FG_ENV_FP_FILE;
+    for (const p of envFiles) rmSync(p, { force: true });
     assert.deepEqual(misses, [], `这些真实被拦的调用现在放行了（漏拦回归）：\n${misses.join("\n")}`);
     assert.deepEqual(overs, [], `这些调用已无拦截前提却仍被拦（过时的拦）：\n${overs.join("\n")}`);
   });

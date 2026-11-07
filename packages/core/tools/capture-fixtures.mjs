@@ -14,7 +14,7 @@
  */
 
 import { decodeSession as decode } from './lib/sessionDump.mjs'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,6 +22,19 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
 const SESSIONS = process.env.FG_SESSIONS_DIR || 'E:/DSH/.dsh/sessions'
 const OUT = join(CORE, 'tests', 'fixtures', 'real-calls')
+
+// 本机环境闸的规则来源是 `.ai/env-fingerprint.json`——**私有面文件，不入版本库**。
+// 不把 map 一起记下来，这类样本就只能在录制机上复现：干净 clone 上该闸按设计 fail-open，
+// 重放必报「漏拦」。记下来，重放时用 `FG_ENV_FP_FILE` 指到临时文件即可还原现场。
+const ENV_FP = join(CORE, '..', '.ai', 'env-fingerprint.json')
+const ENV_MAP = (() => {
+  try {
+    const j = JSON.parse(readFileSync(ENV_FP, 'utf8'))
+    return j && j.map && typeof j.map === 'object' ? j.map : null
+  } catch {
+    return null
+  }
+})()
 
 const argv = process.argv.slice(2)
 const LIMIT = Number(argv.includes('--limit') ? argv[argv.indexOf('--limit') + 1] : 30) || 30
@@ -124,6 +137,7 @@ for (const { f } of files) {
       args: call.args,
       verdict: denied ? 'deny' : 'pass',
       reason: denied ? text.replace(/\\n/g, ' ').slice(0, 160) : null,
+      ...(denied && /本机环境/.test(text) && ENV_MAP ? { envMap: ENV_MAP } : {}),
     })
   }
 }
