@@ -90,7 +90,7 @@ hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not
 
 ## Version
 
-Currently `3.3.4`. Version surfaces are asserted mutually consistent, and the front-page version must equal the published maximum.
+Currently `3.4.0`. Version surfaces are asserted mutually consistent, and the front-page version must equal the published maximum.
 
 ## Docs
 

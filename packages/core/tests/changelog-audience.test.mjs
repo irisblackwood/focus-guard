@@ -31,7 +31,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** 对外已分发的最高版本（各渠道取最高者，见文件头） */
-const PUBLISHED_MAX = "3.3.4";
+const PUBLISHED_MAX = "3.4.0";
 
 const CHANGELOG = fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url));
 /** ≤3.0.7 的历史段（2026-11-07 原样移出主文件，内容未改） */
@@ -154,18 +154,28 @@ describe("CHANGELOG 受众口径（开发期缺陷不称「修复」）", () => 
     assert.match(text, /docs\/RELEASE-POLICY\.md/, "口径说明须指向定义出处");
   });
 
-  // 这条盯的是「渠道查全」这个动作：常量一旦落后于 GitHub main，就会把已发布的段落判成开发期
-  test("PUBLISHED_MAX 必须等于 GitHub main（origin/main）上的版本", (t) => {
+  // 这条盯的是「渠道查全」这个动作：常量一旦**落后**于 GitHub main，就会把已发布的段落判成开发期。
+  //
+  // 2026-11-11 修：原判据是「必须相等」。但版本号 bump 之后、push 之前，本地常量必然领先远端
+  // （3.4.0 vs 3.3.3），而 pre-push 钩子跑的就是这条 → 推送窗口内必然红，鸡生蛋，推不上去。
+  // 改为「不得低于」：**领先 = 发布进行中**（合法状态），**落后 = 真错**（对外展示比远端旧，
+  // 影响面会判错）。检出能力不变——常量忘了跟随时它仍然是落后的，仍然红。
+  test("PUBLISHED_MAX 不得低于 GitHub main（origin/main）上的版本", (t) => {
     const r = spawnSync("git", ["show", "origin/main:package.json"], {
       cwd: REPO,
       encoding: "utf8",
     });
     if (r.status !== 0) return t.skip("无 origin/main 引用（浅克隆或未配远端），跳过");
     const onGithub = JSON.parse(r.stdout).version;
-    assert.equal(
-      PUBLISHED_MAX,
-      onGithub,
-      `PUBLISHED_MAX=${PUBLISHED_MAX} 与 GitHub main 上的 ${onGithub} 不一致——推送新版本后须同步这个常量，否则影响面会判错`,
+    const v = (s) => String(s).split(".").map((n) => Number(n) || 0);
+    const cmp = (a, b) => {
+      const [x, y] = [v(a), v(b)];
+      for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+      return 0;
+    };
+    assert.ok(
+      cmp(PUBLISHED_MAX, onGithub) >= 0,
+      `PUBLISHED_MAX=${PUBLISHED_MAX} 低于 GitHub main 上的 ${onGithub}——常量落后远端，对外展示会比实际旧`,
     );
   });
 
