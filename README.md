@@ -12,7 +12,7 @@
 > **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 已发 `3.3.3`（2026-11-07，OIDC 受信发布 + provenance）。
 > 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
-**AGPL-3.0-only + 商业双授权**：个人 / 学习 / 研究 / 非营利社区免费；商业使用（SaaS、闭源内部部署、收费产品）需单独授权。商标 `FocusGuard` / `聚焦护栏` 保留，衍生版本不得沿用。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
+**AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `FocusGuard` / `聚焦护栏` 保留，衍生版本不得沿用。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
 
 ## 30 秒速览
 
@@ -72,13 +72,18 @@ npm install focus-guard
 它告诉你「什么东西在长、什么东西正在被忘掉」。
 
 ```bash
-node packages/core/tools/brain.mjs             # 增量 → .focus-guard/brain.html
-node packages/core/tools/brain.mjs --rebuild   # 丢掉索引，从头重算
-node packages/core/tools/brain.mjs --open      # 跑完顺手打开
+npm run brain                # 增量重算 → 生成完直接用默认程序打开
+npm run brain:build          # 只生成不打开（脚本 / 无桌面环境用）
+npm run brain -- --rebuild   # 丢掉索引，从头重算
 ```
 
-零依赖（不引 three.js、不连 CDN），产出是**单个 HTML 文件**，双击即开。它只读审计：不写
+产物固定在 `.focus-guard/brain.html`（引擎的隐藏状态目录里）。跑完终端会打出 `file://` 的**绝对地址**，
+点一下就能开；不想记路径就用 `npm run brain`，它自己会打开。零依赖（不引 three.js、不连 CDN），产出是**单个 HTML 文件**，双击即开。它只读审计：不写
 `AUDIT.log`、不碰状态、不在任何工具调用路径上——**跑不跑都不影响拦截**。
+
+> **`npm run brain:cosmic`** 是**本地实验版**入口：用真 PLY 皮层网格渲染，产物约 6 MB。
+> 它的生成器与皮层数据都**不在版本库里**（数据来自 `memory-brain`，CC BY-SA 3.0，不随仓库分发），
+> 所以 clone 下来跑会直接提示「找不到生成器」并退出——这是预期行为，不是坏掉。
 
 **第一次跑是空的，这是对的**：新装没有足迹，脑的形状由沟回 + 法线光照撑住，不靠记忆点亮。
 跑几次让 guard 记下动作，足迹与连线才长出来。头部如实报「实读几份文档、缺几份」——

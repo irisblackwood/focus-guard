@@ -137,6 +137,22 @@ CHANGELOG.md                                 最新条目（须等于上述版�
 验收用例（`tests/acceptance.test.mjs`）已锁：七处清单 + `ENGINE_VERSION` 相同、且等于 CHANGELOG 最新条目（防「一致地落后」）。
 `packages/core/hooks/guard.mjs` 是**封存**文件，版本独立，**不参与**升版。
 
+### 三·补 文案面（与版本面同一纪律，2026-11-08）
+
+清单里的 `name` / `description` / `displayName` / 两个 i18n 块，曾在 5 份 JSON 里各手写一份。
+代价已经付过：自适应 TTL 从四档阶梯改成半衰期之后，`.zcode-plugin/plugin.json` 的简介还写着「4h~7天」，
+「上下文污染检测(58条)」的条号也对不上——**改了代码忘改副本，不会有任何闸门报错，因为每份副本都自洽**。
+
+现改为单点派生：
+
+- **真源**：`packages/core/package.json` 的 `description` / `displayName` / `displayNameI18n` / `descriptionI18n`。
+  不新开真源文件——为了收敛再加一个 JSON 是本末倒置。
+- **副本**：根 `marketplace.json`、`.claude-plugin/marketplace.json`、`.claude-plugin/plugin.json`、`.zcode-plugin/plugin.json`。
+  它们不能合并（每个宿主生态各要一个固定文件名），但内容只有一份。
+- 改文案只改真源 → `npm run manifest:sync` 写回；`npm run manifest:check` 已进 `check:inner`，漂移即红。
+- 工具**只写副本本来就有的字段**（没有 `displayName_i18n` 的清单不硬塞一个），**不写 `version`**——版本归 `tools/version.mjs --set`，两个工具各写一份就是新的散乱。
+- 各清单原先写在 `description` 里的部署说明（DSH 清单查找顺序、兼容层识别位）在 `INSTALL.md` 已有对应条目——第一节的平台映射表与 FAQ「插件清单找不到 / 清单未命中」两处，不随文案派生丢失。
+
 ## 四、升版动作清单
 
 1. 改上述 7+2 处版本（`PIPELINE_VERSION` 例外：它记的是 `pipeline.mjs` 最后一次改动，本文件没动就不动）

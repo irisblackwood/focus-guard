@@ -35,6 +35,14 @@
       "smells": 8,
       "duplicates": 23,
       "note": "结构异味 8 条不变：本轮新增的版本断言判据一度让 docs-core.mjs 涨到 452 行（阈值 400）成为第 9 条，当场拆出 lib/docs-version.mjs 还掉，没有进账——拆出来只花一行 import，抬阈值则等于把尺子锯短。重复块实测 23，低于 3.3.2 记账的 25，差额 2 未逐条归因，按实测记账。"
+    },
+    {
+      "version": "3.3.4",
+      "date": "2026-11-08",
+      "commit": "368b59f",
+      "smells": 8,
+      "duplicates": 21,
+      "note": "还债 2 条：src/dsh/index.js 的「只报不改」三条自检（策略可达性 / 钩子顺序 / 工具类别）各抄了一遍同样的 try/catch + next 透传，收成 apply() 内的 selfCheck 模板，重复块 23→21，apply() 顺带短了 11 行。结构异味 8 条不变：core/state.mjs 因卷宗七列改造涨到 424 行成为第 9 条，当场把 saveCaseRecords / saveLedger 的 tmp+rename 样板收成 rewriteCase，压回 398 行还掉，没有进账——与 3.3.2 / 3.3.3 同一处置：拆代码，不抬阈值。"
     }
   ]
 }

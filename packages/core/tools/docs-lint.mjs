@@ -34,11 +34,11 @@ const BUDGET = 0
 /**
  * 按规则的存量豁免（3.3 A）。
  *
- * `dead-code-path` 的 5 条全在 CHANGELOG 的历史段里，指向当年存在、后来搬走的文件。
- * 按本仓纪律「历史条目不动」（改了就等于抹掉过程记录），所以给它们一个明账：
- * 数字摆在这里，不是静默放过。新写进文档的引用不在豁免内，一律现算现红。
+ * 原为 `{ 'dead-code-path': 5 }`——那 5 条全在 CHANGELOG 的历史段里，指向当年存在、后来搬走的文件。
+ * 2026-11-07 历史段（≤3.0.7）原样移入 `docs/archive/`（不在扫描面内），存量归零，额度一并收回。
+ * 判据：豁免是**存量**的记账。存量没了还留着额度，等于给未来的死链预留藏身处。
  */
-const RULE_BUDGET = { 'dead-code-path': 5 }
+const RULE_BUDGET = { 'dead-code-path': 0 }
 
 const files = listMarkdownFiles(ROOT)
 const findings = [

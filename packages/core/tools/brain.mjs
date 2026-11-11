@@ -25,20 +25,22 @@
  *   ④ **不引 three.js**。本仓 `dependencies: {}` 是唯一的性格。
  *
  * 用法：
- *   node packages/core/tools/brain.mjs                 # 增量 → .focus-guard/brain.html
- *   node packages/core/tools/brain.mjs --open
+ *   npm run brain                                      # 增量 → .focus-guard/brain.html，并打开
+ *   npm run brain:build                                # 只生成不打开
  *   node packages/core/tools/brain.mjs --rebuild       # 丢掉索引，从头重算
  *   node packages/core/tools/brain.mjs --json          # 只打图数据（供测试）
+ *   node packages/core/tools/brain.mjs --out <path>    # 换产物路径（试生成用）
  */
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   REGIONS, applyEvent, applySeqLinks, classify, emptyIndex, entitiesOf, listSources, loadConfig,
   loadIndex, prune, readNewLines, reclassify, saveIndex, snapshot,
 } from "./lib/brain-core.mjs";
 import { syncDocs } from "./lib/brain-docs.mjs";
+import { openInBrowser } from "./lib/open.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..", "..");
@@ -279,6 +281,7 @@ function main() {
 
   const cf = o.casefileWrite ? writeCaseFile(o.casefile, g, now, idx.seen) : 0;
   report(o, { g, idx, added, sources, moved, dropped, docs, regionCount, from, to, cf });
+  if (o.open) openInBrowser(o.out);
 }
 
 /* 汇总输出单独成函数：它跟"跑一遍"本来就是两件事，混在 main() 里只会让流程读不清。
@@ -288,7 +291,8 @@ function report(o, x) {
     .map(([k, v]) => `${v.label} ${x.regionCount[k] || 0}`)
     .join(" · ");
   process.stdout.write(
-    `脑已更新：${o.out.replace(REPO, ".")}\n` +
+    `脑已更新：${pathToFileURL(o.out).href}\n` +
+      `  ${o.open ? "已请求用默认程序打开（没弹窗就点上面那个地址）" : `打开：npm run brain -- --open　或直接双击上面这个地址`}\n` +
       `  新增 ${x.added} 条（源 ${x.sources} 个）· 累计 ${x.idx.seen} 条事件 · 遗忘 ${x.dropped} 个 · 重分区 ${x.moved} 个\n` +
       `  记忆 ${x.docs.blocks} 块（实读 ${x.docs.sources} 份文档` +
       (x.docs.missing.length ? `，缺 ${x.docs.missing.length} 份` : "") +

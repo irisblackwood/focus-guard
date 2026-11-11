@@ -5,6 +5,89 @@ import { statSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
+/** PATH 目录列表（平台分隔符不同）。 */
+function pathDirs() {
+  return String(process.env.PATH || "").split(process.platform === "win32" ? ";" : ":").filter(Boolean);
+}
+
+/**
+ * PATH 里是否存在某个可执行文件。**只 stat，不执行**。
+ * 2026-11-09：探执行体一律走 PATH，不拼安装路径——用户可能装在 D 盘、用 scoop/winget
+ * 装到用户目录、或压根没装。硬编码 `C:\Program Files\...` 会给出一条本机跑不通的建议。
+ */
+export function hasExe(name, osName = process.platform) {
+  const exts = osName === "win32" ? [".exe", ".cmd", ".bat"] : [""];
+  return pathDirs().some((d) =>
+    exts.some((x) => {
+      try {
+        return statSync(join(d, name + x)).isFile();
+      } catch {
+        return false;
+      }
+    }),
+  );
+}
+
+/**
+ * 操作系统的人类可读标签。
+ *
+ * `win32` 是 Node 的 **API 名**（Windows API 自 32 位时代沿用），与「32 位系统」毫无关系——
+ * 本机是 x64，平台照样叫 win32。直接把这个字符串写进卷宗/报告，模型会当成 32 位机器，
+ * 进而建议装 x86 版本的工具。所以对外一律用 `Windows/x64` 这种写法，内部 key 仍是 win32。
+ */
+export function osLabel(osName = process.platform, arch = process.arch) {
+  const base = { win32: "Windows", darwin: "macOS", linux: "Linux" }[osName] || osName;
+  const a = { x64: "x64", arm64: "arm64", ia32: "x86", arm: "arm" }[arch] || arch;
+  return `${base}/${a}`;
+}
+
+/** 系统自带 vs 额外安装：报告时必须区分，否则模型会建议装一个本来就在的东西。 */
+const BUILTIN_SHELLS = {
+  win32: ["powershell", "cmd"],
+  darwin: ["sh", "bash", "zsh"],
+  linux: ["sh", "bash"],
+};
+const SHELL_EXE = { pwsh7: "pwsh", powershell: "powershell", bash: "bash", cmd: "cmd", zsh: "zsh", sh: "sh", fish: "fish" };
+
+/**
+ * 执行体详情：`{ id, exe, origin }`，origin = builtin（系统自带）/ extra（额外安装）。
+ * 例：win32 上 `bash` 一定是额外的（Git Bash 或 WSL），`powershell` 是自带的 5.1。
+ */
+export function probeShellDetails(osName = process.platform) {
+  const builtin = new Set(BUILTIN_SHELLS[osName] || []);
+  return probeShells(osName).map((id) => ({
+    id,
+    exe: SHELL_EXE[id] || id,
+    origin: builtin.has(id) ? "builtin" : "extra",
+  }));
+}
+
+let shellsCache = null;
+
+/**
+ * 探测本机可用的 shell 执行体（2026-11-09），按推荐顺序返回。
+ *
+ * 用**文件名**区分版本：`pwsh` 是 PowerShell 7+，`powershell` 是 Windows PowerShell 5.1——
+ * 两者可执行名不同，不需要读版本号，也就不需要知道安装路径。
+ * 非 win32 只看 PATH 里的 posix shell。
+ */
+export function probeShells(osName = process.platform) {
+  if (osName === process.platform && shellsCache) return shellsCache;
+  let out;
+  if (osName !== "win32") {
+    const posix = ["bash", "zsh", "sh"].filter((s) => hasExe(s, osName));
+    out = posix.length ? posix : ["sh"];
+  } else {
+    out = [];
+    if (hasExe("pwsh", osName)) out.push("pwsh7");
+    if (hasExe("powershell", osName)) out.push("powershell");
+    if (hasExe("bash", osName)) out.push("bash");
+    out.push("cmd");
+  }
+  if (osName === process.platform) shellsCache = out;
+  return out;
+}
+
 export function quickShellId() {
   // 2026-10-18 修（REPORT-2026-10-12 P2「三处 shell 判定互相矛盾」）：
   // 原实现只看**宿主 Node 进程自身**的 SHELL/ComSpec，于是 DSH 下报成 cmd，
@@ -91,8 +174,15 @@ export function detectEnv(projDir, opts = {}) {
   }
   return {
     os: osName,
+    osLabel: osLabel(osName),
     shellIdKey,
     shell: shellIdKey + (shellVersion ? " " + shellVersion : ""),
+    // 本机探测到的执行体详情（按推荐顺序，带 builtin/extra）。拦截文案与卷宗【一】都用它，
+    // 不能凭 OS 想当然——实测本机 pwsh7 在 E 盘，powershell 5.1 才是自带的那个。
+    shells: probeShellDetails(osName),
+    // 命令语法实现（grep/sed/find 是 GNU 还是 BSD），由 `.ai/env-fingerprint.json` 提供。
+    // 生成器要跑子进程探测，会话启动不该付这个钱，所以由调用方读档案后传进来。
+    commands: (opts && opts.commands) || {},
     encoding,
     pathSep: sep,
     caseSensitive,
@@ -102,9 +192,31 @@ export function detectEnv(projDir, opts = {}) {
   };
 }
 
+/** PowerShell 专属 cmdlet（`动词-名词` 命名约定；bash 里没有这些名字）。 */
+const PS_CMDLET =
+  /\b(?:Add|Set|Get|Remove|Copy|Move|New|Test|Select|Where|ForEach|Measure|Out|Write|Start|Stop|Restart|Invoke|Clear|Rename|Sort|Group|Compare|Tee|Export|Import|ConvertTo|ConvertFrom)-(?:Content|Item|ItemProperty|ChildItem|Path|Location|Service|Process|Object|String|Command|Variable|Host|Output|Error|Warning|Member|Module|Alias|Job|Event|Counter|Help|History|File)\b/i;
+
 export function platformBashViolation(env, cmd) {
   if (!env) return null;
   const c = String(cmd);
+  // ── win32 + bash（2026-11-09 补）──
+  // DSH 的 Bash 工具执行 `["bash","-c",cmd]`（@deepseek-ai/dsh-bash-local），
+  // 所以 PowerShell 专属 cmdlet 在这条路上必然 command not found。
+  // 原实现只写了反向（bash 语法进了 PowerShell），这一半空缺：命令跑不通，FG 一声不吭。
+  // 文案带**本机实际探测到**的执行体——本机没有 pwsh7，就不能建议 pwsh7。
+  if (env.os === "win32" && env.shellIdKey === "bash") {
+    const hit = PS_CMDLET.exec(c);
+    if (hit) {
+      const alt =
+        env.shells && env.shells.length
+          ? env.shells.map((s) => `${s.id}(${s.origin === "builtin" ? "自带" : "额外"})`).join(" / ")
+          : "未探测到";
+      return (
+        `当前执行体是 bash（${env.osLabel || env.os}），\`${hit[0]}\` 是 PowerShell cmdlet，bash 里没有这个命令。` +
+        `本机可用执行体：${alt}。改用该 shell 执行，或换成 bash 等价写法（cat / grep / sed / tee）`
+      );
+    }
+  }
   if (env.os === "win32" && env.shellIdKey === "powershell") {
     if (/&&/.test(c)) return "Windows PowerShell 会话禁 &&：用 ; 分隔或分开执行";
     if (/\|\s*(head|grep|wc|sed|awk)\b/.test(c)) return "PowerShell 禁 bash 管道工具：用 Select-String / Measure-Object / Select-Object -First";
@@ -112,8 +224,16 @@ export function platformBashViolation(env, cmd) {
       return "禁裸 cat/type/Get-Content 刷屏：用 Get-Content -TotalCount N -Encoding UTF8";
   }
   if (env.os === "darwin") {
-    if (/\bsed\s+-i(?!\s*['"])/.test(c)) return "macOS BSD sed：-i 必须带后缀参数（sed -i '' …）";
-    if (/\bgrep\s+[^|;&]*?-P\b/.test(c)) return "macOS BSD grep 不支持 -P：用 -E";
+    // 2026-11-09：判据从「OS 是 darwin」改为「**实际实现**是 BSD」。
+    // macOS 上 `brew install gnu-sed` 之后，`sed -i` 就是 GNU 语义（不带走后缀），
+    // 按 OS 硬推会把合法写法误判；反过来 Linux 上装了 BSD 工具也照样踩坑。
+    // `commands` 来自 .ai/env-fingerprint.json（生成器探测），缺失时退回 OS 推断。
+    const sedImpl = env.commands && env.commands.sed && env.commands.sed.impl;
+    const grepImpl = env.commands && env.commands.grep && env.commands.grep.impl;
+    const bsdSed = sedImpl ? sedImpl === "bsd" : true;
+    const bsdGrep = grepImpl ? grepImpl === "bsd" : true;
+    if (bsdSed && /\bsed\s+-i(?!\s*['"])/.test(c)) return "BSD sed：-i 必须带后缀参数（sed -i '' …）";
+    if (bsdGrep && /\bgrep\s+[^|;&]*?-P\b/.test(c)) return "BSD grep 不支持 -P：用 -E";
     if (/\breadlink\s+-f\b/.test(c) && !/\bgreadlink\b/.test(c)) return "macOS 无 readlink -f：用 greadlink -f";
   }
   return null;

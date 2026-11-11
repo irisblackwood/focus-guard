@@ -543,6 +543,10 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     assert.equal(s.envCache.os, process.platform);
     assert.ok(s.envCache.shellIdKey);
     assert.ok(caseFileOf(dir).includes("Shell=")); // 2.5.1 卷宗【一】环境声明落卷
+    // 2026-11-08：同一份卷宗里时间只允许一种写法。此前【一】用 toISOString()（UTC 带 Z）、
+    // 【三】用本地 ISO，读者看到【一】比【三】早 8 小时，会以为环境声明是上次会话留下的。
+    const envLine = caseFileOf(dir).split("\n").find((l) => l.includes("检测于")) || "";
+    assert.match(envLine, /检测于 \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, "【一】时间须为本地 ISO（与【三】同口径）");
     assert.ok(existsSync(join(dir, ".ai", "CASE_FILE.md")));
     rmSync(dir, { recursive: true, force: true });
   });
@@ -557,7 +561,9 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     r("post", { tool_name: "Read", tool_input: { file_path: f }, tool_response: { content: "v1" } });
     const cf = caseFileOf(dir);
     assert.ok(cf.includes("doc.txt"));
-    assert.ok(cf.includes("mtime+size+sha"));
+    // 2026-11-08 改格式：验证方式列（mtime+size+sha）已删——有指纹就是 sha 口径，可推。
+    // 改成直接看指纹列本身：16 位十六进制。
+    assert.match(cf, /\| [0-9a-f]{16} \|/, "首次取证应写入 SHA-256 指纹（前 16 位）");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -590,7 +596,8 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     writeFileSync(f, "v2 totally different\n".repeat(10)); // mtime 变更
     assert.equal(r("pre", { tool_name: "Read", tool_input: { file_path: f } }).rc, 0); // 指纹不一致 → 放行
     r("post", { tool_name: "Read", tool_input: { file_path: f }, tool_response: { content: "v2" } });
-    assert.ok(caseFileOf(dir).match(/n=1; last=/)); // 变更史 +1
+    // 变更列在新格式里是单独一列，值就是次数；后面紧跟重读期限列，用它做右边界防止误匹配大小。
+    assert.match(caseFileOf(dir), /\| 1 \| (自适应 [\d.]+[hd]|\S+) \|/, "变更史应 +1");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -604,7 +611,7 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     mkdirSync(join(dir, ".ai"), { recursive: true });
     writeFileSync(
       join(dir, ".ai", "CASE_FILE.md"),
-      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n| ${f.replace(/\\/g, "/")} | ${recent} | ${st.mtimeMs} | ${st.size} | - | n=0; last=- | | mtime+size |\n`
+      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|\n| ${recent} | ${new Date(st.mtimeMs).toISOString()} | ${st.size} | - | 0 | 自适应 2.0h | ${f.replace(/\\/g, "/")} |\n`
     );
     const r = run.in(dir);
     r("start", { session_id: "case-inherit" }, { ZCODE_PROJECT_DIR: dir }); // 继承卷宗指纹
@@ -642,11 +649,12 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     writeFileSync(f, "stable");
     const st = statSync(f);
     const old = new Date(Date.now() - 25 * 3600e3).toISOString();
-    const lastCh = new Date(Date.now() - 8 * 86400e3).toISOString(); // 8天未变 → 自适应 24h
+    // 2026-11-08 改格式后：最近变更时刻由 mtime 推出（文件刚写 → 半衰期落到 2h 下限），
+    // 取证在 25 小时前，2h 早过 → 仍走「超时放行」这条路径，判据意图不变。
     mkdirSync(join(dir, ".ai"), { recursive: true });
     writeFileSync(
       join(dir, ".ai", "CASE_FILE.md"),
-      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n| ${f.replace(/\\/g, "/")} | ${old} | ${st.mtimeMs} | ${st.size} | - | n=1; last=${lastCh} | | mtime+size |\n`
+      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|\n| ${old} | ${new Date(st.mtimeMs).toISOString()} | ${st.size} | - | 1 | 自适应 2.0h | ${f.replace(/\\/g, "/")} |\n`
     );
     const r = run.in(dir);
     r("start", { session_id: "case-ttl" }, { ZCODE_PROJECT_DIR: dir }); // 重建 TTL 表
@@ -664,7 +672,7 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     mkdirSync(join(dir, ".ai"), { recursive: true });
     writeFileSync(
       join(dir, ".ai", "CASE_FILE.md"),
-      `# 卷宗\n\n### 【二】项目依赖声明（人工填写，可覆盖自动 TTL）\n\n| 依赖名 | 版本 | 安装路径 | 更新频率 | 信任TTL | 备注 |\n|---|---|---|---|---|---|\n| 游戏本体 | 1.6.2 | ${dir.replace(/\\/g, "/")} | 稳定拖沓 | 60天 | 测试 |\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n| ${f.replace(/\\/g, "/")} | ${old} | ${st.mtimeMs} | ${st.size} | - | n=1; last=${old} | | mtime+size |\n`
+      `# 卷宗\n\n### 【二】项目依赖声明（人工填写，可覆盖自动 TTL）\n\n| 依赖名 | 版本 | 安装路径 | 更新频率 | 信任TTL | 备注 |\n|---|---|---|---|---|---|\n| 游戏本体 | 1.6.2 | ${dir.replace(/\\/g, "/")} | 稳定拖沓 | 60天 | 测试 |\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|\n| ${old} | ${new Date(st.mtimeMs).toISOString()} | ${st.size} | - | 1 | 自适应 2.0h | ${f.replace(/\\/g, "/")} |\n`
     );
     const r = run.in(dir);
     r("start", { session_id: "case-dep" }, { ZCODE_PROJECT_DIR: dir });
@@ -684,7 +692,7 @@ describe("卷宗体系（总纲 2.0.0）", () => {
     mkdirSync(join(dir, ".ai"), { recursive: true });
     writeFileSync(
       join(dir, ".ai", "CASE_FILE.md"),
-      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n| ${f.replace(/\\/g, "/")} | ${old} | ${st.mtimeMs} | ${st.size} | - | n=0; last=- | 1分钟 | mtime+size |\n`
+      `# 卷宗\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|\n| ${old} | ${new Date(st.mtimeMs).toISOString()} | ${st.size} | - | 0 | 1分钟 | ${f.replace(/\\/g, "/")} |\n`
     );
     const r = run.in(dir);
     r("start", { session_id: "case-manual" }, { ZCODE_PROJECT_DIR: dir });
@@ -833,7 +841,7 @@ describe("DSH 版（v2.0.2，CS2 modding 适配）", () => {
     const run = makeRunner("dsh-case");
     const dir = freshDir();
     mkdirSync(join(dir, ".ai"), { recursive: true });
-    writeFileSync(join(dir, ".ai", "CASE_FILE.md"), `# 卷宗\n\n### 【二】项目依赖声明（人工填写，可覆盖自动 TTL）\n\n| 依赖名 | 版本 | 安装路径 | 更新频率 | 信任TTL | 备注 |\n|---|---|---|---|---|---|\n| 游戏本体 | 1.6.2f1 | D:/Steam/steamapps/common/Cities Skylines II/Cities2_Data/Managed | 稳定拖沓 | 60天 | 测试 |\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |\n|---|---|---|---|---|---|---|---|\n`);
+    writeFileSync(join(dir, ".ai", "CASE_FILE.md"), `# 卷宗\n\n### 【二】项目依赖声明（人工填写，可覆盖自动 TTL）\n\n| 依赖名 | 版本 | 安装路径 | 更新频率 | 信任TTL | 备注 |\n|---|---|---|---|---|---|\n| 游戏本体 | 1.6.2f1 | D:/Steam/steamapps/common/Cities Skylines II/Cities2_Data/Managed | 稳定拖沓 | 60天 | 测试 |\n\n### 【三】侦查取证记录（插件自动追加）\n\n| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|\n`);
     run("start", { session_id: "dsh-case" }, { ZCODE_PROJECT_DIR: dir });
     const s = stateOf("dsh-case");
     assert.equal(Object.keys(s.caseCache || {}).length, 0); // 空记录载入
@@ -1356,20 +1364,32 @@ describe("工程自检（防版本与文档漂移）", () => {
     }
   });
 
-  test("清单说明互不重复：五处 description 各自独立（防镜像漂移）", () => {
-    const files = [
-      "../package.json",
+  test("清单说明单点：四份副本 description 必须等于真源（防手改副本）", () => {
+    // 判据变更（2026-11-08）：原判据是「五处 description 必须互不相同，防镜像复制」。
+    // 它防的是"把一个 blob 复制五份"，代价是**每份都得手写一份**——而手写副本必然会漂：
+    // 自适应 TTL 早改成半衰期了，.zcode-plugin/plugin.json 还写着「4h~7天」。
+    // 新判据反过来锁：四份副本必须**逐字等于**真源，手改任何一份都会红。
+    // 根 package.json 是 monorepo 的描述（不是插件描述），不在派生面内，只要求非空。
+    const truth = JSON.parse(readFileSync(ROOT("../packages/core/package.json"), "utf8")).description.trim();
+    const copies = [
       "../marketplace.json",
       "../.zcode-plugin/plugin.json",
       "../.claude-plugin/plugin.json",
       "../.claude-plugin/marketplace.json",
     ];
-    const descs = files.map((rel) => {
+    const descOf = (rel) => {
       const j = JSON.parse(readFileSync(ROOT(rel), "utf8"));
       return String(j.description || (j.plugins && j.plugins[0] && j.plugins[0].description) || "").trim();
-    });
-    for (let i = 0; i < files.length; i++) assert.ok(descs[i].length > 0, `${files[i]} description 不得为空`);
-    assert.equal(new Set(descs).size, descs.length, "五处清单 description 必须互不相同（检测到镜像复制）");
+    };
+    assert.ok(truth.length > 0, "真源 packages/core/package.json 的 description 不得为空");
+    for (const rel of copies) {
+      assert.equal(
+        descOf(rel),
+        truth,
+        `${rel} 的 description 与真源不一致——改文案只改 packages/core/package.json，再跑 npm run manifest:sync`,
+      );
+    }
+    assert.ok(descOf("../package.json").length > 0, "根 package.json description 不得为空");
   });
 
   test("文档-实现口径对齐：术语 / 43条处置 / 58条阶段 / 未机械化清单 / 安装判据", () => {

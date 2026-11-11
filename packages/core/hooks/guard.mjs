@@ -44,7 +44,7 @@ import { auditFile, auditTarget, auditCtx, auditChainInit, audit, noteFail, setP
 import { declaresFuse, needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from "../src/core/stopPolicy.mjs";
 import { isMutating, isInvestigation, stable, callHash, collectStrings, block, penalize, registerToolKind } from "../src/core/risk.mjs";
 import { gradeOfKpi } from "../src/core/kpi.mjs";
-import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL } from "../src/core/state.mjs";
+import { statePath, loadState, saveState, cleanStaleTemp, normalize, casePath, ensureCaseFile, sectionOf, parseDur, loadCaseRecords, saveCaseRecords, saveLedger, fingerprint, gitDirty, resolveTTL, fmtTime } from "../src/core/state.mjs";
 import { readStdinJson, sessionId, projectDir } from "./protocol.mjs";
 import { quickShellId, detectEnv, platformBashViolation } from "../src/core/env.mjs";
 import { backupSeq, backupBeforeEdit } from "../src/core/backup.mjs";
@@ -126,7 +126,7 @@ if (mode === "start") {
       // FG-D2：改 tmp+rename 原子写（同文件另两处均为原子模式，此前此处崩溃窗可损坏 CASE_FILE.md）
       const cp = casePath(projDir);
       let t = readFileSync(cp, "utf8");
-      const envRow = `- OS=${env.os} / Shell=${env.shellIdKey} / 大小写=${env.caseSensitive === false ? "不敏感" : "敏感"} / 编码=${env.encoding || "-"} / 检测于 ${new Date().toISOString()}`;
+      const envRow = `- OS=${env.os} / Shell=${env.shellIdKey} / 大小写=${env.caseSensitive === false ? "不敏感" : "敏感"} / 编码=${env.encoding || "-"} / 检测于 ${fmtTime(Date.now())}`;
       t = t.replace(/### 【一】[\s\S]*?(?=\n### |\n## |$)/, () => `### 【一】环境声明（会话级检测，全程复用）\n\n${envRow}\n`);
       const tmp = cp + "." + process.pid + ".tmp";
       writeFileSync(tmp, t);

@@ -8,6 +8,309 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
+## 3.3.4 · 2026-11-08
+
+> 版本号依据：`RELEASE-POLICY` 开头「每 10 次修复合为一次变更（x.x.0）；其余按补丁号递增」，
+> 本次不足 10 条 → 补丁位 **3.3.4**。
+> 发布状态：**未发布**——`PUBLISHED_MAX` 仍为 3.3.3，本段改动未推 `origin/main`。
+> 影响面：混合段。卷宗转义膨胀存在于已分发版本（用户可踩）；其余为治理收口与新增能力。
+
+### 卷宗（`.ai/CASE_FILE.md`）
+
+- fix(case): 〔影响面：3.3.3〕【三】每保存一次路径反斜杠翻倍，实测 347 MB / 202 行
+  - `cell()` 把 `\` 转义成 `\\`，`loadCaseRecords` 却只做 `normalize`（`\`→`/`）不解转义；
+    `postProgress` 每次 load→save 一轮，反斜杠就翻一倍——指数项，跑几十次即 GB 级。
+  - 行数上限 `CASE_MAX_ROWS` 只封行数，封不住单行；平均一行 1.7 MB。
+  - 改为 `cell()` 只转义竖线、`uncell()` 配对还原；路径列统一正斜杠。存量卷宗 gzip 归档
+    后 364 KB，按模板重建为 1 KB。
+- refactor(case): 表头 8 列改 7 列，列序改为「结论 → 细节 → 定位」
+  - 旧：`文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式`
+  - 新：`读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件`
+  - 删 `验证方式`（有指纹即 sha 口径，可推）；`变更历史` 一格塞 `n=1; last=…` 拆成两列；
+    文件名让出首列——读者第一眼该看的是「还能不能免重读」，不是 200 字符路径。
+- refactor(case): `重读期限` 由留空改为写真值 `自适应 4.0h`
+  - 原注释「留空=自适应」只有引擎知道，读者看到空格无从判断；人工覆盖的照原样写 `30天`。
+- refactor(case): 时间列改本地 ISO
+  - 旧列是 `2026-11-08T10:09:00.962Z`（UTC，人读要心算 +8）与 `mtime` 浮点原值 `…522.414`。
+- fix(case): 〔开发期〕`fingerprint` 毫秒取整改 `Math.floor`，与 `Date` 截断对齐
+  - 落盘走 `toISOString()`（TimeClip 截断），比较侧曾用 `Math.round`：本机 mtimeMs 小数尾巴
+    集中在 `.66`，round 进位差 1 ms → `casefileChanged` 永判「变了」→ 免重读约 2/3 概率失效。
+- test(case): 连存三次体积不变 + 毫秒取整确定性夹具
+  - 后者用 `utimes` 传带小数的秒数（`1794132461.6836`）稳定造出 `.6` 尾巴，不靠运气。
+- fix(case): 〔影响面：3.3.3〕会话启动把【一】整段重写，人类补注每次开机被抹掉
+  - **病灶**：`writeEnvDeclaration` 用 `/### 【一】[\s\S]*?(?=\n### |\n## |$)/` 一路吃到下一个标题，
+    只把标题和检测行写回去。人类在【一】里补的注（"本机 rg 在 `D:/tools`"这类）每次会话启动即消失。
+  - **同源**：与 2026-11-01 红队 A3 修【三】【四】是同一类病——引擎只该拥有它自己写的那几行。
+    当时修了【三】【四】，**漏了【一】**，因为那两处会吞掉整段用户内容、症状显眼，【一】只吞一节，没人注意。
+  - **改法**：只替换 `- OS=…` 那一行与模板占位语，其余行原样保留并接在检测行之后。
+- refactor(case): 模板顶部导航补【五】；【一】标题与写入侧统一为「会话级检测」
+  - 原导航写「引擎自动维护【一】【三】【四】」——【五】同样是引擎写的，读者会以为那节要手工维护；
+    【一】的标题在模板里叫「会话启动检测」、在代码里叫「会话级检测」，每启动一次标题就变一次。
+- fix(case): 〔影响面：3.3.3〕【一】`Shell=` 恒写 `powershell`，而命令实际跑在 bash 里
+  - **病灶**：`expectedShellId()` 在 win32 上直接返回 `'powershell'`，注释称「DSH 的 shell 工具
+    执行体由宿主固定（win32 上是 pwsh）」。**实测不成立**——DSH Desktop 只有 `dsh-tool-bash`，
+    执行 argv 是 `["bash","-c",cmd]`（`@deepseek-ai/dsh-bash-local/lib/index.js:141`），没有 pwsh 工具。
+    那条注释是 2.x 时代的遗留假定，从未核对。
+  - **连带**：平台禁令按 `shellIdKey` 选规则，于是拿 PowerShell 规则去判 bash 命令；envCache
+    的失效 key 也锁在错误值上。
+  - **改法**：改为**探测**——扫 `PATH` 找 `pwsh` / `powershell` / `bash`（用**文件名**区分 7+ 与 5.1，
+    不读版本号、不拼安装路径），能解析到 bash 就认 bash；探不到才退回 `quickShellId()`。
+  - **为什么不拼路径**：本机 `pwsh.exe` 在 `E:\PowerShell-7.7.0-preview.5-win-x64\`——**不在 C 盘**。
+    硬编码 `C:\Program Files\PowerShell\7\` 会在这类机器上给出「应该用 pwsh7」的错误建议。
+  - **夹具也抄了这个假定**：`env-cache-reuse` 里写 `win32 ? "powershell"`，预置值永远对不上真值，
+    「复用」用例实际在测「重算」。改为先真启动一次、拿引擎自己写出的 `shellIdKey` 去预置。
+- fix(platform): 〔影响面：3.3.3〕win32 + bash 下 PowerShell cmdlet 跑不通，FG 一声不吭
+  - **病灶**：`platformBashViolation` 只写了「bash 语法进了 PowerShell」这一半，反向完全空缺。
+    DSH 的 Bash 工具执行 `bash -c`，`Get-Content` / `Add-Content` 必然 command not found，
+    而 FG 既不拦也不提示——用户只看到命令失败，不知道为什么。
+  - **改法**：补 `win32 + bash` 分支。命中 PowerShell 专属 cmdlet（`动词-名词` 命名约定）即拦，
+    文案带**本机实测可用**的执行体与 bash 等价写法，例如：
+    `[平台规则·win32/bash] Get-Content 是 PowerShell cmdlet，bash 里没有这个命令。
+    本机可用执行体：pwsh7(额外) / powershell(自带) / bash(额外) / cmd(自带)。`
+  - 【一】环境声明新增 `可用=` 字段，读卷宗即知本机有哪些执行体，不必再猜。
+  - 新增 `tests/env-platform.test.mjs`：探测走 PATH（不依赖安装盘符）+ 双向不误伤。
+- feat(env): 环境档案 v2 —— 报告「这台机器的命令语法是新还是旧」
+  - **背景**：`env.mjs` 里 `cmds`（grep/sed/awk 存在性）与 `bsd`（darwin 的 BSD 版）两个字段
+    早就探测出来了，**全仓 0 处消费**；而 BSD 规则靠 `os === 'darwin'` 硬推，`brew install
+    gnu-sed` 之后就全错。这是"有雏形、没接上"。
+  - **补完**：生成器新增 `commands` 探测——对 grep / sed / find / awk / xargs / tar 跑一次
+    `--version`，按自报内容判 `gnu` / `bsd` / `busybox`，并记版本（BSD 工具把 `--version`
+    当非法参数，读 stderr 判型）。实测本机：`grep=gnu 3.0 / sed=gnu 4.9 / find=gnu 4.10.0`。
+  - `platformBashViolation` 的 BSD 规则改为**按实际实现**判（`env.commands.sed.impl`），
+    OS 只作缺失时的兜底。macOS 上装了 GNU 工具不再误判，Linux 上装了 BSD 工具也会被认出。
+  - 卷宗【一】新增一行 `- 命令语法：grep=gnu 3.0 / sed=gnu 4.9 / …`——写命令前就该知道
+    `-P` / `-i` 能不能那样写，等被拦一次再说太晚。
+  - `OS=` 改用 `Windows/x64`：`win32` 是 Node 的 **API 名**，与「32 位系统」无关，
+    直接写进卷宗会让模型建议装 x86 版本。
+- feat(env): 档案 v2 增加机器编号与自适应 TTL
+  - `machine: { id, host, arch, firstSeen }`：首次分配 `A`。
+    `FG_MACHINE_ID` 可覆盖（多台机器手动指定 B / C…）。
+  - TTL 不再固定 30 天：`probe.nextAt` 由生成器算——连续未变则间隔翻倍（6h → 12h → 24h … 上限 30 天），
+    一变立刻回到 6h。`envFpStale` 优先读 `nextAt`，旧文件退回 `generated_at + 30 天`，升级期不突然全员重探。
+- feat(tool): 新增 `fg_env` —— 读环境档案 / 回填模型反馈
+  - 探测只看得到 PATH 与 `--version`，看不出「这个 pwsh7 是 scoop 装的」「bash 实为 WSL」
+    「grep 3.0 的 -P 有坑」——这些只有真用过才知道，工具给一条写回通道（`notes` 数组）。
+  - 不传 `note` 即只读查询：模型可随时确认本机有什么，不必靠猜。
+- fix(evidence): 〔影响面：3.3.3〕跨会话拒绝文案与卷宗自相矛盾
+  - **病灶**：新会话不读就改 → 拒，理由写「卷宗无取证记录」。可卷宗【三】里明明躺着上一会话的
+    那一行（`inherited` 标记），模型翻完卷宗只会怀疑引擎坏了。
+  - **改法**：区分两种「没读」——卷宗根本没有，还是卷宗有但属上一次会话（内容不在当前上下文）。
+- fix(case): 〔开发期〕含竖线的单元格整行被静默丢弃（读侧 split 早于解转义）
+  - **病灶**：`cell()` 把 `|` 写成 `\|`，而 `loadCaseRecords` 先 `line.split("|")` 再对第 8 列做
+    `uncell`——顺序反了，`\|` 照样被劈开，列数 10≠9 → 整行 `continue`。不报错、不留痕。
+  - **后果**：该文件永远进不了 `caseCache`，免重读判据恒「没读过」→ 每次重读，白付 token。
+    POSIX 文件名合法含 `|`（Windows 不可能），属跨平台潜在缺陷。
+  - **改法**：split 前把 `\|` 换成哨兵、切完再还原。用例 `case-file-escape.test.mjs` 加一条
+    「含竖线路径必须能读回」——原先这条路径在测试里从未出现过，所以两轮转义修补都漏了它。
+
+### 台账落卷（成本 / 额度）
+
+- fix(case): 〔影响面：3.3.3〕【五】成本台账写不进用户自己的卷宗
+  - **原落点**：`new URL('../../../../.ai/CASE_FILE.md', import.meta.url)`——跟着**插件安装位置**走。
+  - **病灶**：同一份卷宗里【一】【三】【四】都走会话项目目录。开发仓里两者碰巧重合
+    （`link:` 指向仓库自身，四级上溯正好是仓库根），装到别处即分家。
+  - **用户可见后果**：在自己项目里翻卷宗，【五】永远是一张空表；成本行落进了插件目录下的另一个 `.ai/`。
+  - **改法**：与 `core/state.mjs` 同源（`casePath` / `ensureCaseFile`）：`FG_CASE_FILE` > `<会话项目>/.ai/`。
+  - **顺带**：删掉两道**恒为假**的"写守卫"（`target !== DEFAULT && !FG_CASE_FILE`）——`casePath` 只有两个出口，
+    该条件不可能成立，是看起来在防护、实际什么都没挡的死代码。
+- fix(case): 〔影响面：3.3.3〕【四】额度台账在真实会话里恒空
+  - **病灶**：`saveLedger` 原在 `settleKpi` 内、且在 `kpiNow === 0` 的提前 return **之后**。
+    没有 KPI 增量的回合（纯本地使用、不委派子代理的会话，KPI 恒为 0）永远不写 → 卷宗只剩一张表头。
+  - **改法**：与 `reportBlastRadius` 同一类病、同一类修法——搬到回合边界（`turnStoppingListener`），
+    出提前 return 的射程。放在结算之前：结算异常不该连本回合的额度快照一起丢掉。
+- refactor(case): 【四】`更新时间` 改用 `fmtTime`（本地时间），与【一】【三】同口径
+  - **病灶**：这一列仍走 `toISOString()`，同一份卷宗里三处时间两种写法，读者要心算 +8。
+  - **顺带**：`saveCaseRecords` / `saveLedger` 的 tmp+rename 样板收成 `rewriteCase`，
+    两处各少一份残片清理与失败记账，`state.mjs` 424 → 398 行。
+- test(case): 「成本行落进会话项目的卷宗」夹具，用空 `FG_CASE_FILE` 走真实分支
+- fix(case): 〔影响面：3.3.3〕【四】三个数字互相加不起来，「任务」列写的是时间戳
+  - **病灶一**：`已用额度 = effectiveCalls + invCalls`，而 `invCalls` 是**侦查池**计数
+    （`postProgress.mjs:188` 只在 `pool==='investigate'` 时自增）。把侦查池的调用扣进执行预算，
+    与「三池分立、互不挤占」直接相悖；「无效调用」列写的又是 `ineffCalls`，于是 `有效 + 无效 ≠ 已用`。
+  - **病灶二**：「初始额度」取 `taskInitial`（开局值），「剩余」却用当前 `taskBudget` 减——
+    续杯过一次，`初始 - 已用` 就再也算不出「剩余」。
+  - **病灶三**：首列表头叫「任务」，写进去的是 `now.slice(0,16)`；末尾「更新时间」写的是同一个 `now`。
+    一张八列的表，两列同一个时间戳，任务名一个字都没有。
+  - **改法**：`回合时间 | 预算 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 侦查池 | 委托池 | KPI`。
+    已用 = 有效 + 无效（可验算）；预算取当前值（可验算）；三池各占一格，谁超了看得见；
+    删掉重复的「更新时间」。表头迁移期两种都认（`任务` / `回合时间`），老卷宗下次写入即自愈。
+  - **判据**：一张表里的列必须能互相验算，否则它只是把几个不相干的数字并排摆着。
+- fix(case): 〔影响面：3.3.3〕【五】状态行插进表头与数据行之间，把 markdown 表格劈成两半
+  - **病灶**：`setCostStatus` 首次插入时把状态行放在 `|---|---|` 分隔线**之后**，于是表格被一行
+    blockquote 截断——实测卷宗里表头下面只剩一行裸文本，读者看到的是「一张空表 + 一行孤零零的成本」。
+  - **改法**：插到【五】**标题行之后、表头之前**。注只能挂节首或节尾，插进表格内部就是破坏结构。
+  - **夹具原先锁的是 bug**：断言写着「状态行应在表头之后」。改为「在标题之后、表格之外」，
+    并加一条「分隔线下一行只能是数据行或空行」——插进表格内部必红。
+- refactor(case): 【五】时间列改用 `fmtTime`，与【一】【三】【四】同口径
+  - **病灶**：`appendCostRow(new Date().toISOString(), …)` 是这一族最后一个 UTC 出口。实测同一时刻
+    【四】写 `22:03`、【五】写 `14:03Z`，差 8 小时，读者会以为成本行来自另一个会话。
+  - **教训**：上一轮修【四】时只扫了 `state.mjs`，没扫 `dsh/` 下的写入点——按文件找会漏，按语义找才不漏。
+
+### 结构债
+
+- refactor(dsh): 「只报不改」三条自检收成一个 `selfCheck` 模板，重复块 23 → 21
+  - **原状**：策略可达性 / 钩子顺序 / 工具类别各抄一遍同样的 try/catch + `next` 透传，
+    三处 11 行逐字重复，差异只有「跑什么」和「失败怎么措辞」。
+  - **处置**：`apply()` 内 `selfCheck(name, label, run)`；`apply()` 顺带短了 11 行。
+  - **记账**：`RATCHET.json` 补 3.3.4 行（smells 8 / duplicates 21，总和 29 < 3.3.3 的 31）。
+    结构异味 8 条不变——`state.mjs` 涨到 424 行成为第 9 条，当场压回 398 还掉，没有进账。
+    与 3.3.2 / 3.3.3 同一处置：拆代码，不抬阈值。
+
+### 发布闸与经验库
+
+- fix(release): 发布闸只跑测试，不跑整条 `check`〔开发期〕
+  - **原状**：`publish.yml` 跑 `npm test` + `working-directory: packages/core`，即
+    `tests/audit-isolation.mjs`——763 条测试，但**仅此一项**。
+  - **缺口**：eval / eval:dsh / selftest / bridges / privacy:gate / manifest:check /
+    docs:lint / lint / smells / schema:verify 全都不在发布路径上。
+  - **后果**：测试绿而说明漂移、死链、结构异味超标，照样发得出去。
+  - **改法**：改为仓库根 `npm run check`——发布门与本地必须同一条命令。
+- fix(scripts): 根 `npm test` 只跑 `acceptance.test.mjs` 一个文件，与 `check` 差 10 个闸〔开发期〕
+  - **后果**：`npm test` 绿会被当成"可以发了"——本轮我就是这么误判的，并据此报过错结论。
+  - **改法**：根 `test` 改为 `npm run test:all`；`INSTALL.md` 的「101 用例」「check = test+eval」
+    与两份包内 README 的 "acceptance" 描述一起改正。
+- docs: `ARCHITECTURE.md` 补一句「CI 不是发布闸」，`.githooks/pre-push` 去掉写死的用例数〔开发期〕
+  - **原状**：CI 只跑「验收 + 对抗评测 + 桥测试」子集，文档没写这条边界；钩子注释还写着「90 用例」。
+  - **判据**：写死数字的注释改一次就漂一次（`90 → 101 → 763`），要么给口径命令，要么不写数。
+- fix(patterns): 「教训」行写进去之后没有任何机制促使回填〔开发期〕
+  - **两层病**：建库 27 天零条是第一层（写不进去）；补上写入点后还有第二层——
+    骨架进去了，`- 教训：<待补…>` 永远空着，而模型看不见"还欠几笔"。
+  - **改法**：`pendingPatternStubs(projDir)` 数未回填条数（按 `路径+mtime+size` 缓存，可每回合调）；
+    `system-prompt/assemble` 在**真有欠账时**追加一段提醒，清完自动消失。
+  - **为什么不做常驻规则**：写进 `SESSION_RULES` 就是每步都付的固定开销；只在欠账时出现才划算。
+  - **边界**：引擎只报数，教训写什么仍归模型——替模型写结论就是伪造经验。
+
+### 清单与版本真值
+
+- feat(tools): 清单文案由 5 份收敛为「1 真源 + 4 派生」，新增 `npm run manifest:check`
+  - **真源**：`packages/core/package.json` 的 `description` / `displayName` / `descriptionI18n`
+  - **派生**：根与 `.claude-plugin` 的 `marketplace.json`、`.claude-plugin/plugin.json`、
+    `.zcode-plugin/plugin.json` 三份由 `tools/manifest-sync.mjs --write` 写，`check` 链查漂移
+  - **背景**：同一段介绍写 5 份，改一处忘其余——`.zcode-plugin` 那份还留着「4h~7天」「(58条)」
+- test(manifest): 「清单说明互不重复」改为「四份副本必须逐字等于真源」
+  - 旧判据要求互不相同，与单点派生相反；变更理由写在用例注释里。
+- docs: ≤3.0.7 的 16 段移入 `docs/archive/CHANGELOG-3.0.7-and-earlier.md`
+  - 主文件 2065 → 1602 行；两个解析型判据的解析面扩到「主 + 归档」并集，门槛 9 → 25 段。
+- docs: `docs:lint` 的 `dead-code-path` 豁免额度由 5 收到 0（历史段移走后存量归零）。
+
+### 大脑可视化入口
+
+- feat(brain): `npm run brain` 直接打印 `file://` 地址并唤起浏览器
+  - `--open` 此前是死开关：`brain.mjs` 只置 `o.open = true`，全文无 `spawn`/`execFile`。
+    唤起逻辑抽到 `tools/lib/open.mjs`（win32 / darwin / xdg）。
+- feat(brain): 新增 `brain:cosmic` 入口，加载不入库的 `.focus-guard/viz/build-brain2.mjs`
+  - 缺文件时打印原因并 `exit 1`，不静默。
+
+### 许可口径
+
+- fix(license): 〔影响面：3.3.3〕「商用须另购授权」与 AGPL §7/§10 冲突，自 3.0.8 起
+  - **§10**：明令「may not impose a license fee, royalty, or other charge」——收许可费被禁止
+  - **§7**：把非许可性附加条款判为 further restriction，并写明「you may remove that term」
+  - **后果**：下游可单方删掉该条；客户只要合规就无需购买，主张反而失去依据
+  - **改法**：NOTICE 与 LICENSE 头改「alternative, not a restriction」；附条件条款移入 NOTICE
+  - **附带**：LICENSE 纯化后 GitHub 应识别为 `AGPL-3.0`，此前判 `other` / `NOASSERTION`
+  - **口径来源**：AGPL 原文与 `gnu.org/licenses/gpl-faq.html` 的「并行许可」问答，非自拟
+- fix(docs): 〔影响面：3.3.3〕四处文案仍写「商用需单独授权」，另有一处 PolyForm 残留
+  - **清单**：`CONTRIBUTING.md` 首段与末尾、`README.md` 许可声明、两份 `packages/core/README*`
+  - **同源**：与上一条是同一个错误写多份；PolyForm 那句是 3.0.8 切换许可时漏改的残留
+
+### 文档对账
+
+- docs: 改为按现有功能组织；去掉自造代号，改用项目实际标识符〔开发期〕
+  - **新增第十一节**：5 个能优化的功能 + 4 个不该动的，逐条对照现状与收益。
+  - **标识符来自代码**：`PRE_STAGES`、`clean()`、`prompt-prefix-shift`，不另起名。
+  - **C6 加前置**：无 model 时影子判定恒 `skip`，先证明 model 在跑再排实现。
+- docs: 每条约束配机器可读代号（`shadow-check` 等），编号不变〔开发期〕
+  - **分工**：人读用 `C#`，审计字段与代码注释用代号；`C6` 永远是 `C6`，代号是附加键。
+  - **理由**：编号不可读，名字太长进不了字段。
+  - **同步**：`VERSION-PLAN` §1.6 / §4.5.3 的条目已带代号。
+- docs: 补读 4 条依据；C5 从「四类调质」降级为「三个 + 另有来源」〔开发期〕
+  - **C4**：Damasio 1996 摘要——标记来自生物调节，不限于情绪。
+  - **C6**：Botvinick 2001 摘要——ACC 检测冲突并**触发补偿调整**，不只是记录。
+  - **C7**：Hastings 2018 摘要——SCN 离体仍自主振荡，**节律不等事件**。
+  - **C5 降级**：元参数原文用「may correspond」，二手引述只列三个调质；多巴胺另有来源。
+- docs: 新增 `docs/THEORY-BASIS.md`——理论记录完整版，与约束页分工〔开发期〕
+  - **内容**：七层理论逐层（含形式化与落到哪条约束）、50 脑区归类、四套记忆系统与三过程、神经元五机制。
+  - **分工**：判据在 `DESIGN-CONSTRAINTS.md`，来源在本页；两页互不复制，避免两套真值。
+  - **申报**：8 篇已读、4 条待补原文（Damasio / Doya / ACC / SCN），理论页逐条标明。
+- docs: 新增第十节「收敛路径」；C2 补容量锚点〔开发期〕
+  - **整合**：十一条按来源归档（七层 5 / 脑区 2 / 记忆 3 / 工程 1），密度差一个数量级。
+  - **C2**：容量锚点约 4 个组块；7±2 是「rough estimate and a rhetorical device」，非上限。
+  - **申报**：11 条里 4 条只有转述（C4/C6/C7 与 C5 的 Doya 部分），下一步补原文。
+- docs: 新增 C11 前缀分歧点；C8 从「幂等写」升级为「条件写」〔开发期〕
+  - **C11**：KV 缓存依赖精确 token 前缀，分歧点之后失效 → 审计要记分歧点位置，不只记「变了」。
+  - **C8**：再巩固需要预测误差 → 内容未变时不得写回；幂等只是兜底，不是正解。
+  - **读到的**：Ferrara 2023（再巩固边界条件）、SGLang 2024（前缀复用，吞吐 6.4×）。
+- docs: 补读记忆论文两篇，C9 改为「提取抑制竞争者」、C5 累积改为离线重放〔开发期〕
+  - **C9**：原文说遗忘是主动抑制竞争记忆，故不做「相似度合并」而做「降权不删除」。
+  - **C5**：情景只发生一次而学会需多次重放 → 在线加一计数器形态错，改为离线频次。
+  - **C10**：巩固＝压缩后转移，不是保存；原文两篇都把记忆说成 compression。
+- docs: 设计约束扩到十条；C9/C10 登记进 4.5 · M3〔开发期〕
+  - **新增 C8** 提取即重写（已实现，转义膨胀的教训）、**C9** 相似干扰、**C10** 巩固通道。
+  - **C1 改为算术/时序二分**：三种模体（前馈/反馈/去抑制）各自存在，缺反馈一支；`fg_appeal` 是去抑制不是放宽。
+  - **读原文后修正两处**：PV/SST/VIP 三分类错（应为 PV/SST/5HT3aR）；「三种抑制」过度简化（模体数 ≥ 细胞类型数）。
+  - **神经元层产出 0 条新约束**，只精确化 C1/C5/C7 判据；记忆层产出 2 条。
+- docs: 设计约束 C6 登记进 3.3.5 排期（`VERSION-PLAN` §1.6）〔开发期〕
+  - **范围**：只登记排期，不动代码；`ARCH-MAP` 版本路线同步加注，两处一致。
+  - **内容**：deny 后补跑 `eligibility` 一路，结果写 `shadow` 字段，不改 verdict、不新增拦截。
+- docs: 新增 `docs/DESIGN-CONSTRAINTS.md`——七条设计约束，每条带失效模式与落点〔开发期〕
+  - **来源**：神经科学七层与脑区映射，只保留能说出「不做会怎么坏」的部分；理论本身不进仓库。
+  - **产出**：50 个脑区归入 7 类，39 个是已有类或别名；新析出 C6 一致性监测、C7 时间基准。
+  - **用途**：改判定链前查一遍；新增约束必须同时给出失效模式与落点，缺一不收。
+  - **边界**：C1/C3/C6 标未实现，是**记录**不是**动手**——按 RULES 第九十二条另行排期。
+- fix(docs): `ARCHITECTURE.md` 三处与实现相反〔开发期〕
+  - 自适应 TTL 仍写四档阶梯（实为半衰期）；`AUDIT.log` 轮转只写体积（实为体积或年龄先到）；
+    环境变量漏登记 `FG_AUDIT_MAX_AGE_MS` / `FG_ENV_FP_FILE` / `FG_ENV_FP_AUTO`。
+- fix(docs): 三处断链 `HANDOFF §十一` → `§十`〔开发期〕
+  - `eligibility-gate.mjs` / `redlines.mjs` / `evidence.mjs`。
+- fix(patterns): 空库头部自称「（79条）」〔开发期〕
+  - 新增 `normalizeHeader()` 清掉旧计数；条数由条目本身得出，不再手写。
+- fix(scripts): `packages/core` 内 5 条脚本少一层目录 → `MODULE_NOT_FOUND`〔开发期〕
+  - **改法**：`schema:verify` / `schema:update` / `fixtures:capture` / `handoff` / `layers:audit`
+    由 `node packages/core/tools/…` 改为 `node tools/…`
+  - **后果**：`check` 依赖 `schema:verify`，此前包内 `npm run check` 直接崩
+- fix(docs): 前缀抖动的成本论证用错口径——同一件事在两处给了两种代价〔开发期〕
+  - `ARCHITECTURE.md:351` 已写明宿主是 `systemPromptUpdate: "in-history"`（段变＝追加一条
+    system 消息，**不改写前缀**），「整段历史按未缓存价重付」不成立；但 `memory/workspace.mjs`
+    的两处注释与 `DESIGN-CONSTRAINTS.md` 的 C11 仍拿旧口径当冻结理由。
+  - 真实代价：每次多背一份完整系统提示（约 2.5k tok/次），收益量级 0.3%。
+  - **判据**：一个机制的理由被证伪时，理由要跟着改——否则下一个读者会照旧口径给它加权重。
+- fix(docs): C8 的失效模式写成「每次读取放大一次」，那是已修的历史事故〔开发期〕
+  - 转义放大（347 MB / 202 行）2026-11-07 已由 `uncell()` 配对修掉；现存残余是含竖线单元格
+    整行丢弃（见「卷宗」节）。照旧写法会让人以为 C8 还欠一笔大的。
+
+### 留痕文档
+
+- fix(env): 〔影响面：3.3.3〕环境指纹只生成一次、永不刷新，实测停在 31 天前
+  - 生成入口 `ensureEnvFingerprint` 是 `if (existsSync(fp)) return`——装一次就冻结
+  - 而 `.ai/env-fingerprint.json` 同时是 `hardCheck` 第 1.5 层的**规则来源**（`grep→rg`）
+  - 环境变了规则表不变 → 同一条命令「这边拦、那边放」，且没有任何信号
+  - 改为 30 天保质期：过期 / 坏文件 / 缺 `generated_at` 一律重探（后台 spawn，不压启动）
+- fix(docs): `HANDOFF.md` 头部称「10 处注释以 HANDOFF § 为锚点」，实为 15 处〔开发期〕
+  - 数字改成 15 并附口径命令——手写计数不给口径，改一次就漂一次
+- fix(env): 环境指纹的生成子进程带 `detached: true`，Windows 上弹窗且从不产出〔影响面：3.3.3〕
+  - 实测：`detached: false` 立刻落盘；`detached: true` 等 3 秒文件仍不存在、目录为空
+  - 症状：每次会话启动弹一个控制台窗口，而 `.ai/env-fingerprint.json` 永远不生成
+  - 去掉 `detached`，保留 `stdio:'ignore'` + `unref()`：不阻塞启动，也不弹窗
+- fix(case): 卷宗【一】用 UTC 带 `Z`、【三】用本地时间，同一文件两种口径〔开发期〕
+  - 实测同一份卷宗里【一】比【三】早 8 小时，读者会误判环境声明是上次会话留下的
+  - 统一走 `fmtTime()`：卷宗内只允许一种时间写法——本地时间、不带 `Z`
+
+### 测试隔离
+
+- fix(test): `postProgress-state` 用仓库 cwd 当项目目录〔开发期〕
+  - `projDirOf` 读 `header.cwd`，用例恒传 `process.cwd()`，于是每跑一次就往**真**
+    `.ai/CASE_FILE.md` 的【三】写一行指向 `Temp/fg-poststate-*` 的记录；实测积了 5 行。
+  - `mkExec` 加 `cwd` 参数，会真读文件的用例指向自己的 tmp 目录。
+- fix(seam): 〔开发期〕环境指纹子进程不再把项目目录设成 `cwd`（Windows 上攥住句柄 → 目录删不掉）
+  - **病灶**：`spawn(..., { cwd: projDir })` 让那个后台进程成为项目目录的持有者，
+    期间删/改/移动该目录一律 `EBUSY`。实测 `env-cache-reuse` 的 `after` 清理报 `rmdir EBUSY`，5/6 通过。
+  - **判据**：该工具只往 `--out` 写、只探 `PATH`，不读项目目录——cwd 是纯负债。
+- test(case): 新增 `case-file-ownership.test.mjs` 2 条
+  - ① 卷宗路径只允许由 `core/state.mjs` 的 `casePath()` 构造（扫 `src/` 与 `hooks/` 的非注释代码行）。
+    2026-11-08 那个「【五】跟着插件安装位置走」的故障修好之后，没有任何东西拦着第五个写入点再自拼一次路径。
+  - ② 会话启动不得吞掉【一】里人类补的注（A3 同源，防再漏一节）。
+
 ## 3.3.3 · 2026-11-07
 
 > 发布状态：**已推送**——`PUBLISHED_MAX` = 3.3.3，与本段一致。
@@ -1597,469 +1900,6 @@
   - **同步修正**：`tests/state-ownership.test.mjs` 的 readSet 断言到归一化键。
   - 验证：`npm run check` → `346/346`，`audit-isolation` Δ 0 PASS。
 
-## 3.0.7 · 2026-10-18（Trusted Publishing 首发）
+## 更早版本（≤ 3.0.7）· 已归档
 
-> 本节记录 3.0.7 的增量。首次通过 GitHub Actions OIDC（Trusted Publishing）发布，包内容不含任何长期凭据。对应提交：`8f58bcf` / `861e9a7` / `cd7ad36` / `2d04d53`。
-
-- feat(runtime): **心跳与存活确认**——`heartbeat.mjs` 每 10s 原子覆写 `.focus-guard/status.json`（tmp→rename），`unref()` 不拖住宿主。
-  - **判活**：`status.mjs` 按需判活，exit `0` 全绿 / `2` 缺模块 / `3` STALE（>30s）/ `4` 文件缺失。
-- feat(runtime): **11 模块启动自检**——10 条执法缝 + 心跳各自报到（`markModule`）；心跳首写延后一 tick，避免首帧少报自己。
-  - **缺项**：写 `degraded`、宿主日志 warn、模型侧注入 `focus-guard-degraded` 段。
-- feat(l4): **跨会话卷宗按路径哈希路由**——`workspace.mjs` 以 `sha256(realpath(cwd))` 前 16 位为身份，**hash 不符零注入**。
-  - **存储**：`.focus-guard/workspace.json` 存决策/约束/下一步（各限 10 条、每条 200 字、注入 ≤1200 字）；改文件夹名即彻底屏蔽。
-  - **写入**：回合结束（`agent/turn-stopping`）自动落账，只记 FG 亲眼看到的事实。
-- feat(gate): **第 1.4 层整文件读取闸**——目标 >300 行且无 `offset`/`limit` 即 deny，提示改用 XERJ `search`/`def`。
-  - **参数**：`FG_WHOLE_FILE_MAX_LINES` 可调；分块数换行、够数即停，不整文件读入内存。
-- feat(gate): **第 1.3 层 Superpowers 动笔闸**——判据三件套（开发动词 + 模糊标记 + 无验收词）同中才触发。
-  - **拦截**：首次改文件/写文件/破坏性 shell deny 一次，要求先加载 `brainstorming` / `writing-plans`。
-  - **防死锁**：同条重试与已加载均放行。
-- fix(gate): **破坏性 API 按目标分级**——旧实现只看动词、权重恒 0.6，清 TEMP 单文件与递归删系统目录同分。
-  - **旧毛病**：`Remove-Item` + 任意重定向即 0.9 越线。
-  - **现分级**：系统路径/递归 0.9（拦截）、TEMP 0.2、其他 0.4、重定向 0.15。
-  - **回放**：历史 39 条误伤样本全部降到阈值下（最高 0.45）。
-- fix(gate): **红线射程补两处**——长旗标写法 `rm --recursive --force X`（旧短簇正则认不出 `--force`）与系统顶层目录（`/usr` 等）；`/tmp` 刻意不收，避免误伤构建。
-- fix(audit): **`FG_AUDIT_FILE` 优先**——`core/audit.mjs` 的 `auditTarget` 只认 `ZCODE_PROJECT_DIR`/`CLAUDE_PROJECT_DIR`。
-  - **后果**：`risk.mjs` 的 `penalize()` 成为第四个写点、测试重定向对它失效（CHANGELOG 3.0.6 所称"零增长"实测不成立）。
-- fix(audit): **deny 记录真实 trigger**——此前一律写 `high-risk-rm`，`ls -la` 也被记成强删。
-  - **签名**：`auditDeny(exec, cmd, {trigger, level})`。
-  - **10 处调用点**：`redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `volume:*`。
-  - **其余**：`superpowers:writing-gate` / `risk:<category>`。
-- fix(env): **执行体判定不再三方矛盾**——母版认显式 `FG_SHELL`，DSH 适配层在 `apply()` 声明执行体为 `powershell`。
-  - **结果**：卷宗【一】/指纹/实际执行从此一致（实测 `powershell 5.1.26100.9444`）。
-- fix(seams): **42 条版本核验退旧账**——封存版此前被"并入候选表"而非跳过，每会话误报一次部署漂移；改为 `SEALED` 命中即 skip。
-- feat(watch): **压缩监察**——`compactionWatch.mjs` 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕。
-  - **口径**：`action=compaction*`；不写 surface、不 cancel；压缩归 DSH 内置栈，第三方不再重复实现。
-- fix(test): **审计零增长守卫**——`tests/audit-isolation.mjs` 跑测前后比对真实 `AUDIT.log`，有增长即 exit 1。
-  - **接线**：`test`/`test:all` 改经守卫运行。
-  - **双向验证**：干净 Δ0 PASS、故意污染 Δ1 FAIL。
-- chore(audit): **历史测试夹具清理**——剔除 882 条 `deny`+`session=dsh-native` 历史污染（双备份 + 并发追加保护 + `audit-purge` 留痕），保留 71 条真实会话拦截。
-
-## 勘误 · 历史 commit message 的行数口径（2026-10-09）
-
-三条 `refactor(core)` 提交的 message 中，`guard.mjs` 行数与实际不符。**不改写历史**（不 force push），正确数字以下表为准：
-
-| commit | message 声称 | 实际 | 差额 |
-|---|---|---|---|
-| `1f630c8` | 159 | **1707** | +1548（来源不明，疑为误抄） |
-| `3aaf56d` | 1228 | **1348** | +120（≈ 该文件空行数） |
-| `71199e7` | 1042 | **1142** | +100（≈ 该文件空行数） |
-
-实测口径：已提交版本 `git grep -c '' <commit> -- packages/core/hooks/guard.mjs`；工作区版本 `(Get-Content <file>).Count`。父提交链 `1893 → 1707 → 1348 → 1142` 与三次拆分的 `git diff --numstat` 互相印证。
-
-后两条差额与空行数吻合，说明当时用了**不数空行**的计数方式（如 `Measure-Object -Line`）。故立口径纪律：**`Measure-Object -Line` 禁止用于行数报告**（它漏数空行），一律用 `git grep -c ''`（已提交）或 `(Get-Content).Count`（工作区），改动量引用 `git diff --numstat`。
-
-## 3.0.6 · 绝对红线上下文豁免与条款清理
-
-- feat: **绝对红线上下文豁免**（HANDOFF §八）
-  - **做法**：`core/redlines.mjs` 新增 `redlineExempt()`，三条判据。
-  - **判据 1**：命中片段完整落在引号字面量内（`quotedSpans()` 解析 `'…'`/`"…"` 并处理反斜杠转义）。
-  - **判据 2**：片段前有显式数据标记（`示例：`/`例如：`/`测试数据`/`prompt:`/`【假设】`/ 代码围栏），且命令非变更类（复用 `isMutatingBashCmd`）。
-  - **判据 3**：首 token 属只读输出命令（已剥离 `sudo`/`env`/`xargs` 前缀）。
-  - **口径**：豁免只把裁决**降级到第 2 层语义预判**，绝不直接放行。
-  - **留痕**：`pipeline.mjs` pre-execute 豁免时写 `AUDIT.log`（`action:"redline-exempt"`、`trigger`、`basis`、`evidence`）后继续下传。
-- fix: 豁免**排除执行外壳**
-  - **原状**：`bash -c "rm -rf /"`、`node -e "…execSync('rm -rf /')"` 的危险内容同样在引号内，但那是真执行。
-  - **做法**：`SHELL_EXEC_WRAPPER_RE` 命中即不豁免。
-  - **范围**：shell `-c` / `cmd /c|/k` / `eval` / `exec` / `iex` / `Invoke-Expression` / 解释器 `node -e`·`python -c`·`perl -e`。
-  - **口径**：与既有 R5-3 解释器黑名单一致。
-- chore: `docs/RULES.md` 删除已废止条款正文及未机械化清单中的废止残留（条款 91→87，编号空缺保留以维持既有交叉引用不漂移）。
-- docs: CHANGELOG 补勘误小节，记录历史三条 `refactor(core)` 提交的行数口径与正确数字（不改写历史）。
-- feat: **误伤申辩程序**（司法救济通道，补齐外部审计指出的结构缺口）
-  - **做法**：新增 `fg_appeal` 工具（`adapters/dsh/fg-appeal-tool.mjs`）与 `appealAsk` / `grantFromAppeal` / `hasRedlineGrant`。
-  - **顺序**：`pipeline.mjs` 在**所有闸之前**处理申辩，否则申辩参数携带的被拦命令原文会被同一规则再拦一次，形成死锁。
-  - **裁决**：返回 `{kind:"ask"}` 经 DSH approval seam 交人类**一次性裁决**。
-  - **批准**：开通该工具一次授权（`ttl=turn`）+ 豁免本次命中红线（`redline:<name>` 凭据，红线层可查）。
-  - **拒绝**：维持拦截；全程留痕 `appeal-filed` / `appeal-granted` / `appeal-denied`。
-  - **条文**：见 `RULES.md` 第八十三条(四)——同时**更正**该条(三)「仍走第十二章」的条文错配（第十二章为「反规避与纪律审查」，非申请执行流程）。
-- test: 画像链路端到端集成测试 `tests/integration.test.mjs`（16 用例）——验证 fg_apply→授权→闸放行闭环、画像跳层、红线豁免与资格闸的边界、授权回收与会话隔离。
-- fix: **画像与豁免在真实入口失效**（集成测试挖出、逐条修复）
-  - **① 形参**：`applyEligibility` 新增 `profile` / `modelId` 形参并透传，此前真实 fg_apply 路径 `profile=null`、画像全失效（差异只在 `decide()` 可达）。
-  - **② 母版**：母版 L2 命中红线后接入 `redlineExempt`，与 pipeline 文本层同口径（豁免则**降级**不 deny），此前"文本层豁免、母版仍 deny"。
-  - **③ 闸**：`gateToolCall` 接入 `profile` 并按同一 `scope` 判定，消除"闸与母版不同源"。
-- fix: **审批层不可被画像关闭**（安全项）
-  - **做法**：`profileLoader` 新增 `FORCED_ON_SWITCHES` / `enforcePolicy`，画像试图关闭 `approvalGate` 时强制启用并告警。
-  - **口径**：母版 L3 不再查 `layerEnabled`，只认 `scope`。
-  - **原状**：此前"画像关 L3 + 闸只认授权表"可让审批端到端绕过。
-- feat: **`approvalGate.scope` 由死配置变为真判定**
-  - **新增**：`IRREVERSIBLE_IDS`（rm-rf / format-volume / drop-database / git-push-force / 系统路径写入）与 `profileScope()`。
-  - **判定**：`scope:'irreversible'` 时非不可逆高危放行、不可逆类仍须审批。
-- feat: **画像接入真实 pre-execute 链路（最后一公里）**
-  - **原状**：`pipeline.mjs` 的资格闸此前不传 `profile`，画像只在 `decide()` / `applyEligibility` 两条路可达、实际运行时失效。
-  - **做法**：从 `exec` 提取模型标识（`exec.agent.model` / `exec.agent.modelId` / `exec.model`，与成本台账同源）翻成画像交闸，`FG_MODEL_ID` 作显式兜底。
-  - **默认**：取不到时为 `null` → 闸按最严 `mutating`（安全默认）。
-  - **影响**：红线层不含画像开关，不可被画像放行。
-- fix: **版本面补全**
-  - **原状**：monorepo 子包 `packages/core/package.json`（DSH 实际挂载的包，也是 GUI 里显示的版本来源）与 `packages/extended/package.json`、外接桥的版本标识此前未纳入版本面。
-  - **后果**：出现"清单齐 3.0.4 而代码已 3.0.6"。
-  - **做法**：现共 **8 处**版本点由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。
-- fix: **缺陷 3（闸与红线口径不一致）**
-  - **做法**：`gatedReasonOf` 命中 `HIGH_RISK_TOOLS` 后先问 `redlineExempt`，豁免成立则不进门槛清单。
-  - **口径**：`write-system-path` 是路径检查，不套命令豁免。
-- fix: **缺陷 6（判据名不稳定）**
-  - **做法**：新增 `redlineSpan()`——裁掉命中片段尾随的空白与收尾引号（**不含 `/`**，`rm -rf /` 的 `/` 是目标路径本体），使 span 稳定落在危险片段本体上。
-  - **影响**：这不只是判据名变化，判据 1 的适用面按设计意图扩大了一档——形如 `foo "rm -rf /"`（head 既非只读命令、也无数据标记）从"不豁免"变为 `quoted-literal`。
-  - **反证**：`rm -rf "/"` 裁剪后 span 与引号内容区间不相交仍不豁免，执行外壳仍由 `SHELL_EXEC_WRAPPER_RE` 拦。
-- fix: **FG 自身缺陷：取证闸对"新建文件"死锁**
-  - **做法**：`layer3Check` 的取证判定加 `existsSync` 门——目标不存在（新建）直接放行，仅对**已存在**文件的修改要求先读。
-  - **原状**：此前新建文件无既有内容可读 → 永远进不了 readSet → 只能靠"拒一次后豁免"逃生。
-- docs: **L3 是否接豁免的判定**（外部接手模型提出）：**不接**
-  - **口径**：闸是"无授权即 deny"（无人类环节，须自判豁免），L3 是"转人工审批"（人类环节即裁决）。
-  - **理由**：若 L3 也豁免，"数据形态的高危命令"会无人审批直接放行，风险不对称。
-  - **落点**：判定已写入 `checkEligibility.mjs` 第 3 层注释，防后人当缺陷改回。
-- fix: **测试污染真实工作区**
-  - **原状**：跑测试时审计流水写进真实 `<仓库>/.focus-guard/AUDIT.log`（实测 2630 行 / 746 个测试 session）。
-  - **根因①**：`auditDeny` 写死 `AUDIT_FILE`，而**同一文件**的 `auditRedlineExempt` 支持 `FG_AUDIT_FILE`（一文件两种口径）。
-  - **根因②**：`acceptance.test.mjs::makeRunner` 直接透传 `process.env`，宿主设的 `CLAUDE_PROJECT_DIR` 让 `guard.mjs` 定位到真实工作区。
-  - **根因②补充**：原注释"无 ZCODE_PROJECT_DIR 即退回临时目录"的假设失效。
-  - **根因③**：`eligibility.test.mjs` 只在两个审计用例内设重定向，且 `finally` 里 `delete` 掉它、把沙箱一并删除（该文件顶部"审计一律注入 mock"的承诺从未成立）。
-  - **做法**：`auditDeny` 补重定向 · `makeRunner` 显式置空两个工作区根变量（`...env` 保持最后，用例覆盖仍生效）· `eligibility.test.mjs` 顶部统一沙箱、用例内改为"恢复"而非 delete。
-  - **验证**：跑全套后 AUDIT.log 零增长（历史污染已清理，备份于 `.ai/archive/`）。
-- docs: 文档同步（外部接手交付，Lead 审计通过）
-  - **README**：badge 3.0.4→3.0.6 · 问题→能力对照表 · 母版/适配/宿主缝三层表 · DSH 两条路互斥对比。
-  - **README 版本面**：`ENGINE_VERSION` 从 **3.0.0** 修正为 3.0.6 并补 8 处版本面。
-  - **INSTALL**：新增「2A. 原生插件（推荐）」节、卸载命令区分原生插件/官方桥。
-  - **SKILL**：`skills/focus-thinking/SKILL.md` 的"生效版本"从 `hooks/guard.mjs v3.0.0` **修正为** `ENGINE_VERSION`。
-  - **SKILL 理由**：guard.mjs 已封存，不该再代表生效版本；并修正 monorepo 后的 `docs/RULES.md` 路径。
-  - **HANDOFF**：`docs/archive/HANDOFF-TO-EXTERNAL.md`（当时在 `docs/`）补交付验证与 ENOENT 踩坑记录。
-
-- feat: **审计日志体积轮转**
-  - **原状**：`AUDIT.log` 此前 append-only 且无轮转，长期运行无限膨胀（本次事故即累积到 2997 行）。
-  - **做法**：新增 `rotateAuditIfNeeded()`：超上限（`FG_AUDIT_MAX_BYTES`，默认 5 MB ≈ 2 万条）时移入同目录 `archive/AUDIT.log.<时间戳>` 并重建空文件。
-  - **保留**：保留最近 `FG_AUDIT_ARCHIVE_KEEP`（默认 10）份。
-  - **纪律**：**只归档不删除**（执法记录不得丢）· 失败只 `warn` 不阻断 · 轮转失败**继续追加原文件**（宁可变大、不可丢记录）· 文件不存在（首写）静默放过，不刷噪音。
-  - **影响**：注意 封存的 `hooks/guard.mjs`（ZCode 层）不经此处写入，**不受本机制管辖**——这是封存的代价。
-- refactor: **审计写入收敛到单一入口** `appendAudit()`
-  - **原状**：三处写点（`auditDeny` / `auditRedlineExempt` / `auditEligibility`）此前各写各的，正是"同一文件两种口径"的温床（污染事故根因之一）。
-  - **做法**：现共用同一入口，轮转只在一处生效，口径不可能再分叉。
-
-- chore: **发布元数据补全**（dsh-market 收录前置）
-  - **做法**：`packages/core/package.json` 声明 `@deepseek-ai/dsh-tools` 为 **`peerDependencies`** 并标 `optional`（工具注册属可选加载）。
-  - **范围**：`>=0.1.0-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0`（**显式预发布分支**，覆盖宿主 `0.2.0-rc.2` 元组）。
-  - **口径**：按 dsh-market 规则，不带预发布分支的范围会静默排除所有 rc 构建，用户装时会遇到 `ERESOLVE`。
-  - **原状**：此前包声明零依赖而代码实际 `import` 该包。
-  - **补充**：另补 `packages/core/README.md` 与 `LICENSE`——此前 `license: MIT` 只是声明、无对应文件，npm 包页面会空白。
-
-- fix: **DSH 侧状态所有权**（孤儿机制审计的第一步）
-  - **原状**：原生插件此前**没有 state 写入者**（唯一写者是 `guard.mjs`，而它在 DSH 下未挂载）。
-  - **后果①**：取证记录（`readSet`）无法落盘，模块重载（HMR）/进程重启后凭空消失。
-  - **后果②**：`layer3Check` 走 `readGuardState(undefined)` 退化成"扫 `os.tmpdir()` 取 mtime 最新"，会读到**别的会话或测试残留**。
-  - **实测①**：该目录有 199 个 `focus-guard-eval-*`（会被过滤）外加 acceptance/selftest 写的 `focus-guard-<sid>-<RUN>.json`（**过滤不掉**）。
-  - **实测②**：于是拿别人（往往是空的）readSet 去判你的真实改动，表现为"拦不拦你取决于最近跑没跑测试"。
-  - **做法①**：`rememberReads` 把 readSet 落盘到 `statePath(sessionId)`（原生插件的第一处 state 写权，KPI／预算池等机制后续依赖它）。
-  - **做法②**：新增 `readGuardStateExact()`，按会话身份**精确定位**、绝不做目录扫描。
-- fix: **内存取证集合跨会话泄漏**
-  - **原状**：`nativeReadSet` / `evidenceBlockedOnce` 原为模块级单一 `Set`（按路径索引、不含会话身份），而 DSH 单进程内多个会话共用同一份 `pipeline` 模块。
-  - **后果**：「会话 A 读过的文件」被判成「会话 B 也读过」，违反取证的本会话语义。
-  - **做法**：现按会话身份分表（`Map<sid, Set>`）。
-- test: 新增 `tests/state-ownership.test.mjs`（6 用例）——落盘、判定、**抗他人状态干扰**、会话隔离、无状态 fail-open 且留痕、真实工作区零写入。
-- docs: **孤儿机制审计结论**（本次定级修复级的缘起）
-  - **两条路互斥**：DSH 侧另有两条**互斥**接入路径，能力二选一。
-  - **原生插件**：`pipeline.mjs`（在跑）提供资格审核／申辩／画像／命令硬校验／红线豁免。
-  - **官方桥**：`hooks.json` → `guard.mjs`（**未装**）承载 KPI／三预算池／高危审批单／抽查／污染检测／因果链／积木图书馆／降级／绝境／卷宗指纹等机制。
-  - **常量口径**：`constants.mjs` 的 42 个导出常量中 **28 个在 DSH 侧零消费者、9 个仅被 `state.mjs` 引用（只存不判）**。
-  - **不是死代码**：它们由 `guard.mjs` 消费、经桥调用，但当前 profile 未装桥故此刻不生效。
-  - **缺口**：README/INSTALL 只声明了单向差异（"桥不含资格审核"），未声明反向。
-  - **后续**：按「移植 + 退役、先搬后删」把机制搬进原生插件，再退役 `guard.mjs`。
-  - **另注**：`selftest.mjs` 曾有 **6 项失败**（4 项过期断言、1 项环境指纹的预期拦截、1 项用了不存在的目标文件因而测不到"未取证"），本次一并修正。
-  - **CI 闸**：`npm run check` 由 `test && eval`（2 套）扩为 `test:all + eval + selftest + bridges`（5 套，230 个断言）。
-  - **覆盖缺口**：此前 `integration` / `state-ownership` / `profile` / `eligibility` / `bridges` / `selftest` 都不在闸内，红了无人知晓。
-
-- feat: **原生插件补上缺失的三条宿主缝 + KPI 兑现移植**（孤儿机制移植第一步）
-  - **做法**：新增 `src/dsh/seams.mjs`，按官方桥（`@deepseek-ai/dsh-hooks-claude-code`）的**实测映射**接上三条缝。
-  - **`agent/created`** → SessionStart（建立本会话状态）。
-  - **`agent/pre-step`** → UserPromptSubmit（回合重置；**waterfall 必须 `return next()`**，否则吞掉下游决策）。
-  - **`agent/turn-stopping`** → Stop（**KPI 兑现结算**：本任务 KPI → 等次 → 委托池奖惩，跨任务累计入 `kpiCarry`，留痕 `kpi-settle` / `kpi-low`）。
-  - **口径**：映射来源是桥的已验证代码、非猜测。
-  - **影响**：`constants.mjs` 的 `BUDGET_CAP` / `DELEGATE_DEFAULT` 由此在 DSH 侧**首次被真正消费**——此前它们属于那 28 个零消费者常量。
-- test: 新增 `tests/seams.test.mjs`（6 用例）
-  - **覆盖**：start 建状态并留痕 · reset 必须 `return next()` · KPI 优秀 +5 且跨任务累计 · 不称职 −5 且 `kpi-low` 只提醒一次。
-  - **其余**：三条缝异常一律不阻塞 · 真实工作区零写入。
-  - **规模**：CI 闸门至此为 **6 套 / 235 个断言**。
-
-- feat: **移植批 1：批示识别与回合重置（`reset` 133 行）**
-  - **做法**：`preStepListener` 由骨架补齐为完整实现，照搬 `guard.mjs` L194-326。
-  - **覆盖**：特赦识别 · 目标预授权（只记 goal、不解锁执行）· 信用延期（停滞≥2 且收到信用批示 → 侦查/执行池各补 `REFILL`）。
-  - **覆盖续**：追加批示（三池各 +`REFILL`）· 残留核验（43 条）· 额度核定（`KEY50_RE`/`KEY15_RE`）。
-  - **停止令**：`STOP_ORDER_RE` → 熔断；且不再被本函数后续的硬写回抹掉——那是 guard.mjs 2.5.2 修过的老 bug。
-  - **y/n 授权**：y 放行全部待批并目标绑定、n 彻底阻断且清除历史绑定。
-  - **影响**：`constants.mjs` 的 `MERCY_RE` · `CREDIT_RE` · `STOP_ORDER_RE` · `KEY50_RE` · `KEY15_RE` 由此**首次在 DSH 侧被消费**。
-  - **影响续**：`BUDGET_DEFAULT` · `BUDGET_CAP` · `REFILL` · `INV_POOL_DEFAULT` · `DELEGATE_DEFAULT` 亦同。
-- fix: **会话标识取值口径**
-  - **做法**：`agent/created` 等缝的会话 id 应取 `agent.session.header.id`（与官方桥 `lib/index.js:349-354` 同源）；`projDir` 同步改用 `session.header.cwd`。
-  - **原状**：此前误写为 `agent.session.id` 会取不到，于是**所有会话退化成同一个 `'dsh-native'`、状态互相覆盖**（与刚修掉的跨会话泄漏同类）。
-- test: `seams.test.mjs` 扩到 11 用例（新增停止令熔断 · 三池追加 · 额度核定 · y/n 授权与目标绑定 · 非批示文本不误判）。CI 闸门至此 **6 套 / 240 个断言**。
-
-- feat: **移植批 2：体积刺客三闸 + 污染核实闸 + 风险文件留痕（约 48 行）**
-  - **接线**：`preExecuteListener` 新增五段，插在资格闸之后、第 2 层语义预判之前。
-  - **① Read 整读体积闸**：超 `OUTPUT_GATE_BYTES` 拦，并**保留 2.5.3 的审计任务豁免**——法典把审计定为 50 预算重大专项，体积闸却拦审计最需要的整读，属制度性误伤。
-  - **② Grep 闸**：content 无 `head_limit` 即拦。
-  - **③ 裸 `cat`/`type` 刷屏闸**：在本环境**不可达**（第 1.5 层环境指纹 `cat`→`bat` 先拦），保留作兜底。
-  - **④ 污染核实闸**：上轮输出与参数矛盾 → 首个改动类拦一次、一次性。
-  - **⑤ 风险文件 100% 留痕**：`.github/` 等，只记不拦。
-  - **有意不搬**：高危命令闸与脚本写入闸（依赖审批单机制，与资格闸的关系待定）· 触发①/盲写检测（已被第 3 层按文件覆盖）。
-  - **裁剪理由**：硬搬会造成"一个命令被拦两次"或两条路冲突。
-- fix: **参数遮蔽导致两段新闸静默 fail-open**
-  - **原状**：`preExecuteListener({ …, statePath })` 的**参数名 `statePath`** 遮蔽了从 `state.mjs` import 的同名函数。
-  - **症状**：函数体内 `statePath === undefined` → `statePath is not a function`。
-  - **后果**：被 `try/catch` 的 fail-open 吞成放行（安全上正确，但 bug 完全静默，靠 `warn` 输出才抓到）。
-  - **做法**：现 import 改用别名 `guardStateFile`，并加注释说明原因。
-- test: 新增 `tests/gates.test.mjs`（8 用例）。CI 闸门至此 **6 套 / 248 个断言**。
-
-- refactor: **审批单机制退役（`fg_apply` 为唯一授权入口）**
-  - **缘起**：按 2026-10-10 的定案，审批单只需敲一个 `y`，**无目的、无范围、无留档**；与 `fg_apply`（要求 purpose/scope 结构化留档）并存时，人会本能选省事的那条，使"事前结构化申请"形同虚设。
-  - **判据**：**留一条能绕过主设计的旁路，等于没有主设计。**
-  - **代码**：`seams.mjs` 移除批 1 照搬的 y/n 批示识别（`Y_TOKEN`/`N_TOKEN`/`LEAD`/`TAIL`）与待批队列处理，以及 `highRiskDeniedThisTurn` 死字段（保留退役说明注释）。
-  - **修法**：RULES 第七十五条(三) **实质保留**（"推送远端属对外发布行为，须审批"），授权方式由"出具【高危申请】审批单 + 领导回复 y"改为"**须先调 `fg_apply` 取得授权**（附 purpose/scope 结构化留档）"。
-  - **配套**：(四) 合并审批与批示词容错**标注废止**；第二十四条删去"「同意」即审批单放行"之注；第八十三条(三) 由"不替代审批单"改指 `fg_apply`；技术映射表两行同步。
-  - **沿革**：**立法沿革保留**（与第十九条「（已废止·编译版 v1.1）」同例）。
-  - **验收**：`acceptance` 的"文档-实现对齐"断言从**锁定 y 放行口径**改为**锁定 `fg_apply` 口径**，并新增"审批单口径不得残留"的反向断言。
-  - **不受影响**：`fg_appeal` 误伤申辩——它不是绕过而是救济（须附反例锚点、人类一次性裁决、全程留痕）。
-- test: `seams.test.mjs` 的 y/n 授权用例改写为"审批单退役后 `y` 不再构成任何授权"（断言 `highRiskOk` 未被设置、无 `high-risk-approved` 留痕）。
-
-- feat: **移植批 3：post-execute 进度与执法缝（242 行）**
-  - **做法**：新增 `src/dsh/postProgress.mjs`，与 `postExecuteListener` **同事件并列监听**，移植自 `guard.mjs` L666-907。
-  - **进度检测引擎**：响应/入参签名比对，判定有效 vs 无效调用。
-  - **三预算池核算**：执行池/侦查池分列，自动续杯、硬上限熔断、侦查池超限。
-  - **停滞熔断**：连续无效达 `STALL_FUSE` → 熔断 + 预警。
-  - **污染检测**：58 条上下文污染检测（`head -n N` 行数对账、清单路径重复 → 设 `pollutionFlagged`）· 巨量输出事后追责。
-  - **其余**：子代理摘要校验（KPI ±3）· **强制委派场景检测**（KPI ±5）· **抽查 A**（每 `RANDOM_AUDIT_EVERY` 次写操作全量审计）· 卷宗指纹与 TTL 依据（`caseCache`）。
-  - **口径**：工具名按 DSH 适配（`Agent`→`agent|subagent`、`Bash`→`pwsh|bash`、大小写不敏感）。
-  - **闭环**：本批设置 `pollutionFlagged`，批 2 已搬其消费侧——跨模块用例锁定"post 标记 → pre 拦一次 → 重试放行"。
-- fix: **会话标识取值口径（第二处、更严重）**
-  - **原状**：`audit.mjs` 的 `sessionOf` 与 `pipeline.mjs` 的 `sessionIdOf` 只认 `exec.sessionId`/`agent.sessionId`/`agent.id`。
-  - **症状**：**三者皆空** → 全部退化成 `'dsh-native'`。
-  - **实测**：真实 `AUDIT.log` 里 **439 条**记录都记在 `dsh-native` 名下，而取值正确的 `seams.mjs` 写的是 `sess_<uuid>`——即所有会话共用一份状态文件与一条审计流。
-  - **做法**：现统一为桥的口径（`agent.session.header.id` 优先）。
-- fix: **`postProgress` 误用母版 `audit` 会写真实工作区**
-  - **原状**：母版 `audit()` 按 `auditTarget()` 落盘，优先读 `ZCODE_PROJECT_DIR`/`CLAUDE_PROJECT_DIR`，而 DSH 下后者被设置。
-  - **后果**：会写真实工作区的 `.focus-guard/AUDIT.log`（重演此前修过的测试污染）。
-  - **做法**：现改用本地同签名包装，落点走 DSH 统一入口 `appendAudit`（尊重 `FG_AUDIT_FILE`、带体积轮转）。
-- test: 新增 `tests/postProgress.test.mjs`（9 用例，零污染）。CI 闸门 **6 套 / 257 个断言**。
-- note: **实弹验证意外达成**
-  - **现象**：DSH 插件**热重载生效**，新注册的 `postProgressListener` 在本次会话**真实运行**，把"连续工具调用被取证闸拒"判为停滞、累加至 `STALL_FUSE` 触发熔断（本人被自己的护栏拦下 3 次 edit）。
-  - **结论**：这既证明监听器真的挂上了，也暴露一个**待评估的误伤面**：`progress` 判定未区分"调用失败"与"无进展"，当工具屡遭拦截时会误判为停滞。
-  - **处置**：已记录，留待评估（`guard.mjs` 原逻辑如此，不宜擅自改动）。
-
-- feat: **移植批 4：start 与 stop 收尾缝（约 300 行）**——新增 `stopGuard.mjs`，并扩充 `sessionStartListener`。
-  - **start**（`agent/created`）：环境检测入 `state.envCache` · 卷宗载入（`inherited` 标记）· 卷宗【一】环境声明落卷（原子写）。
-  - **start 巡视**：36 条 HANDOFF 交叉巡视 · 42 条部署版本核验 · 因果根链 · `rules-registered` 备案。
-  - **常驻规则注入**：`guard.mjs` 把 `SESSION_RULES` 经 stdout 的 `hookSpecificOutput.additionalContext` 输出（Claude hooks 协议）；原生插件无此契约。
-  - **做法**：改由新增的 `systemPromptRulesListener` 经 `system-prompt/assemble` 注入**独立 section**（与成本提示行并列，不改动下游既有 section）。
-  - **stop**（`agent/turn-stopping`，与 KPI 结算并列监听）：任务规模声明（`TASK_SCALE_RE`）· 绝境模式豁免 · 触发⑤ 熔断声明与未知跟踪。
-  - **stop 核验**：**《授权识别与留痕条例》三重核验**（引用原文 ↔ 本回合实际指令比对 / 法条 / 授权语义；不合格 → 熔断 + L3 留痕）· 79 条经验库 `PATTERNS.md` 创建 · 触发②（本回合 ≥5 次调用无锚点）。
-  - **取舍① 只审计、不打回**（均因 DSH 的现实）：`guard.mjs` 用 `block()` 打回，靠宿主协议信号 `input.stop_hook_active` 保证"只打回一次"；DSH 无此信号，误打回会变成强制续跑死循环（本移植中本人已被自家熔断拦过）。
-  - **取舍② 无收尾文本时跳过文本核验**：沿用原文对"无文本宿主"的 `dshBridge` 降级口径，否则锚点核验会对空文本必然失败、把每次收尾都判成"无锚点"。
-  - **不搬**：高危审批单收尾校验（L1059-1077）——该机制已退役。
-- fix: **测试污染彻底修复（第三处）**
-  - **原状**：`state-ownership.test.mjs` **从未设置审计沙箱**，尽管其头部注释声称"一切写入重定向到 tmpdir"。
-  - **后果**：`preExecuteListener` 的 deny 路径经 `auditDeny` 写进了真实工作区（实测 `own-` 前缀 39 条）。
-  - **做法**：现补上 `FG_AUDIT_FILE`。
-  - **另修**：`integration.test.mjs` 的 `after()` 把 `delete process.env.FG_AUDIT_FILE` 改为恢复沙箱路径——`node --test` 多文件可能共享进程，delete 会让后续测试文件落回真实审计。
-  - **对齐**：与 `eligibility.test.mjs` 的已有写法对齐。
-  - **验证**：连续两次全量 `npm run check`，`own-` / `gate-` / `post-` / `seams-` / `lc-` / `eval-` 增量**全部为 0**；总增量 15 条经查全为 `deny`（本会话被护栏拦截的真实执法记录，属设计内）。
-- test: 新增 `tests/lifecycle.test.mjs`（11 用例）。CI 闸门至此 **9 套 / 268 个断言**。
-
-- feat: **移植批 5：pre 结构性执法（102 行）**
-  - **做法**：新增 `src/dsh/preGuard.mjs`（与 `preExecuteListener` **同事件并列监听**）。
-  - **资料分层隔离**：静态资料区/派生积木区不得直写，防自我投毒。
-  - **环境规则检查**：`platformBashViolation` 管平台不兼容命令；与第 1.5 层"环境指纹替换"**不是同一机制**——前者管平台本身，后者管本机替代。
-  - **重名冲突**：拦大小写不敏感文件系统的同名目标（不可用 `existsSync` 豁免：不敏感 FS 上大小写变体目标恒存在）。
-  - **子代理闸**：熔断期委派 = 越权绕行 L4/L5 · 48 条继承留痕 · 蜂群因果子链 `/dN` · **委托池消耗**。
-  - **熔断期白名单**：只读放行/改动拒绝，且**熔断期不是高危命令的免检通道**。
-  - **L2 强制取证 / L5 降权**：改动类一律拒绝。
-  - **委托池至此闭环**：追加侧在批 1 的 `preStepListener`（『追加额度』三池各 +10），消耗侧在本批（每次委派 −1）与 KPI 结算（委托池奖惩）。
-- fix: **工具名口径（适配层缺失，跨批次影响）**
-  - **原状**：母版 `risk.mjs` 的 `isMutating` / `isInvestigation` 按 **ZCode 命名**精确判定（`tool === "Write"`、`["Read","Grep","Glob",…]`）。
-  - **症状**：而 DSH 传**小写**（`write` / `read` / `pwsh` / `subagent`）→ 恒不匹配。
-  - **后果**：不是"漏拦一次"而是**静默判错**。
-  - **后果①**：`isMutating('write') === false` 使 L2/L5 期间改动类**不被拦**。
-  - **后果②**：`isInvestigation('read') === false` 使**只读调用被计入执行池**，侦查池永不满、执行池被只读调用提前耗尽（**批 3 的 `postProgress` 已带此缺陷**）。
-  - **做法**：新增 `src/dsh/toolName.mjs` 做归一化——修在**适配层**而非母版。
-  - **口径**：母版要同时服务 ZCode 与 DSH，翻译是适配层职责；改母版会把 DSH 命名泄漏进母版、破坏"母版零宿主依赖"的分层约定。
-- test: 新增 `tests/preGuard.test.mjs`（10 用例，含委托池**闭环**用例：追加侧补池 → 消耗侧委派）。CI 闸门至此 **10 套 / 278 个断言**，测试污染零增量。
-
-- feat: **移植批 6：卷宗不重复读 + 改动前备份（44 行，功能补齐）**——并入 `preGuard.mjs`：
-  - **卷宗不重复读**（总纲四）：指纹（mtime+size+SHA/git）一致且 TTL（`resolveTTL`）未超 → **拦免重读**，复用已有取证。
-  - **放开条件**：指纹变化或 TTL 超时 → 放开真重读（post 缝会更新卷宗指纹）。
-  - **边界**：**与第 3 层取证闸语义相反**（那座闸管"没读就改"，本闸管"读了还读"）；取证闸只对改动类（`MUTATING_TOOL`）生效，本闸只对 `Read` 生效。
-  - **继承**：卷宗继承记录（`inherited`）只提示不拦——本会话从未读过、内容不在上下文，拦首读即阻断取证；`offset` 增量读永远放行；熔断/强制取证期豁免。
-  - **74 条改动前自动备份**：所有闸通过、调用确定执行 → `backupBeforeEdit` 落 `.ai/backup/`，供无版本库工作区回滚。
-  - **子代理继承不再另接缝**：批 5 已在 `pre` 侧以 `Agent` 工具名判定并留痕 `subagent-spawn`（父状态随派单移交），批 3 的 `postProgress` 已在 `post` 侧按 `subagent` 处理摘要校验。
-  - **结论**：`subagent/start|end` 两条缝**无增量价值，不接**（避免重复实现）。
-- test: `tests/preGuard.test.mjs` 扩到 15 用例（新增卷宗免重读 · 继承放行 · offset 放行 · 内容变化放行 · 改动前备份）。CI 闸门 **10 套 / 283 个断言**。
-
-- fix: **人类文本提取的健壮性（真实载荷形状修正，P0）**
-  - **原状**：重启后的实弹验收里，真实会话审计的 `reset-fired` 出现 `prompt:无`，即 `humanTextOf(messages)` 取不到人类文本。
-  - **根因**：两条，见下。
-  - **根因① 形状不止一种**：原实现只认 `messages[].content[]` 的 text 块（照官方桥 `blocksToText` 的假设），真实载荷对不上 → 人类文本恒为空。
-  - **后果**：**批示识别全部失效**（`追加额度` / `停止令` / 特批 / 额度核定 50·15 全都拿不到输入，额度永远按默认 10 走）。
-  - **教训**：**测试发现不了，因为测试造的就是自己假设的形状**——"单元测试全绿 ≠ 真实载荷正确"的典型。
-  - **根因② 混有非人类消息**：DSH 的 pre-step 默认 next 是 `{ messages: [...claimed, context] }`（`dsh-agent-loop/lib/index.js:911-918`）。
-  - **细节**：**渲染后的系统提示也会作为一条消息追加进来**。
-  - **后果**：若无条件拼接，会把系统提示当成用户指令——**比"取不到"更危险的方向**。
-  - **做法**：改为健壮提取——**优先只取 `role === 'user'` 的消息**（排除 pre-step 追加的 context）。
-  - **兜底**：对 `content[]` 文本块 / `content` 字符串 / `text` / `parts[]` / 裸字符串逐层兜底；无 role 信息时退回全量。
-  - **诊断**：`reset-fired` 增加文本长度诊断（`prompt:有(N字)`），下次真实回合即可确认。
-- test: `seams.test.mjs` 扩到 14 用例（新增 5 种载荷形状 · **非 user 消息不得被当批示** · 无 role 退回全量）。CI 闸门 **10 套 / 286 个断言**。
-
-- fix: **子代理分流（避免对 subagent 做无意义且有副作用的初始化）**
-  - **实测**：hermes-loop 的复盘子代理（`ctx.agents.create({ meta: { origin: 'subagent' } })`）会**同样触发 `agent/created` 与 `agent/pre-step`**，而 FG 未加区分。
-  - **后果①**：做完整环境检测、载入 **39 条卷宗记录**（实测白占 20KB 状态文件）。
-  - **后果②**：**重写工作区 `.ai/CASE_FILE.md` 的卷宗【一】**（每次 agent 创建写一次 → 文件抖动、并发时可能互相覆盖）。
-  - **后果③**：把它**由父 agent 生成的 prompt 当成用户指令**去识别（实测复盘 prompt 命中 `KEY50_RE` → 额度误判为 50，并记了无意义的 `goal-preauth`）。
-  - **做法**：现按 `origin === 'subagent'`（兜底 `delegationDepth > 0`）分流：子代理只落一份最小状态、只做回合重置，跳过环境检测 / 卷宗读写 / 规则备案 / 巡视 / 批示识别。
-- fix: **42 条版本核验误报**
-  - **原状**：核验把 `packages/core/hooks/guard.mjs` 的版本号与 `ENGINE_VERSION` 比较，但该文件是**封存版、版本号独立**（header 写明不随 FG 主版本更新，见 `HANDOFF.md` §九）。
-  - **后果**：**每次会话都误报"部署漂移 v3.0.6 ≠ v3.0.4"**。
-  - **做法**：现将其列入 `SEALED` 排除清单。
-- test: `seams.test.mjs` 扩到 17 用例（新增子代理轻量初始化 · 子代理跳过批示识别 · 主会话分流不受影响）。CI 闸门 **10 套 / 289 个断言**。
-
-## 3.0.5 · 事前资格审核、模型画像与命令硬校验
-
-- feat: **资格审核逻辑层**
-  - **做法**：`core/checkEligibility.mjs` 六层判定（L0 申请完整性 / L1 状态 / L2 绝对红线 / L3 高危资格 / L4 前置条件 / L5 语义信号 / L6 授权并留痕）。
-  - **依赖**：注入 `redlines`/`model`/`audit`/`grants`/`profile`，母版不反向依赖适配层。
-  - **授权表**：`core/grants.mjs` 为 FG 独有状态（按会话分表，不进 guard 状态）。
-- feat: **fg_apply 工具与双入口闭环**
-  - **工具**：`adapters/dsh/fg-apply-tool.mjs` 按 `defineTool({name, description, parameters, execute})` 注册。
-  - **闸**：`adapters/dsh/eligibility-gate.mjs` 提供 `applyEligibility`（审核期临时授权、未通过立即收回，避免申请通道被自己的第 3 层挡死）与 `gateToolCall`。
-  - **接线**：`src/dsh/pipeline.mjs` 在硬校验之后接入资格闸——高危工具无授权即 deny，理由指向 `fg_apply`。
-- feat: **模型画像系统**
-  - **内容**：`src/profiles/` 五份纯参数画像（deepseek-flash / deepseek-pro / glm / gpt-astra / default）。
-  - **加载**：`core/profileLoader.mjs`（层→子开关映射、别名表、id 精确与前缀匹配、default 兜底，零 `modelId` 硬编码分支）。
-  - **判定**：`checkEligibility` 按画像开关跳层并把跳过项写入 trace 与审计；`core/decisionEngine.mjs` 汇总 decision / layer / skipped。
-  - **兼容**：不传 `profile` 时行为与 3.0.4 一致。
-- feat: **环境指纹与命令硬校验**
-  - **探测**：`tools/env-fingerprint.mjs` 探测平台 / shell / 工具并产出 `.ai/env-fingerprint.json`。
-  - **判定**：pipeline 第 1.5 层据其 `map` 做命令硬校验（`grep`→`rg`、`find`→`fd` 等替代提示），不依赖模型自觉。
-- refactor: 核心源码分层
-  - **内容**：`hooks/guard.mjs` 三次拆出 `src/core/{constants,redlines,audit,risk,state,env,backup,approval,session}.mjs` 与 `src/adapters/dsh/protocol.mjs`。
-
-## 3.0.4 · 双包 monorepo 与中心蜂群强化
-
-- feat: 仓库重构为 npm monorepo
-  - **结构**：`packages/core`（`focus-guard`，零依赖范本包）+ `packages/extended`（`focus-guard-extended`，依赖 core，承载外接三件套）。
-  - **效果**：`npm install focus-guard` 只下载核心，永不拉取扩展依赖。
-- feat: 中心蜂群强化（第八十条增订七～十，采自 Claude cowork 与 GPT-6 蜂群提示词研究 R8）
-  - **内容**：调度三分法与 ack 并行、派单给目标不给方法脚本、并行默认流水线（屏障例外须说明）、跨任务授权不对称（收到他任务来函≠授权）。
-  - **其余**：协作动作禁藏入脚本、模型分层蜂群（全量继承禁降档）。
-- feat: 对抗验证三怀疑者模式（第八十一条增订四，采自 Claude cowork 质量模式库）：各自"试图驳倒"、默认 refuted、多数决存真，复核截断必须留痕（no silent caps）。
-- chore: 插件挂载路径适配 monorepo
-  - **改动**：hooks.json 六条命令与插件清单指向 `packages/core/`；42条部署核验新增 monorepo 路径。
-  - **废止**：`external-bridges` 分支废止（内容入 extended 包），`v3.0.2-external` 标签留档。
-- fix: library-build 幂等键改为纯内容指纹配对（修复路径分隔符差异导致的重复积木）。
-- docs: 对外文档剥离内部公文语气（CHANGELOG/README/INSTALL 回归开源专业表达，历史条目同步改写）；研读笔记 R8 入积木图书馆（共 75 块）。
-
-## 3.0.3 · 主分支精简版（外接层移出）
-
-- refactor: 外接三件套移出主分支
-  - **移除**：`tools/viking-bridge.mjs`、`tools/needle2-sentinel.mjs`、`audit-chain --semantica` 及对应用例、README 外接节、`viking` 脚本。
-  - **保留**：主分支保留哨兵本体与 `FG_SENTINEL_CMD` 外判契约。
-- docs: README 外接指引与 CHANGELOG 同步；版本链 3.0.2 → 3.0.3。
-
-## 3.0.2 · 外接三件套
-
-- feat: `tools/viking-bridge.mjs` 积木图书馆同步 OpenViking
-  - **落点**：积木以 `viking://resources/focus-guard-library/` 落入 resources 作用域。
-  - **用法**：默认导出 batch-write 载荷，`--push` 直推（`OPENVIKING_URL`/`OPENVIKING_API_KEY`，默认端口 1933）。
-- feat: `tools/audit-chain.mjs --semantica` 导出 LPG 图谱
-  - **内容**：执法档案因果链导出 LPG 图谱 JSON（`caused`/`spawned` 边），供 Semantica Knowledge Explorer 导入。
-- feat: `tools/needle2-sentinel.mjs` 本地模型外判运行器
-  - **契约**：`FG_SENTINEL_CMD`；`NEEDLE2_BIN`/`NEEDLE2_MODEL` 指向本地推理运行时。
-  - **回退**：失败静默回退内建启发式。
-- feat: 批示词尾置容错——"……照此办理，y" 亦构成批示（3.0.1 的容错只认句首，尾置批示此前会被吞）。
-- chore: 版本链 3.0.1 → 3.0.2。
-
-## 3.0.1 · 合并审批
-
-- feat: 高危待批队列（上限 10 条）——多条高危命令合并出示，一次 `y` 放行全部待批（每条仍各一次性消费、逐字一致），`n` 全部彻底阻断。
-- fix: 授权消费统一——批量键与单条键重复登记时双槽同清（修复同一命令被无声放行两次）。
-- feat: 批示词容错——批示词后接分隔符与简短补充指令（全文 ≤30 字符）仍构成批示（"y，顺带把文档改了"不再被整条吞掉）。
-- fix: 写入闸对抗审查同源判定——同回合被拒 A 目标后写 B 目标不再连坐 L4 记档，跨目标走正常待批。
-
-## 3.0.0 · 协作治理版（十大原则）
-
-- feat: 中心调度与蜂群委派（第八十条）：主会话只做调度与审计，关键路径亲手、sidecar 委派；委派法典细则（关键路径规则/写集分离/共存三律/等待纪律/explorer-worker 二分/派单自包含）。
-- feat: 去中心化验证（第八十一条）：关键决策（高危批准前/熔断宣告前/宣称完成前）换模型互查，findings-first，无锚点互评不计为复核发现。
-- feat: 静态积木图书馆（第八十二条）
-  - **区划**：`.ai/library/` 积木区不可变、引擎拦截直写，新知只进 `inbox/` 便签区（记忆更新隔离区）；积木读不进卷宗【三】。
-  - **构建**：新增 `tools/library-build.mjs` 构建器（幂等重建）。
-- feat: 本地哨兵接入层（第八十三条，opt-in `FG_SENTINEL=1`，默认仅记档 audit-only，`FG_SENTINEL_MODE=strict` 拦截）。
-- feat: KPI 兑现闭环（第八十四条）：收尾即结算——KPI→等次→委托池奖惩（+5/0/-2/-5），跨任务累计 kpiCarry 落台账，AUDIT 记 `kpi-settle`。
-- feat: 提问即治理（第八十五条）：任务漏斗（目标→约束→验收锚点→额度批示）；计划批准≠实现批准。
-- feat: 因果链追溯（第八十六条）：AUDIT.log 每条增 `seq/chain/ref` 三字段，委派派生 `/dN` 子链；新增 `tools/audit-chain.mjs` 渲染因果树/Mermaid。
-- fix: FG-D1 授权引文核验窗口 500→4000 字符（长批示靠后的授权原文此前必然核验失败误判越权）；FG-D2 卷宗【一】改原子写；FG-D3 rename 失败清理 tmp 残片；FG-D4 卷宗初始化降级防御。
-- fix: 解释器 eval 类命令（`python -c`/`node -e`）不再判只读侦查——堵住熔断期白名单放行解释器的洞。
-- breaking: AUDIT.log 追加 `seq/chain/ref` 三字段（追加式，旧解析器兼容）
-  - **判定**：解释器 eval 类 Bash 改判执行类（熔断期不再放行、计入执行池）。
-  - **注入**：常驻注入 411→425 字（仍低于 500 字立法上限）。
-- docs: 新增《协作治理总纲》（`MASTER-PLAN-3.0.0.md`，2026-10-31 移入 `docs/archive/`）、法条第十五章之二（第八十～八十六条）、SKILL §13-16 镜像。
-
-## 2.5.3 · 实测误伤修复
-
-- fix: 卷宗免重读限定会话内——跨会话继承指纹只提示不拦（内容不在本会话上下文，拦首读即阻断取证）；会话内真读后恢复拦截。
-- fix: 58条对账限单条语句——复合命令（`&&`/`;`/换行）跳过整段对账，清除六起系统性误报（巨量输出仍由体积追责兜底）。
-- fix: 审计任务体积闸豁免——批示含"审计/盘点/审查"时取证对象整读留痕不罚（预算与巨量输出追责仍生效）。
-- chore: 卷宗【一】/PATTERNS.md 写失败告警
-  - **落地**：61条落地（启动清扫临时目录 30 天陈旧文件）。
-  - **修法**：法典 v1.1 修法（SKILL 效力条款改"暂停机械执行＋报请裁决"、废止 19/24四/44/45/46条）。
-  - **迁移**：仓库迁移 JohnnyEisen → irisblackwood。
-- test: 验收 86 → 90 用例。
-
-## 2.5.2 · 对抗审查版
-
-- fix(安全/P0): 熔断期不再放行高危命令——旧顺序让只读白名单先退出，`npm publish`/`shutil.rmtree`/`reg add`/`diskpart` 等直接绕过审批；现白名单之前先判高危，熔断期一律拒绝。
-- fix: 中文批示生效
-  - **原状**：`同意/批准/允许` 与 `不/拒绝` 因正则 `\b` 不识别 CJK 全部失效 → 整句精确匹配。
-  - **其余**：「停止/熔断」批示真正生效（熔断状态曾被同一函数写回 false）；超 300 字符命令 y/n 生效（比对键改全量哈希）。
-  - **补充**：Stop 打回一次性保护（杜绝强制续跑死循环）。
-- fix: 变更类命令识别——`sudo mv`/`xargs mv`/`cp`/`sed -i` 不再被当只读侦查；shell 重检修复（zsh/sh 不再误报为 bash）。
-- chore: `.env`/私钥不再落明文备份
-  - **状态**：会话状态原子落盘。
-  - **判定**：SQL WHERE 豁免按单条语句判定；`curl -d` 与 `-D` 区分大小写。
-  - **特征补齐**：`find -delete`/`rimraf`/`wget --post-data`/`Invoke-WebRequest -Method POST`。
-- chore: 新增 CI（Windows 必过，Linux/macOS 观察项 × Node 18/20/22）；威胁评测 31+16 → 61+34；验收 63 → 86。
-
-## 2.5.1 · 盘点修复版
-
-- fix: 版本一致性——`ENGINE_VERSION`、引擎头注释与五处清单统一并新增自检用例锁定。
-- fix: 假留痕防线——AUDIT.log、卷宗【三】【四】、改动前备份写失败一律上报 stderr。
-- feat: 卷宗【一】环境声明落卷（此前仅占位符）；42条适配"根即插件"布局。
-- fix: 58条路径查重改判"首 token 是路径"（git 警告散文行不误报）；委派 KPI 落台账并阈值提醒；删除只写不读的 `envChecked`；五处清单 description 去重（加用例禁止镜像复制）。
-
-## 2.5.0 · DSH 硬拦截
-
-- feat: 官方桥 `dsh-hooks-claude-code` 直接运行 `hooks/hooks.json`
-  - **效果**：DSH 获得与 ZCode 同级硬拦截（exit 2 阻断、stderr 原文透传、Stop 打回），取代 fire-and-forget 监察模式。
-- fix: 识别桥接 Stop 签名自适应降级（锚点/审批单打回仅审计），防桥接强制续跑死循环；`cordis.patch.yml` 改空载（避免 bundle 与桥双跑）。
-
-## 2.4.1 · 特征库加固
-
-- fix: 堵住以下绕过
-  - **补漏**：`git -C <目录> push`、`rm --recursive`、node `rmSync(recursive)`、无 where 的 `DELETE FROM`/`UPDATE SET`。
-  - **新增**：`DROP DATABASE`。
-- chore: post 阶段五处响应采样合并为单次；卷宗缓存 200 条按取证时间裁剪。
-
-## 2.4.0 · 高危命令闸
-
-- feat: 六类不可逆命令（破坏性删除/强推与历史覆盖/权限与配置篡改/全局依赖安装/对外发送与发布/数据库影响）命中即拒，须一行【高危申请】审批单——`y` 放行本次（一次性、逐字一致）、`n` 彻底阻断。
-- feat: 目标预授权与执行级授权分离；严禁脚本包装绕行（写入与执行两侧都拦）。
-
-## 2.3.0 · 委派条例
-
-- feat: 委托池独立核算（默认 20 次，不占执行池）；子代理摘要四字段 ≤200 字，超长或缺字段拒收（KPI-3）。
-- feat: 强制委派场景（全库搜索/大文档摘要/批量文件处理）未委派 KPI-5、已委派 +5；熔断期启动子代理=越权绕行（L4+L5）。
-
-## 2.2.0 · 正面指引版
-
-- feat: 法条第十五章之一（第七十四～七十九条）与运行时镜像；机械化三处：污染核实闸、改动前自动备份、推送走审批单。
-- chore: 常驻注入压缩为电报体。
-
-## 2.0.0 ~ 2.0.2 · 卷宗体系重构
-
-- feat(2.0.0·破坏性): 卷宗体系重构
-  - **卷宗四册**：`.ai/CASE_FILE.md`（环境声明/依赖声明/侦查记录/额度台账）、会话级环境检测一次复用。
-  - **取证**：跨回合取证指纹（mtime+size+SHA-256≤200KB+git 脏态）、自适应 TTL（4h/2h/24h/7天，依赖声明 > 人工标注 > 自适应）。
-  - **其余**：免重读放行、跨平台命令拦截、额度台账落卷；旧 mtime 逐回合闸废弃。
-- fix(2.0.1): win32 shell 误判热修（PSModulePath 机器级恒存不再判为 PowerShell）。
-- chore(2.0.2): `.csproj`/`.sln` 列入风险文件备案。
+3.0.7 及更早的 16 个版本段已移入 [docs/archive/CHANGELOG-3.0.7-and-earlier.md](docs/archive/CHANGELOG-3.0.7-and-earlier.md)，内容一字未改。

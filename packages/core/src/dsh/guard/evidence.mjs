@@ -280,15 +280,22 @@ function evidenceTargetsVerdict({ exec, warn, tool, isMutating, shellTargets, st
     const key = String(fp).replace(/\\/g, '/')
     const sid = sessionIdOf(exec)
     const known = isReadRecorded(state, sid, key, exec)
-    // 3.0.7（HANDOFF §十一 任务 C）：取证闸只对"**已存在**目标的修改"有意义。
+    // 3.0.7（HANDOFF §十「另：FG 自身缺陷」）：取证闸只对"**已存在**目标的修改"有意义。
     // 新建文件没有可读的既有内容 —— 文件不存在 → 读不了 → 永远进不了 readSet →
     // 只能靠"拒一次后豁免"逃生，是死锁。故目标不存在（新建）时直接放行，不要求先读。
     // existsSync 失败（权限/异常）一律视为"不存在"，与取证闸其余分支的 fail-open 口径一致。
     if (!known && existsSync(key) && !evidenceBlockedOnce.has(sid, key)) {
       evidenceBlockedOnce.add(sid, key)
+      // 2026-11-09：区分两种「没读」——卷宗里**根本**没有这条，还是卷宗里有但属于上一次会话。
+      // 原本文案一律说「卷宗无取证记录」，跨会话继承时卷宗明明躺着那一行，模型读完卷宗发现
+      // 自相矛盾，只能怀疑是引擎坏了（实测）。措辞必须与卷宗对得上，否则留痕本身变成误导。
+      const rec = (state.caseCache || {})[key]
+      const why = rec && rec.inherited
+        ? `本会话未取证（卷宗有 ${fp} 的近期记录，但那是上一次会话读的，内容不在当前上下文）`
+        : `卷宗无取证记录（本会话未读 ${fp}）`
       return {
         kind: 'deny',
-        reason: `focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 ${fp}），改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
+        reason: `focus-guard-native 第3层状态校验：${why}，改动类调用被拒一次；先读取该文件再重试（避免盲写）`,
       }
     }
   }

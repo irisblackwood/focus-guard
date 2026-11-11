@@ -61,8 +61,13 @@ describe("环境检测缓存复用（修「每次会话启动重付 228ms」）"
   test("二次启动复用缓存，不重算（detectedAt 原样保留）", async () => {
     const sid = `envcache-reuse-${RUN}`;
     clean(sid);
-    const shellIdKey = process.platform === "win32" ? "powershell" : detectEnv(PROJ).shellIdKey;
-    saveState(statePath(sid), { envCache: { os: process.platform, shellIdKey, detectedAt: FIXED } });
+    // 2026-11-09：预置值必须取自**引擎自己**写出的结果，不能靠测试另猜一个。
+    // 原来这里硬编码 `"powershell"`，把「DSH 在 win32 上跑 pwsh」那个错误假定又抄了一遍；
+    // 执行体改成 bash 后，预置值永远对不上真值，这条"复用"用例实际在测"重算"。
+    // 现在先真启动一次拿 shellIdKey，再拿它去预置——测的是「同 key 就复用」，不依赖具体值。
+    await start(sid);
+    const realShell = envOf(sid).shellIdKey;
+    saveState(statePath(sid), { envCache: { os: process.platform, shellIdKey: realShell, detectedAt: FIXED } });
     await start(sid);
     assert.equal(envOf(sid).detectedAt, FIXED, "已检测过就不该重算——这是每次启动 228ms 的来源");
     clean(sid);

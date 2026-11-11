@@ -71,7 +71,7 @@ Shipped in the code, not yet reflected in the version number (still `3.0.6`):
 ## Three commands
 
 ```bash
-npm test                    # acceptance (version consistency, docs-vs-implementation alignment)
+npm test                    # full suite (all test files; acceptance is only one of them)
 npm run test:eligibility    # eligibility + red-line exemption + appeal
 npm run eval                # threat evaluation (high-risk detection rate + benign false-positive rate)
 ```
@@ -100,4 +100,6 @@ Currently `3.3.3`. Version surfaces are asserted mutually consistent, and the fr
 
 ## License
 
-AGPL-3.0-only © 2026 irisblackwood — commercial use requires a separate license
+AGPL-3.0-only © 2026 irisblackwood — a commercial license is available as an
+alternative to the AGPL (e.g. to avoid section 13's source-offer obligation);
+it is not required in order to comply with the AGPL.

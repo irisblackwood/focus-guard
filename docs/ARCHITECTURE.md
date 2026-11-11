@@ -42,14 +42,17 @@
 | 册 | 内容 | 维护方 |
 |---|---|---|
 | 【一】环境声明 | OS / Shell / 编码 / 路径分隔符 / 大小写敏感 / BSD 工具 / 可用命令 | 引擎（会话级一次检测，结果直接落卷可查阅） |
-| 【二】项目依赖声明 | 依赖名 / 版本 / 安装路径 / 信任 TTL（如游戏本体 60 天） | **人工填写** |
-| 【三】侦查取证记录 | 文件名 / 读取时间 / mtime / size / SHA-256 / 变更历史 / TTL / 验证方式 | 引擎自动追加 |
-| 【四】工作额度台账 | 初始额度 / 已用 / 剩余 / 有效 / 无效调用 / KPI | 引擎（回合末落卷） |
+| 【二】项目依赖声明 | 依赖名 / 版本 / 安装路径 / 更新频率 / 信任 TTL（如游戏本体 60 天）/ 备注 | **人工填写** |
+| 【三】侦查取证记录 | 读取时间 / 修改时间 / 字节 / 指纹 / 变更 / 重读期限 / 文件 | 引擎自动追加 |
+| 【四】工作额度台账 | 回合时间 / 预算 / 已用 / 剩余 / 有效 / 无效 / 侦查池 / 委托池 / KPI | 引擎（回合末落卷，单行快照） |
+| 【五】成本台账 | 时间 / 模型 / 时段 / 输入未缓存 / 缓存读 / 输出 / 成本USD | 引擎（DSH 原生插件逐行追加；usage 不可信时只留一行「台账状态：暂停中」） |
 
 - **环境检测一次全程复用**：SessionStart 检测一次，`UserPromptSubmit` 不重检，仅在探测到 shell 变化时重检；
+- **【三】行数上限 200**（`CASE_MAX_ROWS`），超出淘汰最旧。表格单元格的转义必须**成对**——读入还原、写出转义；只转义不还原会让反斜杠每保存一次翻一倍，实测把卷宗撑到 347 MB / 202 行（2026-11-07 修，回归用例 `tests/case-file-escape.test.mjs`）；
+- **【三】列序是「结论 → 细节 → 定位」**：读取时间 / 修改时间 / 字节 / 指纹 / 变更 / 重读期限 / **文件**。原先路径在第一列，读者要横跨 100 字符才看到"变了没"；现在一眼是时间与结论，路径退到最后。路径统一存正斜杠，且**不再转义反斜杠**——`\` → `\\` 只是把 Windows 路径视觉翻倍，markdown 表格里并不需要。「重读期限」也不再留空，直接把算出来的值写出来（`自适应 4.0h` / `30天`）；「验证方式」列删除，因为有无指纹即可推出；「最近变更」并入修改时间，因为文件此后没再变过，最后一次变更就发生在它当前 mtime 上；
 - **跨回合取证指纹**：mtime + size + SHA-256（≤200KB）+ git 脏态，指纹一致且 TTL 未超 → **免重读放行**（拦截本次 Read，复用已有取证）；不一致或超时 → 放行真重读并更新卷宗。时间戳伪造（`touch -d`/`cp -p`/`git checkout`）无法绕过 SHA 内容校验；**免重读限同一会话内**——跨会话继承的卷宗指纹只提示不拦，首读永远放行（2.5.3）；
   - **边界（别读成"任何尺寸都防伪"）**：SHA-256 只对 ≤200KB 的文件计算。超过 200KB 退回 mtime+size+git；工作区没有 git 时（`gitDirty` 为 null），"同尺寸改写 + 还原 mtime"无法被察觉。大文件请依赖版本库或单独做内容校验；
-- **自适应 TTL**：首次 4 小时 → 7 天内有变 2 小时 → 7–30 天未变 24 小时 → 30 天未变 7 天；优先级 **依赖声明 > 人工标注（【三】TTL 列手填）> 自适应**；
+- **自适应 TTL = 半衰期（已替代原四档阶梯）**：S 取「该文件最近多久没变过」，语义是**已观察到多久没变，就假设还能保持多久**——不是估的，是量的。两端夹住：刚变过的按 2h 兜底、长期不动的按 7 天封顶；变更次数 n 给温和增益（每次 +10%，n 封顶 5）；无变更历史（首次侦查）按 4h。原阶梯的问题不是数值，是**边界跳变**（age 从 6.99 天到 7.01 天，重读期限从 2h 跳到 24h）。优先级 **依赖声明 > 人工标注（【三】TTL 列手填）> 自适应**；
 - **免重读豁免**：`offset` 增量读永远放行；熔断/强制取证期豁免（降级重建证据需要真重读）；
 - **跨平台命令拦截**（按检出 shell 适配）：PowerShell 会话禁 bash 管道（`\| head`、`&&`）与裸 Get-Content，改用 `Select-String`/`Measure-Object`/`-TotalCount`；macOS 禁 `sed -i` 无后缀、`grep -P`、`readlink -f`；大小写不敏感文件系统禁仅大小写不同的重名文件；Linux 标准 GNU 无特殊限制。
 
@@ -60,7 +63,7 @@
 - **抽查A**：每 5 次写操作全量审计 1 次（确定性节奏，不是随机抽样）；
 - **上下文污染检测**：工具输出与指令矛盾（单条语句的 head 行数超限 / 清单路径重复；复合命令不整段对账——2.5.3）→ 立即停用该输出，用带标记的小命令隔离核实并报告人类；
 - **回合卫生**：回合开始核验上一回合计数/熔断/取证/降权残留（43条），异常记档后清理；新会话发现 `HANDOFF.md` 注入交叉巡视提醒（36条）；引擎与工作区源码版本不一致告警（42条）；
-- 一切执法行为（触发/处罚/抽查/特赦/预算伸缩）写入 `<工作区>/.focus-guard/AUDIT.log`（JSONL）：时间 / 会话 / 动作 / 触发条件 / 级别 / 证据 / 是否特赦。
+- 一切执法行为（触发/处罚/抽查/特赦/预算伸缩）写入 `<工作区>/.focus-guard/AUDIT.log`（JSONL）：时间 / 会话 / 动作 / 触发条件 / 级别 / 证据 / 是否特赦。轮转判据是**体积或年龄先到先轮**（5 MB / 30 天，两者都可覆盖），归档进同级 `archive/`，保留最近 10 份——**体积约束磁盘，年龄约束可读性**，只按体积轮转的话按当前速率要 45–50 天才轮到一次。
 
 ### 授权与高危命令审批
 
@@ -142,7 +145,7 @@
 | 整文件读取闸 | `guard/wholeFile.mjs:26`（口径）、`:70`（闸本体） | 目标 > 300 行且无 offset/limit → deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调 |
 | Superpowers 动笔闸 | `guard/superpowers.mjs:34`（判据 `:21`） | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载 `brainstorming`/`writing-plans`；同条重试与已加载均放行 |
 | 风险启发式分级 | `guard/risk.mjs:37`（`destructiveApiWeight`） | 破坏性 API 按目标给权：系统路径/递归 0.9（必拦）、TEMP 0.2、其他 0.4；重定向 0.15 |
-| 压缩监察 | `packages/core/src/dsh/compactionWatch.mjs:239`、`:364` | 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），**不写 surface、不 cancel 回合**——压缩归 DSH 内置栈 |
+| 压缩监察 | `packages/core/src/dsh/compactionWatch.mjs:239`、`:364` | 只观察 `compaction/{start,end,prune}` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），**不写 surface、不 cancel 回合**——压缩归 DSH 内置栈 |
 | 审计拦截理由 | `packages/core/src/dsh/audit.mjs:120` | `auditDeny(exec, cmd, {trigger, level})`：`redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `risk:<category>` 等，不再是清一色 `high-risk-rm` |
 | 执行体判定 | `packages/core/src/core/env.mjs:18`、`index.js:31` | 母版认 `FG_SHELL` 显式覆盖；DSH 适配层声明执行体为 `powershell`，与卷宗【一】/指纹不再互相矛盾 |
 | 审计零增长守卫 | `packages/core/tests/audit-isolation.mjs:1` | 跑测前拍真实 `AUDIT.log` 快照，跑完有增长即 exit 1（已双向验证：干净 Δ0 PASS、故意污染 Δ1 FAIL） |
@@ -191,22 +194,24 @@
 > **不用 `NODE_ENV=test`**：本仓测试跑法不设它（实测 `undefined`），用它等于把关闭权交给谁都能设的普通变量。
 > 测试仍能关（`random-fuse` / `result-admit` / `production-gates` 三处依赖这一点），立法与可测性两边都不用让步。
 
-**阈值（4 个）**：
+**阈值（5 个）**：
 
 | 变量 | 默认 | 说明 | 锚点 |
 |---|---|---|---|
 | `FG_AUDIT_MAX_BYTES` | 5 MB | AUDIT.log 体积上限，超出滚动归档（≈2 万条记录） | `core/audit-writer.mjs:26` |
+| `FG_AUDIT_MAX_AGE_MS` | 30 天 | AUDIT.log **年龄**上限，首条超龄即归档（与体积上限先到先轮） | `core/audit-writer.mjs:42` |
 | `FG_AUDIT_ARCHIVE_KEEP` | 10 | 归档保留份数，超出删最旧 | `core/audit-writer.mjs:29` |
 | `FG_RESULT_ADMIT_BYTES` | 32 KB | 「大结果」起算线，超此值的整读每次扣 1 点额度 | `dsh/guard/volume.mjs:21` |
 | `FG_WHOLE_FILE_MAX_LINES` | 300 | 整读闸行数阈值，超此值且无 offset/limit 即拒 | `dsh/guard/wholeFile.mjs:19` |
 
-**环境适配（3 个）**：
+**环境适配（4 个）**：
 
 | 变量 | 默认 | 说明 | 锚点 |
 |---|---|---|---|
 | `FG_SHELL` | 自动探测 | 显式指定执行体（`powershell` / `bash`），母版层用 | `core/env.mjs:17` |
 | `FG_SEARCH_TOOL` | 自动探测 | 强制指定检索后端，跳过 PATH 探测 | `dsh/search-hints.mjs:90` |
 | `FG_SEARCH_BIN_DIR` | — | 检索工具额外搜索目录（PATH 之外） | `dsh/search-hints.mjs:39` |
+| `FG_ENV_FP_AUTO` | 开 | `0` = 关掉会话启动时的环境指纹后台生成 | `dsh/seams/session-start.mjs` |
 
 **PTC 模式（4 个）** —— 语义见上文「事前资格审核与司法救济」：
 
@@ -217,7 +222,7 @@
 | `FG_PTC_ALLOW_RM_RF` | 关 | `1` | 允许 `rm -rf` 自证自批（应急用，审计留痕） | `adapters/dsh/eligibility-gate.mjs:65` |
 | `FG_PTC_STRICT_ALL` | 关 | `1` | 全部不可逆类别纳入人工闸（默认只抓 rm-rf） | `adapters/dsh/eligibility-gate.mjs:68` |
 
-**仅测试注入（7 个）** —— 生产环境设了会改变落盘位置（等于把留痕写丢），或改变运行时判定：
+**仅测试注入（9 个）** —— 生产环境设了会改变落盘位置（等于把留痕写丢），或改变运行时判定：
 
 | 变量 | 用途 |
 |---|---|
@@ -226,6 +231,7 @@
 | `FG_APPROVAL_TTL_MS` | 批准有效期（毫秒，默认 `1800000` = 30 分钟）；过期批准消费时作废并清掉 |
 | `FG_AUDIT_FILE` | 覆盖 AUDIT.log 路径 |
 | `FG_CASE_FILE` | 覆盖卷宗【三】/【四】路径（默认 `.ai/CASE_FILE.md`） |
+| `FG_ENV_FP_FILE` | 覆盖环境指纹路径（默认 `.ai/env-fingerprint.json`）；夹具重放现场用 |
 | `FG_STATUS_FILE` | 覆盖会话状态文件（默认 %TEMP%） |
 | `FG_WORKSPACE_FILE` | 覆盖 workspace 声明文件 |
 | `FG_PYTHON` | 哨兵调用的 Python 可执行文件（默认 `python`） |
@@ -245,6 +251,7 @@
 
 > **登记纪律**：新增 `FG_*` 必须同时改本节。未登记 = 用户不知道它存在 = 这个开关等于没做。
 > 2026-10-29 盘点补录 8 个此前零文档的开关：`FG_EVIDENCE_GATE`、`FG_VALUE_GATE`、`FG_MUTATION_UNMAPPED`、`FG_AUDIT_MAX_BYTES`、`FG_AUDIT_ARCHIVE_KEEP`、`FG_BLAST_REPORT`、`FG_RESULT_ADMIT_BUDGET`、`FG_RESULT_ADMIT_BYTES`。
+> 2026-11-07 补录 3 个：`FG_AUDIT_MAX_AGE_MS`、`FG_ENV_FP_FILE`、`FG_ENV_FP_AUTO`。
 
 ## 工作原理
 
@@ -392,7 +399,7 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 衍生纪律（详见 [packages/extended/bridges/README.md](../packages/extended/bridges/README.md)）：桥只依赖主分支**契约**（审计 JSONL 格式、哨兵外判协议、积木 INDEX 格式），禁止 import 主分支源码，禁止被主分支引用（验收用例锁定零反向依赖）；桥故障一律静默回退核心默认行为。新增外接 = 在 extended 包加一个自包含文件 + 一条桥测试。
 
-- **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](../.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵；
+- **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](../.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵。**CI 不是发布闸**——它只跑这个快速子集，整条 `npm run check`（eval:dsh / selftest / privacy / manifest / docs:lint / lint / smells / schema:verify）只在 `publish.yml` 跑；两边不是同一条命令，别拿 CI 绿当发布依据（2026-11-08 定）；
 - **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；
 - **覆盖范围**（用例数随版本增长，以 `npm run check` 实际输出为准）：动态预算与三池分池、进度检测与信用延期、触发①②③④⑤（含审计豁免）、梯度处罚与熔断只读放行、卷宗体系（环境检测 / 环境声明落卷 / 免重读含会话内限定 / SHA 防伪 / TTL 三级覆盖 / 台账落卷 / caseCache 裁剪）、跨平台命令拦截、盲写与抽查A、上下文污染与污染核实闸（含复合命令不误报）、授权识别（伪造引文 → L3 / 合规声明 → 特赦 / 待确认 → 暂停）、高危命令闸（特征库 / 审批单 / y-n 一次性 / 预授权隔离 / 脚本包装端到端 / 熔断期拒绝 / 超长命令）、子代理委派与委托池、极限场景（80KB 命令行、2MB 响应、损坏状态、奇异会话 ID、中文路径）、DSH 桥接自适应，以及工程自检（七处清单版本一致性 / 版本追赶 / 五处说明互不重复 / 文档-实现口径对齐 / RULES 注入逐字镜像 / hooks.json ↔ 引擎映射 / 部署漂移核验 / 61条陈旧清理）；
 - **对抗评测样本**按"同一危险动作的多种写法"组织（别名、长旗标、传参穿插）并配良性反例，避免用误报换检出。

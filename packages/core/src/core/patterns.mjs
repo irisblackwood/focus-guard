@@ -11,7 +11,7 @@
 //
 // 本模块不判断"该不该记"，只保证**骨架一定在**。模型补「教训」那一行。
 
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** 建库时的头部。原先写死「（79条）」——空库自称有 79 条经验，数字无人维护，已删。 */
@@ -23,13 +23,34 @@ export function patternsPath(projDir) {
   return join(projDir, ".ai", "PATTERNS.md");
 }
 
-/** 确保文件存在；返回是否本次新建。 */
+/** 确保文件存在；返回是否本次新建。顺带清理旧头部里的死数字。 */
 export function ensurePatterns(projDir) {
   const pat = patternsPath(projDir);
-  if (existsSync(pat)) return false;
+  if (existsSync(pat)) {
+    normalizeHeader(pat);
+    return false;
+  }
   mkdirSync(join(projDir, ".ai"), { recursive: true });
   writeFileSync(pat, PATTERNS_HEADER);
   return true;
+}
+
+/**
+ * 旧头部残留「（79条）」的清理。
+ *
+ * 常量早就不写这个数字了，但 `ensurePatterns` 是「不存在才建」——已建好的库永远停在旧头部，
+ * 于是空库继续对外声称有 79 条经验。判据：文件里的存量文本也得跟着常量走，不然改常量只对新库生效。
+ * 只碰这一处标记，正文一个字节不动。
+ */
+function normalizeHeader(pat) {
+  try {
+    if (statSync(pat).size > 64 * 1024) return; // 库大了就不整读，正常库只有头部几十字节
+    const t = readFileSync(pat, "utf8");
+    if (!t.includes("（79条）")) return;
+    writeFileSync(pat, t.replace("（79条）", ""));
+  } catch {
+    /* 头部清理失败不影响写入 */
+  }
 }
 
 /**
@@ -77,5 +98,32 @@ function readTail(file, bytes) {
     return buf.toString("utf8");
   } finally {
     closeSync(fd);
+  }
+}
+
+/**
+ * 未回填的教训骨架条数（`- 教训：<待补…`）。0 = 干净。
+ *
+ * 2026-11-08：这个数字此前**没人算**。骨架写进去之后，`<待补>` 那一行只能靠模型自觉回填，
+ * 而模型看不见"还有几笔欠着"——于是库能一直停在"有骨架、无教训"。计数交给引擎，
+ * 判断（教训该写什么）仍留给模型。
+ *
+ * 每回合都会调一次，故按 `mtime+size` 缓存：库没变就不重读。
+ */
+let pendingCache = { key: "", n: 0 };
+export function pendingPatternStubs(projDir) {
+  if (!projDir) return 0;
+  const pat = patternsPath(projDir);
+  try {
+    const st = statSync(pat);
+    // key 里必须带路径：多个项目同尺寸同 mtime 的概率不低（空库都是同一个头部），
+    // 只用 mtime+size 会让第二个项目读到第一个项目的计数。
+    const key = `${pat}|${st.mtimeMs}:${st.size}`;
+    if (key === pendingCache.key) return pendingCache.n;
+    const n = (readFileSync(pat, "utf8").match(/^- 教训：<待补/gm) || []).length;
+    pendingCache = { key, n };
+    return n;
+  } catch {
+    return 0;
   }
 }

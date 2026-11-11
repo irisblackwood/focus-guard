@@ -1,6 +1,6 @@
 # 文档索引（docs/INDEX.md）
 
-> **状态**：权威 · 适用版本 3.3.1 · 最后核对 2026-10-31
+> **状态**：权威 · 适用版本 3.3.3 · 最后核对 2026-11-07
 
 > 3.3 D2：新会话按本页在 **10 分钟**内定位到该读的那份文档。
 > 状态口径：**权威** = 与实现同步、可据此裁决；**参考** = 有价值但可能滞后；**台账** = 过程记录，读取前先看日期；**归档** = 已过期，仅作历史。
@@ -17,17 +17,20 @@
 7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么 → 最新一份 HANDOFF
 8. **发现新缺口怎么记账** → [RULES.md](../packages/core/docs/RULES.md) **第十五章之四（第九十二条）**：适用范围、标记编排版本、两条必写理由、记录不等于动手、验收须可复跑
 9. **记忆改革要抄什么、不抄什么** → [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) **§五·补**：外部参照 `memory-brain` 的**48 条可抄清单**（判据 7 / 参数 8 / 工程 9 / 开机包 10 / 注入 4 / 输出护栏 6 / 幂等 4），**三个最大差距**是「没有降级为倾向这一档」「据是结论不是方法」「没有开机包」；另有**8 件不抄**、**3D 脑 UI 与 CC BY-SA 3.0 红线**、不接运行时的两条硬理由，以及写死的判据「记忆的消费者是闸门，不是模型」
-10. **哪些漏洞要修、哪些按判据不做** → [THREAT-MODEL.md](../packages/core/docs/THREAT-MODEL.md)：判据是「**本插件不防攻击者，防的是插件自己把用户的机器/数据弄坏**」。含四类损害（删用户东西 / 漏凭据 / 写坏文件 / 静默失效）、2026-11-01 红队的已修清单，以及**三条明确不做**（属主校验 / 状态签名 / `FG_PYTHON` 白名单）——**别再把它们当缺口翻出来**
+10. **改判定链之前查什么、这些约束从哪来** → 两份配对读：[DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md)（判据）+ [THEORY-BASIS.md](THEORY-BASIS.md)（来源）。前者十一条约束、失效模式与落点；后者七层理论、50 脑区归类、记忆与神经元机制、8 篇文献。**约束必须能说出「不做会怎么坏」，说不出的不进判据页**
+11. **哪些漏洞要修、哪些按判据不做** → [THREAT-MODEL.md](../packages/core/docs/THREAT-MODEL.md)：判据是「**本插件不防攻击者，防的是插件自己把用户的机器/数据弄坏**」。含四类损害（删用户东西 / 漏凭据 / 写坏文件 / 静默失效）、2026-11-01 红队的已修清单，以及**三条明确不做**（属主校验 / 状态签名 / `FG_PYTHON` 白名单）——**别再把它们当缺口翻出来**
 
 ## 二、权威文档
 
 | 文档 | 角色 | 状态 | 适用版本 | 最后核对 |
 |---|---|---|---|---|
 | [README.md](../README.md) | 入口页：30 秒速览 / 快速开始 / 文档地图 | 权威 | 3.2.1 | 2026-10-28 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） | 权威 | 3.2.1 | 2026-10-29 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） | 权威 | 3.3.3 | 2026-11-07 |
 | [GOVERNANCE-LAYERS.md](GOVERNANCE-LAYERS.md) | 五层治理对账 + 四条待裁决 + 编排版本 | 参考 | 3.3.2 / 3.5.0 / 4.0-P2 / 4.5 | 2026-11-03 |
+| [DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md) | 十一条设计约束 + 失效模式 + 落点；零件→约束转换规则 | 权威 | 3.3.4 | 2026-11-11 |
+| [THEORY-BASIS.md](THEORY-BASIS.md) | 约束的来源：七层理论 / 脑区归类 / 记忆与神经元机制 / 文献清单 | 参考 | 3.3.4 | 2026-11-11 |
 | [INSTALL.md](../INSTALL.md) | 唯一安装源 | 权威 | 3.2.1 | 2026-10-24 |
-| [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） | 权威 | 3.2.1 | 2026-10-28 |
+| [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） | 权威 | 3.3.3 | 2026-11-07 |
 | [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 | 权威 | 3.2.1 | 2026-10-27 |
 | [ARCH-MAP.md](../packages/core/docs/ARCH-MAP.md) | 能力状态 + 代码锚点 + 缺口 | 权威 | 3.2.1 | 2026-10-27 |
 | [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md) | 3.3→4.0 排期与完成态语义 | 权威 | 3.2.1 | 2026-10-28 |
@@ -43,6 +46,8 @@
 | [packages/core/README.zh-CN.md](../packages/core/README.zh-CN.md) | 核心包中文说明 | 参考 | 3.2.1 | 2026-10-27 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 提交与 CLA | 参考 | 3.2.1 | 2026-10-19 |
 | [packages/extended/bridges/README.md](../packages/extended/bridges/README.md) | 外接桥契约 | 参考 | 3.2.1 | 2026-10-08 |
+
+> **2026-11-07 核对范围（只报核过的）**：`ARCHITECTURE.md` 只核了卷宗 / 留痕 / 环境变量三节——发现并改正 3 处（TTL 判据还写着已废弃的四档阶梯、3 个 `FG_*` 漏登记、计数与表行数不符），并补了两条保留上限；其余章节沿用上次核对日期，未逐条复核。`CHANGELOG.md` 核了段划分：≤3.0.7 的 16 个版本段已原样移入 [archive/CHANGELOG-3.0.7-and-earlier.md](archive/CHANGELOG-3.0.7-and-earlier.md)。
 
 ## 三、过程台账（读前看日期，不作裁决依据）
 

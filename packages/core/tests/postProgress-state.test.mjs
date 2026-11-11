@@ -21,9 +21,13 @@ const { statePath, loadState, saveState } = await import("../src/core/state.mjs"
 
 const noop = () => {};
 const pass = () => ({ kind: "allow" });
-const mkExec = (sid, name, args) => ({
+// cwd 决定"项目目录"（`projDirOf` 读 `header.cwd`），进而决定卷宗写进谁家。
+// 2026-11-08：此前恒用 `process.cwd()`（= 仓库根），于是本文件每跑一次就往**真**
+// `.ai/CASE_FILE.md` 的【三】里塞一行 tmp 文件的取证记录——实测仓库卷宗里躺了 5 行
+// 指向 `Temp/fg-poststate-*` 的垃圾。凡是会真读文件的用例，cwd 必须指向自己的 tmp 目录。
+const mkExec = (sid, name, args, cwd = process.cwd()) => ({
   sessionId: sid,
-  agent: { session: { header: { id: sid, cwd: process.cwd() } } },
+  agent: { session: { header: { id: sid, cwd } } },
   name,
   arguments: args,
 });
@@ -43,7 +47,7 @@ describe("postProgress 状态记账", () => {
     const file = join(dir, "a.txt");
     writeFileSync(file, "abc");
     const l = postProgressListener({ warn: noop });
-    await run(l, mkExec(sid, "read", { file_path: file }));
+    await run(l, mkExec(sid, "read", { file_path: file }, dir));
     const s = get(sid);
     assert.equal(keys(s.readSet).length, 1, "read 必须进 readSet");
     assert.equal(keys(s.caseCache).length, 1, "read 必须进 caseCache（免重读依据）");

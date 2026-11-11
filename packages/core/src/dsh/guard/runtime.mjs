@@ -8,7 +8,9 @@
 import { statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { appendCostRow } from '../audit.mjs'
+import { projDirOf } from '../sessionScope.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../../peak-cost.mjs'
+import { fmtTime } from '../../core/state.mjs'
 
 /** 每次改动流水线递增；用于磁盘/内存版本一致性提示 */
 const PIPELINE_VERSION = '3.2.1-m1'
@@ -136,7 +138,11 @@ export function postExecuteListener({ warn }) {
           (result && result.model) ||
           'unknown'
         const { inPeak } = isPeakAt(new Date())
-        appendCostRow(new Date().toISOString(), model, inPeak, usage)
+        // 传会话项目目录：成本台账必须落进**这份**卷宗，而不是插件安装目录下的另一份。
+        // 时间走 fmtTime（本地、无 `Z`）：同一份卷宗里【一】【三】【四】都是本地时间，
+        // 只有【五】写 `toISOString()`——实测同一时刻两处差 8 小时，读者会以为成本行来自别的会话。
+        // 判据：一份文档只允许一种时间写法。
+        appendCostRow(fmtTime(Date.now(), true), model, inPeak, usage, projDirOf(exec))
       } else {
         // 2026-10-18 修（REPORT-2026-10-12「成本台账静默停摆」）：原实现无 else——
         // 宿主不提供 usage 时整条成本核算静默失效（台账 10-08 起零新增，没人发现）。

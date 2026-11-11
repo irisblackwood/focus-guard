@@ -116,7 +116,7 @@ export function gatedReasonOf(tool, command = '', filePath = '') {
   const cmd = String(command ?? '')
   const hit = HIGH_RISK_TOOLS.find((r) => r.re.test(cmd))
   if (hit) {
-    // 3.0.7（HANDOFF §十一 缺陷 3）：与红线层 / 母版 L2 同口径。
+    // 3.0.7（HANDOFF §十 缺陷 3）：与红线层 / 母版 L2 同口径。
     // HIGH_RISK_TOOLS 只做文本匹配，无法区分「要执行的命令」与「被引用的命令字符串」，
     // 于是引号内的危险数据虽已被红线层与母版 L2 豁免，却仍进门槛清单被闸直接 deny——
     // 三方口径不一致。此处对命令型条目先问一次上下文豁免：豁免成立则不进门槛清单，

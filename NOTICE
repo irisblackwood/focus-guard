@@ -4,12 +4,15 @@ Copyright (C) 2026 irisblackwood
 Dual licensing
 --------------
 This project is licensed under the GNU Affero General Public License v3.0
-(AGPL-3.0-only). See LICENSE for the full text.
+(AGPL-3.0-only). See LICENSE for the full text. The AGPL permits commercial
+use: no separate license is needed in order to use this software commercially.
 
-For commercial use — including but not limited to SaaS products, closed-source
-internal enterprise deployment, paid products or services, and redistribution
-as part of a commercial offering — a separate commercial license is required.
-Contact the copyright holder (GitHub: @irisblackwood) for pricing and terms.
+For users who cannot or do not wish to meet the AGPL's obligations — typically
+because they want to combine this software with proprietary code, or to run a
+network service without publishing their modifications — the copyright holder
+also offers this program under a separate commercial license. That is an
+alternative to the AGPL, not a restriction on it. Contact the copyright holder
+(GitHub: @irisblackwood) for pricing and terms.
 
 AGPL-3.0 obligations in one line: if you modify this software and make it
 available to users over a network, you must offer those users the complete

@@ -163,8 +163,13 @@ export function renderWorkspaceSection(record, opts = {}) {
     ? `上次会话：${s.sid ? String(s.sid).slice(0, 12) : '-'} · ${s.at || '-'} · 工具调用 ${s.toolCalls ?? '-'} · 被拦 ${s.denies ?? '-'} · KPI ${s.kpi ?? '-'} · 委托 ${s.delegateBudget ?? '-'}`
     : ''
   // 决策行同理，且理由更硬（2026-10-29）：它是**历史**，而历史每回合都在长。
-  // 实测（tools/prefix-drift.mjs）系统段每会话 2 个版本，分歧点恒定落在这一行——
-  // 前缀一变，后面整段会话历史都要按未缓存价重付，而这些指令原文本来就在会话消息里。
+  // 实测（tools/prefix-drift.mjs）系统段每会话 2 个版本，分歧点恒定落在这一行。
+  // 代价口径（2026-11-11 更正，与 docs/ARCHITECTURE.md「前缀稳定性」一节对齐）：
+  // 宿主是 `systemPromptUpdate: "in-history"`——系统段变了是往历史里**追加**一条，
+  // 不改写前缀，所以「后面整段历史按未缓存价重付」**不成立**（前缀照常命中）。
+  // 真实代价是每变一次多背一份完整系统提示（约 2.5k tok/次），并在历史里堆出多条 system 消息。
+  // 冻结它仍值得，但收益量级是 0.3% 而不是"整段重付"——别用旧口径给这条加权重。
+  // 而指令原文本来就在会话消息里，再抄一份既重复又抖。
   const showDecisions = opts.sid === undefined || shouldInjectHandoff(record, opts.sid)
   const head = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：`
   /** 组装可见条目：`[done]` / `[note]` 不注入，`[goal]` 剥掉标记。 */
@@ -196,7 +201,9 @@ export function renderWorkspaceSection(record, opts = {}) {
  * 为什么必须冻结：`workspace.json` 是**每工作区一份**，而同一工作区常有多个并发会话。
  * 每个会话在回合结束都会写自己的快照，于是 A 会话的系统提示里会忽而出现 B 的快照、
  * 忽而变回自己的——实测两个真实会话的卷宗段都是 2 个版本，分歧点就在「上次会话」这一行。
- * 前缀一变，后面整段会话历史都要按未缓存价重付。
+ * 代价口径（2026-11-11 更正）：宿主 `systemPromptUpdate: "in-history"`，系统段变了是**追加**
+ * 一条新 system 消息而非改写前缀，所以不是"整段历史按未缓存价重付"，而是每次多背一份完整
+ * 系统提示（约 2.5k tok/次）并在历史里堆出多条 system 消息。冻结把 N 次压成 1 次。
  *
  * 冻结的语义：**本会话首步渲染出什么，整场会话就是什么**。换会话自然是新的一份（交接信息还在）。
  * 代价如实说：本会话内新增的约束不会出现在提示里——但约束由闸门实时执行，

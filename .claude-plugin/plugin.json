@@ -1,7 +1,7 @@
 {
   "name": "focus-guard",
-  "version": "3.3.3",
-  "description": "FocusGuard 聚焦护栏 · Claude 钩子方言兼容清单（hooks/hooks.json）。DSH 端由官方桥 @deepseek-ai/dsh-hooks-claude-code 直接运行本清单，获得与 ZCode 同级的硬拦截：PreToolUse deny/ask、exit 2 阻断、stderr 原文透传、Stop 打回；本文件供 DSH 兼容层按插件清单查找顺序第 2 位识别。能做什么、阈值多少、怎么排错——以 README.md、INSTALL.md 与仓库根清单为准。",
+  "version": "3.3.4",
+  "description": "FocusGuard 聚焦护栏核心包：给 AI 编码智能体（ZCode / DSH 双端原生硬拦截）装上的履职纪律与监察系统。日常零打扰、只查行为；六条钩子覆盖会话启动到收尾全程，含三预算池、L1-L6 梯度处罚、高危命令审批单、KPI 兑现、因果链留痕与积木图书馆。零依赖（Node.js ≥18），是所有人下载的范本包——外接集成见 focus-guard-extended。",
   "author": {
     "name": "irisblackwood",
     "url": "https://github.com/irisblackwood"

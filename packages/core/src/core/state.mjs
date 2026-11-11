@@ -189,94 +189,132 @@ export function loadCaseRecords(p) {
     const t = readFileSync(p, "utf8");
     for (const line of sectionOf(t, "【三】").split("\n")) {
       if (!line.startsWith("|")) continue;
-      const c = line.split("|").map((x) => x.trim());
-      if (c.length < 9) continue;
-      const [, f, readAt, mtime, size, sha, hist, ttl, via] = c;
-      if (!f || f === "文件名" || /^-+$/.test(f)) continue;
-      const hm = String(hist || "").match(/n=(\d+);?\s*last=(\S+)/);
-      out[normalize(f)] = {
-        path: f,
+      // 2026-11-11：`\|` 必须在 split 前保护——否则含竖线的单元格被劈成两列，`c.length !== 9` 静默丢掉整行（POSIX 合法文件名）。
+      const c = line.replace(/\\\|/g, "\u0000").split("|").map((x) => x.trim().replace(/\u0000/g, "|"));
+      // 7 列 = 首尾各一个空串 + 7 段。列数不符一律跳过——旧格式（8 列）因此自然读不出来，
+      // 当作"没有记录"重建缓存即可；卷宗【三】是可重建的取证缓存，不是权威数据。
+      if (c.length !== 9) continue;
+      const [, readAt, mtime, size, sha, changes, ttl, file] = c;
+      if (!/^\d{4}-\d{2}-\d{2}T/.test(readAt)) continue; // 表头与分隔行
+      const path = uncell(file);
+      if (!path) continue;
+      const n = parseInt(changes, 10) || 0;
+      const m = Date.parse(mtime) || 0;
+      out[normalize(path)] = {
+        path,
         readAt: Date.parse(readAt) || 0,
-        mtime: parseFloat(mtime) || 0,
+        mtime: m,
         size: parseInt(size, 10) || 0,
         sha: sha && sha !== "-" ? sha : "",
-        changes: hm ? parseInt(hm[1], 10) || 0 : 0,
-        lastChange: hm && hm[2] && hm[2] !== "-" ? Date.parse(hm[2]) || 0 : 0,
-        ttlOverride: ttl || "",
-        via: via || "mtime+size",
+        changes: n,
+        // 最近变更时刻不单独存：观察到 n 次变更且此后没再变，最后一次变更就在当前 mtime 上。
+        lastChange: n > 0 ? m : 0,
+        ttlOverride: /^自适应/.test(ttl) ? "" : uncell(ttl),
+        via: sha && sha !== "-" ? "mtime+size+sha" : "mtime+size",
       };
     }
   } catch {}
   return out;
 }
 
-/** 卷宗表格单元格转义：`|` 会撑破列数（A3，2026-11-01 红队实测 8 列被撑成 11 段）。 */
+/** 卷宗表格单元格转义。只转义竖线：markdown 表格里 `\` 不需要转义，多转一次只是给读者加噪音。 */
 function cell(v) {
-  // 先转义反斜杠、再转义竖线：顺序反了会留下 `\|`（CodeQL incomplete-sanitization）
-  return String(v ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
-export function saveCaseRecords(projDir, records) {
+/** `cell()` 的逆运算。转义必须成对：读入即还原、写出才转义，否则每写一次反斜杠就翻一倍。 */
+function uncell(v) {
+  return String(v ?? "").replace(/\\\|/g, "|");
+}
+
+/** 卷宗内统一的时间写法：本地时间、不带 `Z`。同一份文档只允许一种写法（UTC 会差 8 小时）。 */
+export function fmtTime(ms, withMs = false) {
+  if (!ms) return "-";
+  const d = new Date(ms);
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return withMs ? `${base}.${p(d.getMilliseconds(), 3)}` : base;
+}
+
+/** 重读期限列：把算出来的值直接摆出来（`自适应 4.0h`），人工覆盖的照原样写（`30天`）。 */
+function fmtTtl(rec) {
+  if (rec.ttlOverride) return cell(rec.ttlOverride);
+  const h = halfLifeOf(rec) / 3600e3;
+  return `自适应 ${h >= 48 ? `${(h / 24).toFixed(1)}d` : `${h.toFixed(1)}h`}`;
+}
+
+/**
+ * 卷宗原地改写：读 → 替换 → `tmp` + rename，失败清残片并记一次失败。
+ * `.<pid>.tmp` 可预测名与 `saveState` 同形，但落点是项目自己的 `.ai/` 而非世界可写的临时目录。
+ */
+function rewriteCase(projDir, replacer, failNote) {
   let tmp = null;
   try {
     const p = ensureCaseFile(projDir);
-    // 此处仍是 `.<pid>.tmp` 可预测名——与 saveState 同一形态，但**不按同一缺陷处理**：
-    // 落点是项目自己的 `.ai/`，不是世界可写的临时目录；能往那里放符号链接的人已经能直接改卷宗，
-    // 加随机名只是零收益的复杂度。判据：临时目录共享才需要防预置。
     tmp = p + "." + process.pid + ".tmp";
-    let t = readFileSync(p, "utf8");
-    const rows = Object.values(records)
-      .sort((a, b) => (b.readAt || 0) - (a.readAt || 0))
-      .slice(0, CASE_MAX_ROWS);
-    const table = ["| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |", "|---|---|---|---|---|---|---|---|"]
-      .concat(
-        rows.map(
-          (r) =>
-            `| ${cell(r.path)} | ${new Date(r.readAt || Date.now()).toISOString()} | ${r.mtime} | ${r.size} | ${r.sha || "-"} | n=${r.changes || 0}; last=${r.lastChange ? new Date(r.lastChange).toISOString() : "-"} | ${cell(r.ttlOverride || "")} | ${cell(r.via || "mtime+size")} |`
-        )
-      )
-      .join("\n");
-    // A3（2026-11-01 红队）：原正则 `\| 文件名 \|[\s\S]*?(?=\n### |\n## |$)` 从表头一路吃到
-    // 下一个标题，把用户在【三】与【四】之间手写的内容**整段删掉**（实测：写在【三】后面的备注消失）。
-    // 改为只替换**连续的表格行**——表头 + 所有以 `|` 开头的行，遇到第一个非表格行即停。
-    // 判据：引擎只拥有它自己写的那些行，表格以外的字是用户的。
-    t = t.replace(/(### 【三】[\s\S]*?\n)\| 文件名 \|[^\n]*(?:\n\|[^\n]*)*/, (_m, head) => head + table);
-    writeFileSync(tmp, t);
+    const t = readFileSync(p, "utf8");
+    writeFileSync(tmp, replacer(t));
     renameSync(tmp, p);
   } catch {
     // FG-D3：rename 失败清理 .tmp 残片（对齐 saveState 防线，防 .ai/ 积累孤片）
     try { if (tmp) rmSync(tmp, { force: true }); } catch {}
-    noteFail(sid, "卷宗【三】侦查记录");
+    noteFail(sid, failNote);
   }
 }
 
+export function saveCaseRecords(projDir, records) {
+  const rows = Object.values(records)
+    .sort((a, b) => (b.readAt || 0) - (a.readAt || 0))
+    .slice(0, CASE_MAX_ROWS);
+  const head = "| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |\n|---|---|---|---|---|---|---|";
+  const body = rows
+    .map((r) => `| ${fmtTime(r.readAt || Date.now())} | ${fmtTime(r.mtime, true)} | ${r.size} | ${r.sha || "-"} | ${r.changes || 0} | ${fmtTtl(r)} | ${cell(normalize(r.path))} |`)
+    .join("\n");
+  const table = `${head}\n${body}`;
+  // A3（2026-11-01 红队）：原正则从表头一路吃到下一个标题，把用户手写的内容**整段删掉**。
+  // 改为只替换连续的表格行——遇第一个非表格行即停。判据：引擎只拥有它自己写的那些行。
+  // 表头两种都认：旧卷宗首列是「文件名」，新格式首列是「读取时间」，迁移期不能因为换了表头就写不进去。
+  rewriteCase(
+    projDir,
+    (t) => t.replace(/(### 【三】[\s\S]*?\n)\| (?:文件名|读取时间) \|[^\n]*(?:\n\|[^\n]*)*/, (_m, head) => head + table),
+    "卷宗【三】侦查记录",
+  );
+}
+
 export function saveLedger(projDir, state) {
-  let tmp = null;
-  try {
-    const p = ensureCaseFile(projDir);
-    tmp = p + "." + process.pid + ".tmp";
-    let t = readFileSync(p, "utf8");
-    const eff = state.effectiveCalls || 0;
-    const inv = state.invCalls || 0;
-    const used = eff + inv;
-    const row = `| ${new Date().toISOString().slice(0, 16)} | ${state.taskInitial ?? state.taskBudget ?? BUDGET_DEFAULT} | ${used} | ${Math.max(0, (state.taskBudget || BUDGET_DEFAULT) - used)} | ${eff} | ${state.ineffCalls || 0} | ${new Date().toISOString()} | KPI ${state.kpi || 0} |`;
-    const table = ["| 任务 | 初始额度 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 更新时间 | KPI |", "|---|---|---|---|---|---|---|---|", row].join("\n");
-    // A3（2026-11-01 红队）：原正则 `### 【四】[\s\S]*?(?=\n### |\n## |$)` 在【四】是最后一节时
-    // 一路吃到文件末尾，把用户写在其后的内容整段删掉（实测：手写备注消失）。
-    // 改为只替换「标题行 + 空行 + 表格块」，表格以外的字留给用户。
-    t = t.replace(/### 【四】[^\n]*(?:\n[ \t]*)*(?:\| 任务 \|[^\n]*(?:\n\|[^\n]*)*)?/, () => "### 【四】工作额度台账\n\n" + table);
-    writeFileSync(tmp, t);
-    renameSync(tmp, p);
-  } catch {
-    // FG-D3：同上
-    try { if (tmp) rmSync(tmp, { force: true }); } catch {}
-    noteFail(sid, "卷宗【四】额度台账");
-  }
+  // 三池分立：执行池 = 有效 + 无效，侦查池与委托池各自独立。原先 `已用 = eff + invCalls`，
+  // 而 `invCalls` 是**侦查池**计数（postProgress.mjs:188 只在 investigate 时自增）——把侦查调用
+  // 扣进执行预算，与"互不挤占"相悖；「无效调用」列写的又是 `ineffCalls`，于是 `有效+无效≠已用`。
+  // 判据：一张表里的列必须能互相验算，否则只是把几个不相干的数字并排摆着。
+  const eff = state.effectiveCalls || 0;
+  const ineff = state.ineffCalls || 0;
+  const used = eff + ineff;
+  // 预算取**当前** taskBudget（续杯后已上调）。取 taskInitial 的话，续杯一次后 `初始-已用≠剩余`。
+  const budget = state.taskBudget || BUDGET_DEFAULT;
+  const now = fmtTime(Date.now());
+  const row =
+    `| ${now.slice(0, 16)} | ${budget} | ${used} | ${Math.max(0, budget - used)} | ${eff} | ${ineff} | ` +
+    `${state.invCalls || 0}/${state.invCap || INV_POOL_DEFAULT} | ` +
+    `${state.delegateUsed || 0}/${state.delegateBudget || DELEGATE_DEFAULT} | KPI ${state.kpi || 0} |`;
+  const table = [
+    "| 回合时间 | 预算 | 已用额度 | 剩余额度 | 有效调用 | 无效调用 | 侦查池 | 委托池 | KPI |",
+    "|---|---|---|---|---|---|---|---|---|",
+    row,
+  ].join("\n");
+  // A3（2026-11-01 红队）：原正则 `### 【四】[\s\S]*?(?=\n### |\n## |$)` 在【四】是最后一节时吃到文件末尾，
+  // 把用户写在其后的内容整段删掉。改为只替换「标题行 + 空行 + 表格块」；表头两种都认（任务 / 回合时间）。
+  rewriteCase(
+    projDir,
+    (t) => t.replace(/### 【四】[^\n]*(?:\n[ \t]*)*(?:\| (?:任务|回合时间) \|[^\n]*(?:\n\|[^\n]*)*)?/, () => "### 【四】工作额度台账\n\n" + table),
+    "卷宗【四】额度台账",
+  );
 }
 
 export function fingerprint(absPath) {
   const st = statSync(absPath);
-  const fp = { mtime: st.mtimeMs, size: st.size, sha: "" };
+  // 取整到毫秒：卷宗存 ISO 时间，保留 `mtimeMs` 小数尾巴会让读回值永远不等于现场值 → 免重读失效。
+  // 用 floor 不用 round：`toISOString()` 走 TimeClip 截断，本机尾巴集中在 `.66`，round 会 +1ms。
+  const fp = { mtime: Math.floor(st.mtimeMs), size: st.size, sha: "" };
   if (st.size <= SHA_LIMIT) fp.sha = createHash("sha256").update(readFileSync(absPath)).digest("hex").slice(0, 16);
   return fp;
 }

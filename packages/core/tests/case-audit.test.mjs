@@ -12,8 +12,8 @@ import { auditCase } from "../tools/case-audit.mjs";
 import { halfLifeOf, retention } from "../src/core/state.mjs";
 import { TTL_CEIL, TTL_FLOOR } from "../src/core/constants.mjs";
 
-const ROW = "| 文件名 | 读取时间 | mtime | size | SHA-256 | 变更历史 | TTL | 验证方式 |";
-const SEP = "|---|---|---|---|---|---|---|---|";
+const ROW = "| 读取时间 | 修改时间 | 字节 | 指纹 | 变更 | 重读期限 | 文件 |";
+const SEP = "|---|---|---|---|---|---|---|";
 
 /** 造一个只含【三】的临时卷宗，返回临时目录。FG_CASE_FILE 让 casePath 指向它。 */
 function fixture(rows) {
@@ -24,7 +24,7 @@ function fixture(rows) {
 }
 
 test("悬空行必须报：卷宗指向不存在的文件", () => {
-  const dir = fixture(["| /definitely/not/here.mjs | 2026-10-31T00:00:00.000Z | 0 | 0 | - | n=0; last=- | | mtime+size |"]);
+  const dir = fixture(["| 2026-10-31T00:00:00.000Z | 2026-10-31T00:00:00.000Z | 0 | - | 0 | 自适应 2.0h | /definitely/not/here.mjs |"]);
   try {
     const r = auditCase(dir, { now: Date.parse("2026-10-31T00:00:00.000Z") });
     assert.equal(r.total, 1);

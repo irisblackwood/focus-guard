@@ -10,8 +10,8 @@
  * 理由：适配层 `eligibility-gate.mjs` 需要写审计，但适配层不能反向依赖宿主缝。
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { calcCost } from '../peak-cost.mjs'
+import { casePath, ensureCaseFile } from '../core/state.mjs'
 import {
   AUDIT_FILE,
   AUDIT_MAX_BYTES,
@@ -86,11 +86,18 @@ export function auditRedlineExempt(exec, cmd, detail = {}) {
 
 /**
  * 成本台账落卷目标。
- * 默认 = 仓库根 `.ai/CASE_FILE.md`；`FG_CASE_FILE` 可覆盖——测试**必须**用它重定向到临时目录，
- * 否则自检会写进人类真实卷宗（2026-10-07 事故）。落盘前另有一道守卫，见 appendCostRow。
+ *
+ * 2026-11-08 修（两条台账落点分家）：原实现是
+ * `fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))` —— 落点跟着
+ * **插件安装位置**走。而同一份卷宗里的【一】【三】【四】都走 `projDirOf(agent)`（会话项目）。
+ * 两者只在开发仓里碰巧重合（`link:` 指向仓库自身，四级上溯正好是仓库根）；
+ * 一旦插件装到别处（`~/.dsh/plugins/<name>` 或 profile 的 node_modules），就分家：
+ * 用户在自己项目里翻卷宗，【五】永远是一张空表，成本行却写进了插件目录下的另一个 `.ai/`。
+ * 现改为与 `core/state.mjs` 同源（`casePath`）：`FG_CASE_FILE` > `<会话项目>/.ai/CASE_FILE.md`。
+ * 未传项目目录时退回进程 cwd —— 不再用包相对路径，那条路径没有任何"这是谁的卷宗"语义。
  */
-function caseFilePath() {
-  return process.env.FG_CASE_FILE || fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
+function caseFilePath(projDir) {
+  return casePath(projDir || process.cwd())
 }
 
 const COST_MARK = '【五】成本台账'
@@ -115,10 +122,11 @@ function costStatusLine(state, detail) {
  * 改台账状态行。只动【五】这一节里的一行；没有该节则不开节（不替人类建表）。
  * @returns {boolean} 是否真的写了
  */
-function setCostStatus(state, detail) {
-  const target = caseFilePath()
-  const DEFAULT_CASE_FILE = fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
-  if (target !== DEFAULT_CASE_FILE && !process.env.FG_CASE_FILE) return false
+function setCostStatus(state, detail, projDir) {
+  // 原有一道 `target !== DEFAULT && !FG_CASE_FILE → return false` 的"写守卫"，
+  // 2026-11-08 删除：`casePath` 只有两个出口（env 覆盖 / 项目内 `.ai/`），该条件恒为假，
+  // 是**看起来在防护、实际什么都没挡**的死代码。守卫要真能挡，否则只是阅读负担。
+  const target = caseFilePath(projDir)
   let text
   try {
     text = readFileSync(target, 'utf8')
@@ -139,10 +147,14 @@ function setCostStatus(state, detail) {
     if (current && current[1].trim() === state) return false
     next = head + tail.replace(COST_STATUS_RE, line)
   } else {
-    const sepAt = tail.indexOf(COST_TABLE_SEP)
-    if (sepAt < 0) return false
-    const cut = sepAt + COST_TABLE_SEP.length
-    next = `${head}${tail.slice(0, cut)}\n\n${line}${tail.slice(cut)}`
+    // 2026-11-09：插在**标题行之后**，不是表头分隔线之后。
+    // 原实现把状态行塞进 `|---|---|` 与第一行数据之间，于是 markdown 表格被一行 blockquote
+    // 劈成两半——实测卷宗里表头下面只剩一行裸文本，读者看到的是"一张空表 + 一行孤零零的成本"。
+    // 判据：状态是整节的注脚，不是表格的一行；注只能挂节首或节尾，插进表格内部就是破坏结构。
+    if (!tail.includes(COST_TABLE_SEP)) return false
+    const nl = tail.indexOf('\n')
+    const cut = nl < 0 ? tail.length : nl + 1
+    next = `${head}${tail.slice(0, cut)}\n${line}\n${tail.slice(cut)}`
   }
   try {
     writeFileSync(target, next)
@@ -172,8 +184,15 @@ function usageLooksReal(model, usage) {
   return input + output > 2
 }
 
-/** 成本台账落卷：卷宗无该章节则先补表头，再逐行追加；失败只 warn 不阻塞 */
-export function appendCostRow(ts, model, inPeak, usage) {
+/**
+ * 成本台账落卷：卷宗无该章节则先补表头，再逐行追加；失败只 warn 不阻塞。
+ * @param {string} ts ISO 时间
+ * @param {string} model 模型名
+ * @param {boolean} inPeak 是否峰时
+ * @param {{input:number, output:number, cacheRead?:number}} usage
+ * @param {string} [projDir] 会话项目目录（缺省进程 cwd）——落点必须与【一】【三】【四】一致
+ */
+export function appendCostRow(ts, model, inPeak, usage, projDir) {
   if (!usageLooksReal(model, usage)) {
     if (!warnedDegenerate) {
       warnedDegenerate = true
@@ -187,14 +206,18 @@ export function appendCostRow(ts, model, inPeak, usage) {
       setCostStatus(
         '暂停中',
         `自 ${ts.slice(0, 16).replace('T', ' ')} 起未记账 · 原因：宿主 usage 不可信（model=${String(model || 'unknown')}, input=${String(usage && usage.input)}, output=${String(usage && usage.output)}） · 拿到真实用量后自动转回`,
+        projDir,
       )
     }
     return false
   }
   try {
+    // 用 ensureCaseFile 而不是裸拼路径：会话项目里没有 `.ai/` 时先落模板再追加，
+    // 否则 appendFileSync 必然 ENOENT，而"第一次用就没有台账"正是最容易被当成没用量的时候。
+    const target = ensureCaseFile(projDir || process.cwd())
     let header = ''
     try {
-      if (!readFileSync(caseFilePath(), 'utf8').includes(COST_MARK)) {
+      if (!readFileSync(target, 'utf8').includes(COST_MARK)) {
         header =
           '\n### 【五】成本台账（DSH 原生插件自动追加；tokens / USD）\n\n' +
           '| 时间 | 模型 | 时段 | 输入未缓存 | 缓存读 | 输出 | 成本USD |\n' +
@@ -207,19 +230,12 @@ export function appendCostRow(ts, model, inPeak, usage) {
       )
     }
     const usd = calcCost(model, usage, inPeak)
-    const target = caseFilePath()
-    // 写守卫：目标必须是默认卷宗路径，或调用方显式用 FG_CASE_FILE 重定向（测试用）。
-    // 其余一律拒写——防止任何代码路径把台账写到意料之外的位置。
-    const DEFAULT_CASE_FILE = fileURLToPath(new URL('../../../../.ai/CASE_FILE.md', import.meta.url))
-    if (target !== DEFAULT_CASE_FILE && !process.env.FG_CASE_FILE) {
-      throw new Error(`成本台账目标异常，拒绝写入：${target}`)
-    }
     appendFileSync(
       target,
       `${header}| ${ts} | ${model} | ${inPeak ? '峰' : '谷'} | ${usage.input} | ${usage.cacheRead} | ${usage.output} | ${usd === null ? '未知价目' : usd.toFixed(6)} |\n`,
     )
     // 恢复记账就把状态行换回来——状态是现算的，不是一次性盖章。
-    setCostStatus('记录中', `最近一行 ${ts.slice(0, 16).replace('T', ' ')} · ${model} · usage 可信`)
+    setCostStatus('记录中', `最近一行 ${ts.slice(0, 16).replace('T', ' ')} · ${model} · usage 可信`, projDir)
   } catch (error) {
     console.warn('[focus-guard-native] 成本台账写入失败（不阻塞）:', (error && error.message) || error)
   }

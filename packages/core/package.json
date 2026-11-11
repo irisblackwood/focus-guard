@@ -1,7 +1,16 @@
 {
   "name": "focus-guard",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "description": "FocusGuard 聚焦护栏核心包：给 AI 编码智能体（ZCode / DSH 双端原生硬拦截）装上的履职纪律与监察系统。日常零打扰、只查行为；六条钩子覆盖会话启动到收尾全程，含三预算池、L1-L6 梯度处罚、高危命令审批单、KPI 兑现、因果链留痕与积木图书馆。零依赖（Node.js ≥18），是所有人下载的范本包——外接集成见 focus-guard-extended。",
+  "displayName": "FocusGuard 聚焦护栏",
+  "displayNameI18n": {
+    "zh-CN": "聚焦护栏",
+    "en": "FocusGuard"
+  },
+  "descriptionI18n": {
+    "zh-CN": "AI 编码智能体的纪律与监察系统：四类失控自动触发 L1-L6 梯度处罚，双端硬拦截、全程留痕、零依赖。",
+    "en": "Hook-level guardrails for AI coding agents on DSH: unverified edits, high-risk commands and context-burning reads become mechanically blocked events with an auditable trail."
+  },
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=18.17"
@@ -34,14 +43,17 @@
     "bench:ab": "node tools/bench-ab.mjs",
     "focusguard": "node tools/focusguard.mjs",
     "gate:audit": "node tools/gate-audit.mjs",
-    "schema:verify": "node packages/core/tools/schema-fingerprint.mjs",
-    "schema:update": "node packages/core/tools/schema-fingerprint.mjs --update",
-    "fixtures:capture": "node packages/core/tools/capture-fixtures.mjs",
-    "handoff": "node packages/core/tools/handoff.mjs",
-    "layers:audit": "node packages/core/tools/layering-audit.mjs",
-    "brain": "node tools/brain.mjs",
+    "schema:verify": "node tools/schema-fingerprint.mjs",
+    "schema:update": "node tools/schema-fingerprint.mjs --update",
+    "fixtures:capture": "node tools/capture-fixtures.mjs",
+    "handoff": "node tools/handoff.mjs",
+    "layers:audit": "node tools/layering-audit.mjs",
+    "brain": "node tools/brain.mjs --open",
+    "brain:build": "node tools/brain.mjs",
     "version:check": "node tools/version.mjs",
-    "version:set": "node tools/version.mjs --set"
+    "version:set": "node tools/version.mjs --set",
+    "manifest:check": "node tools/manifest-sync.mjs",
+    "manifest:sync": "node tools/manifest-sync.mjs --write"
   },
   "dsh": {
     "bundle": {

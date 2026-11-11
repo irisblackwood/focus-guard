@@ -40,13 +40,14 @@ dir /b marketplace.json
 
 验证生效：新会话开头出现 `<focus-guard v3.0：日常零打扰，只看行为>【硬线】①未取证不改进` 的注入即为生效（该字符串逐字取自引擎 `SESSION_RULES` 开头，完整镜像见 `packages/core/docs/RULES.md` 第四部分；2026-10-24 起常驻文本已按"按需注入"压缩到 222 字，完整条文见同文件第一部分法条正文）；工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log` 即为卷宗与留痕就绪。
 
-源码目录内跑质量闸（101 用例应全绿；仓库已带 CI，推送即自动跑）：
+源码目录内跑质量闸（用例数随版本增长，以实际输出为准；仓库已带 CI，推送即自动跑）：
 
 ```bat
 cd /d <仓库目录>
-npm test         :: 验收 101 用例（等价于 node --test packages/core/tests/acceptance.test.mjs）
+npm test         :: 全量测试（= npm run test:all；2026-11-08 起不再只跑 acceptance 一个文件）
 npm run eval     :: 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即失败
-npm run check    :: test + eval（pre-push 钩子跑的就是它）
+npm run check    :: 整条闸：test + eval + eval:dsh + selftest + bridges + privacy + manifest
+                 ::        + docs:lint + lint + smells + schema:verify（发布前跑的就是它）
 ```
 
 ## 二、DSH 安装（逐行可复制）

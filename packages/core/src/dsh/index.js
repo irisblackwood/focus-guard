@@ -50,6 +50,15 @@ import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
  *
  * 2026-10-30：白名单从"免检"改成"限次免检"，逻辑落在 `createPrefixTracker`
  * （`expectedSections` / `churnLimit`）。正常熔断是"拨一下"，连拨第四次说明它在抖。
+ *
+ * 2026-11-11：**`focus-guard-cost` 明确不进白名单**，尽管它也随时钟合法翻转
+ * （`PEAK_WINDOWS` 09:00–12:00 / 14:00–18:00，工作日最多 4 次）。三条理由：
+ *   ① 它是「观测点能看到最终装配」的唯一探针——`prefix-stability.test.mjs` 用
+ *      「cost 段变了必须写一条审计」来锁住那个盲区修复，静音等于把靶子拆了；
+ *   ② 白名单的语义是「由**会话状态**驱动的开关式翻转」（fuse 是开/关），
+ *      cost 是**时钟**驱动——时钟不是状态，把它塞进来会让判据变糊；
+ *   ③ 静音写在**写侧**，副作用是"以后谁把 cost 行改成带时间戳"这种真故障
+ *      也一起静音。噪音真成问题时该在**读审计**时按段名过滤，而不是在写侧闭眼。
  */
 const EXPECTED_SHIFT_SECTIONS = new Set(['focus-guard-fuse'])
 const FUSE_CHURN_LIMIT = 3
@@ -248,70 +257,59 @@ export function apply(ctx) {
   // 3.0.8：补上 guard.mjs 六缝中 DSH 侧缺失的三条。映射照官方桥
   //（@deepseek-ai/dsh-hooks-claude-code）的实测代码，不是猜测。
   register('agent/created', sessionStartListener, 'agent/created')
+  // 「只报不改」自检缝模板（2026-11-08）：策略可达性 / 钩子顺序 / 工具类别三段此前各抄一遍
+  // 同样的 try/catch + `next` 透传（三处 11 行重复块），差异只有「跑什么」和「失败怎么措辞」。
+  // 纪律不变：只 warn、不改任何判定、只跑一次。
+  const selfCheck = (name, label, run) =>
+    register(
+      'agent/created',
+      () => async (payload, next) => {
+        try {
+          await run()
+        } catch (error) {
+          warn(`${label}失败（不影响执法）：`, (error && error.message) || error)
+        }
+        return typeof next === 'function' ? next(payload) : undefined
+      },
+      `agent/created(${name})`,
+    )
   // 策略可达性自检（2026-10-24）：用当前会话真实工具 schema 校验判定里引用的参数键，
   // 报警式（warn + 审计），不改变任何判定。只跑一次，失败 sink 到 warn。
-  register(
-    'agent/created',
-    () => async (payload, next) => {
-      try {
-        const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
-        const { runPolicyAudit } = await import('./policy-audit.mjs')
-        const { ghost, reachable, scanned } = runPolicyAudit({
-          schemas: tools,
-          files: [new URL('./pipeline.mjs', import.meta.url).pathname, new URL('./preGuard.mjs', import.meta.url).pathname],
-          ignore: ['cmd', 'script', 'pages', 'head_limit', 'output_mode'],
-        })
-        if (ghost.length) {
-          warn(`策略可达性自检：${ghost.length}/${scanned} 个参数键在真实 schema 里不存在（规则可能永不触发）——` +
-            ghost.map((g) => g.key).join('、'))
-        } else if (scanned > 0) {
-          warn(`策略可达性自检：${scanned} 个参数键全部可达（工具 ${tools.length} 个）`)
-        }
-        void reachable
-      } catch (error) {
-        warn('策略可达性自检失败（不影响执法）：', (error && error.message) || error)
-      }
-      return typeof next === 'function' ? next(payload) : undefined
-    },
-    'agent/created(policy-audit)',
-  )
+  selfCheck('policy-audit', '策略可达性自检', async () => {
+    const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
+    const { runPolicyAudit } = await import('./policy-audit.mjs')
+    const { ghost, reachable, scanned } = runPolicyAudit({
+      schemas: tools,
+      files: [new URL('./pipeline.mjs', import.meta.url).pathname, new URL('./preGuard.mjs', import.meta.url).pathname],
+      ignore: ['cmd', 'script', 'pages', 'head_limit', 'output_mode'],
+    })
+    if (ghost.length) {
+      warn(`策略可达性自检：${ghost.length}/${scanned} 个参数键在真实 schema 里不存在（规则可能永不触发）——` +
+        ghost.map((g) => g.key).join('、'))
+    } else if (scanned > 0) {
+      warn(`策略可达性自检：${scanned} 个参数键全部可达（工具 ${tools.length} 个）`)
+    }
+    void reachable
+  })
   // 钩子顺序自检（2026-10-29）：Cordis 的 waterfall 按注册顺序派发，互不相关的插件之间
   // 顺序不确定。**不能**用 @zfdx123/dsh-hooks-ordering 的 participant 接口解决——它的
   // runPhase 丢弃返回值，而 FG 的拦截正是靠 `return {kind:'deny'}`（核查全文见
   // `packages/core/docs/HOOK-ORDERING.md`；实测数据见 CHANGELOG「FG 自己做定序者」条目）。
   // 这里只观测：协调器在不在、FG 在不在参与者列表里。只报不改，与 policy-audit 同纪律。
-  register(
-    'agent/created',
-    () => async (payload, next) => {
-      try {
-        const { probeHookOrdering } = await import('./hookOrder.mjs')
-        const verdict = probeHookOrdering(ctx)
-        warn(`钩子顺序[${verdict.state}]：${verdict.message}`)
-      } catch (error) {
-        warn('钩子顺序自检失败（不影响执法）：', (error && error.message) || error)
-      }
-      return typeof next === 'function' ? next(payload) : undefined
-    },
-    'agent/created(hook-order)',
-  )
+  selfCheck('hook-order', '钩子顺序自检', async () => {
+    const { probeHookOrdering } = await import('./hookOrder.mjs')
+    const verdict = probeHookOrdering(ctx)
+    warn(`钩子顺序[${verdict.state}]：${verdict.message}`)
+  })
   // 工具类别覆盖自检（2026-10-29）：装了插件却没在适配层登记语义类别 → 熔断期被误拒、
   // 且调用算执行池而不是侦查池。只报 MCP 前缀（内置工具的欠账由 tool-kinds.mjs 自己补），
   // 只 warn 不改判定，与 policy-audit / hook-order 同纪律。
-  register(
-    'agent/created',
-    () => async (payload, next) => {
-      try {
-        const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
-        const { auditToolKinds, renderToolKindNotice } = await import('./toolKindAudit.mjs')
-        const notice = renderToolKindNotice(auditToolKinds({ schemas: tools }))
-        if (notice) warn(notice)
-      } catch (error) {
-        warn('工具类别自检失败（不影响执法）：', (error && error.message) || error)
-      }
-      return typeof next === 'function' ? next(payload) : undefined
-    },
-    'agent/created(tool-kinds)',
-  )
+  selfCheck('tool-kinds', '工具类别自检', async () => {
+    const tools = ctx.tools && typeof ctx.tools.schemas === 'function' ? ctx.tools.schemas() : []
+    const { auditToolKinds, renderToolKindNotice } = await import('./toolKindAudit.mjs')
+    const notice = renderToolKindNotice(auditToolKinds({ schemas: tools }))
+    if (notice) warn(notice)
+  })
   register('agent/pre-step', preStepListener, 'agent/pre-step')
   // 回合结束自动落账（L4，2026-10-18）：只记 FG 亲眼看到的事实（人类指令 / 被人否决的命令），
   // 不推断、不编造；写失败只 warn。与 DCR 不同：这里不 cancel、不 reject、不碰 surface。

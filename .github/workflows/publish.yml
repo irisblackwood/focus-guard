@@ -49,10 +49,15 @@ jobs:
           npm --version
           node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number);if(v[0]<11||(v[0]===11&&v[1]<5)){console.error('npm too old:',v.join('.'));process.exit(1)}"
 
-      # 发布前先跑闸：CI 红就不发。
-      - name: Test suite
-        run: npm test
-        working-directory: packages/core
+      # 发布闸：跑**整条** `npm run check`（根目录），不是只跑测试。
+      #
+      # 2026-11-08 修：此前是 `npm test` + `working-directory: packages/core`，只跑
+      # `tests/audit-isolation.mjs`（763 条测试，但**仅此一项**）。eval / eval:dsh / selftest /
+      # bridges / privacy:gate / manifest:check / docs:lint / lint / smells / schema:verify
+      # 全都不在发布路径上——测试绿而说明漂移、死链、结构异味超标，照样能发出去。
+      # 判据：发布门必须与本地 `npm run check` **同一条命令**，否则"本地绿"不保证"发得出去"。
+      - name: 发布闸（整条 check 链）
+        run: npm run check
 
       - name: Publish
         working-directory: packages/core

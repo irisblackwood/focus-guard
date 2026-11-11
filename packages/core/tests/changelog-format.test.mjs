@@ -134,15 +134,27 @@ export function auditRatchet(text) {
 const SRC = readFileSync(CHANGELOG, "utf8");
 const SECTIONS = splitVersions(SRC);
 const LATEST = SECTIONS[0];
+// 2026-11-07：≤3.0.7 的 16 个历史段原样移入 docs/archive/。
+// 合规审计仍只跑主文件（历史段早于现行排版规则，拉进来会凭空造红）；
+// 但**结构锚点**必须看并集——锚点的用途是「证明解析器真在工作」，不是「证明主文件够长」。
+const ARCHIVE_SRC = readFileSync(
+  fileURLToPath(new URL("../../../docs/archive/CHANGELOG-3.0.7-and-earlier.md", import.meta.url)),
+  "utf8",
+);
+const ALL_SECTIONS = [...SECTIONS, ...splitVersions(ARCHIVE_SRC)];
 
 describe("CHANGELOG 排版", () => {
   // 没有这条，下面的「零违规」可以靠解析失败通过——本仓栽过「锚点缺失静默返回空」
   test("结构锚点：解析必须真看见版本段与条目", () => {
-    assert.ok(SECTIONS.length >= 20, `只解析到 ${SECTIONS.length} 个版本段，解析规则可能失配`);
-    // 无日期标题（3.0.6 及更早）必须被解析到，否则"全段合规"又会退化成只审最新段。
     assert.ok(
-      SECTIONS.some((s) => !s.date),
-      "没有解析到任何无日期段——日期可选的正则失效了，16 个历史段会重新逃出审计",
+      ALL_SECTIONS.length >= 20,
+      `只解析到 ${ALL_SECTIONS.length} 个版本段（主 ${SECTIONS.length} + 归档 ${ALL_SECTIONS.length - SECTIONS.length}），解析规则可能失配`,
+    );
+    // 无日期标题（3.0.6 及更早）必须被解析到——日期可选的正则一旦失配，
+    // 归档段里那些无日期标题会整段消失，而"零违规"照样通过。
+    assert.ok(
+      ALL_SECTIONS.some((s) => !s.date),
+      "没有解析到任何无日期段——日期可选的正则失效了，无日期段会静默逃出审计",
     );
     // 最新段随发版变化（3.2.0 → 3.2.1 …），只校验形态；条目密度锚点改用 3.2.0 这个"分组的重排样板段"。
     assert.match(LATEST.version, /^\d+\.\d+\.\d+$/, `最新段版本号形态异常：${LATEST.version}`);

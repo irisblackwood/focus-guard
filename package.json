@@ -1,17 +1,17 @@
 {
   "name": "focus-guard-monorepo",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "private": true,
   "description": "FocusGuard 聚焦护栏 monorepo：packages/core（focus-guard，零依赖范本）+ packages/extended（focus-guard-extended，外接三件套衍生包）。下载核心包永不拉取扩展依赖。",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test packages/core/tests/acceptance.test.mjs",
+    "test": "npm run test:all",
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
     "check": "node packages/core/tests/audit-isolation.mjs --wrap \"npm run check:inner\"",
-    "check:inner": "npm run test:all && npm run eval && npm run eval:dsh && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run docs:lint:gate && npm run lint:gate && npm run smells:gate && npm run schema:verify",
+    "check:inner": "npm run test:all && npm run eval && npm run eval:dsh && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run manifest:check && npm run docs:lint:gate && npm run lint:gate && npm run smells:gate && npm run schema:verify",
     "privacy:gate": "node packages/core/tools/privacy-guard.mjs",
     "test:all": "node packages/core/tests/audit-isolation.mjs",
     "selftest": "node packages/core/tools/selftest.mjs",
@@ -26,7 +26,9 @@
     "bench:control": "node packages/core/tests/task-control.mjs",
     "bench:ab": "node packages/core/tools/bench-ab.mjs",
     "focusguard": "node packages/core/tools/focusguard.mjs",
-    "brain": "node packages/core/tools/brain.mjs",
+    "brain": "node packages/core/tools/brain.mjs --open",
+    "brain:build": "node packages/core/tools/brain.mjs",
+    "brain:cosmic": "node packages/core/tools/brain-cosmic.mjs",
     "memory:audit": "node packages/core/tools/memory-audit.mjs",
     "privacy:sweep": "node packages/core/tools/first-run-sweep.mjs",
     "schema:verify": "node packages/core/tools/schema-fingerprint.mjs",
@@ -55,6 +57,8 @@
     "case:audit": "node packages/core/tools/case-audit.mjs",
     "library:index": "node packages/core/tools/library-index.mjs",
     "knowledge": "node packages/core/tools/knowledge.mjs",
+    "manifest:check": "node packages/core/tools/manifest-sync.mjs",
+    "manifest:sync": "node packages/core/tools/manifest-sync.mjs --write",
     "gate:inputs": "node packages/core/tools/gate-inputs.mjs"
   },
   "license": "AGPL-3.0-only",

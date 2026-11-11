@@ -24,20 +24,20 @@ writeFileSync(
   PROBE,
   [
     `const { appendCostRow } = await import(${JSON.stringify(MODULE)});`,
-    "const [, , ts, model, input, output, cacheRead] = process.argv;",
+    "const [, , ts, model, input, output, cacheRead, projDir] = process.argv;",
     "appendCostRow(ts, model, false, {",
     "  input: Number(input),",
     "  output: Number(output),",
     "  cacheRead: cacheRead === 'null' ? undefined : Number(cacheRead),",
-    "});",
+    "}, projDir || undefined);",
   ].join("\n"),
 );
 
 /** 在**新进程**里跑一次 appendCostRow，返回该进程的 stderr（warn 输出）。 */
-function runProbe({ ts, model, input, output, cacheRead = null, env = {} }) {
+function runProbe({ ts, model, input, output, cacheRead = null, projDir = null, env = {} }) {
   return execFileSync(
     process.execPath,
-    [PROBE, ts, model, String(input), String(output), String(cacheRead)],
+    [PROBE, ts, model, String(input), String(output), String(cacheRead), projDir || ""],
     {
       encoding: "utf8",
       env: { ...process.env, FG_CASE_FILE: CASE, FG_AUDIT_FILE: join(TMP, "audit.log"), ...env },
@@ -70,11 +70,20 @@ test("退化 usage → 写出「暂停中」，空表能自证是停摆", () => 
   assert.equal(statusOf(text), "暂停中");
   assert.match(text, /model=unknown, input=1, output=1/, "状态行要写清为什么停");
   assert.match(text, /自动转回/, "状态行要写清怎么恢复");
-  // 状态行必须在【五】节内、表头之后，不能跑到章节外
-  const sepAt = text.indexOf("|---|---|---|---|---|---|---|");
+  // 状态行必须在【五】节内、且在**表格之外**——插进表头与数据行之间会把 markdown 表格劈成两半，
+  // 表头下面只剩一行裸文本（2026-11-09 模拟运行实测）。注只能挂节首或节尾。
+  const titleAt = text.indexOf("### 【五】");
   const stAt = text.indexOf("台账状态");
-  assert.ok(stAt > sepAt, "状态行应在表头之后");
-  assert.ok(text.indexOf("### 【五】") < stAt);
+  const sepAt = text.indexOf("|---|---|---|---|---|---|---|");
+  assert.ok(titleAt < stAt, "状态行要在【五】标题之后");
+  assert.ok(stAt < sepAt, "状态行要在表头之前（否则表格被劈开）");
+  // 表格自身必须连续：分隔线之后只能是数据行（有记账）或空行（空表），
+  // 出现 blockquote 就说明状态行插进了表格内部——正是这条判据要拦的形态。
+  const afterSep = text.slice(sepAt).split("\n")[1];
+  assert.ok(
+    afterSep === "" || afterSep.startsWith("| "),
+    `分隔线下一行只能是数据行或空行，实测：${afterSep.slice(0, 40)}`,
+  );
 });
 
 test("已是「暂停中」→ 不重复改写（按状态名判等，不按整行）", () => {
@@ -110,4 +119,30 @@ test("卷宗里没有【五】→ 不擅自开节，也不崩", () => {
   const text = readFileSync(CASE, "utf8");
   assert.equal(text.includes("台账状态"), false, "没有该节就不要建节");
   assert.equal(text.includes("【五】"), false);
+});
+
+// 落点必须与【一】【三】【四】同源（2026-11-08）。
+//
+// 病根：成本台账原用 `new URL('../../../../.ai/CASE_FILE.md', import.meta.url)` 定落点，
+// 跟着**插件安装位置**走；而【一】【三】【四】都走 `projDirOf(agent)`（会话项目）。
+// 开发仓里两者碰巧重合（`link:` 指向仓库自身），装到别处就分家：用户在自己项目里翻卷宗，
+// 【五】永远是一张空表，成本行写进了插件目录下的另一个 `.ai/`。
+test("成本行落进会话项目的卷宗，不是插件安装目录", () => {
+  const proj = mkdtempSync(join(tmpdir(), "fg-cost-proj-"));
+  runProbe({
+    ts: "2026-11-08T10:00:00.000Z",
+    model: "deepseek-flash",
+    input: 900,
+    output: 100,
+    cacheRead: 0,
+    projDir: proj,
+    env: { FG_CASE_FILE: "" }, // 清掉重定向，走真实的「会话项目」分支
+  });
+  const landed = readFileSync(join(proj, ".ai", "CASE_FILE.md"), "utf8");
+  assert.match(landed, /\| 2026-11-08T10:00:00\.000Z \| deepseek-flash \|/, "成本行应落进会话项目的卷宗");
+  assert.equal(
+    readFileSync(CASE, "utf8").includes("2026-11-08T10:00:00.000Z"),
+    false,
+    "不该再写 FG_CASE_FILE 指向的那一份",
+  );
 });

@@ -34,6 +34,10 @@ import { fileURLToPath } from "node:url";
 const PUBLISHED_MAX = "3.3.3";
 
 const CHANGELOG = fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url));
+/** ≤3.0.7 的历史段（2026-11-07 原样移出主文件，内容未改） */
+const CHANGELOG_ARCHIVE = fileURLToPath(
+  new URL("../../../docs/archive/CHANGELOG-3.0.7-and-earlier.md", import.meta.url),
+);
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
 
 function cmpVersion(a, b) {
@@ -167,13 +171,21 @@ describe("CHANGELOG 受众口径（开发期缺陷不称「修复」）", () => 
 
   // 没有这条，上面的「零违规」可以靠解析失败来通过——本仓已栽过「锚点缺失静默返回空」的坑
   test("结构锚点：解析必须真的看见各段，且开发期标注落在该落的地方", () => {
-    const sections = splitSections(readFileSync(CHANGELOG, "utf8"));
-    assert.ok(sections.length >= 10, `只解析出 ${sections.length} 段，CHANGELOG 解析失败`);
+    const main = splitSections(readFileSync(CHANGELOG, "utf8"));
+    // 2026-11-07：≤3.0.7 的 16 个历史段原样移入 docs/archive/。解析面跟着扩到两个文件——
+    // 这条锚点的用途是「证明解析器真在工作」，不是「证明主文件很长」，
+    // 所以是并集计数，不是把门槛从 10 降到 9 去迁就文件变短。
+    const archived = splitSections(readFileSync(CHANGELOG_ARCHIVE, "utf8"));
+    const sections = [...main, ...archived];
+    assert.ok(
+      sections.length >= 25,
+      `只解析出 ${sections.length} 段（主 ${main.length} + 归档 ${archived.length}），CHANGELOG 解析失败`,
+    );
     const versions = sections.map((s) => s.version);
-    for (const v of ["3.2.0", "3.1.0", "3.0.10", "3.0.9"])
+    for (const v of ["3.2.0", "3.1.0", "3.0.10", "3.0.9", "3.0.7", "2.5.3"])
       assert.ok(versions.includes(v), `漏段 ${v}（解析或标题格式变了）`);
 
-    const cur = sections.find((s) => s.version === "3.2.0");
+    const cur = main.find((s) => s.version === "3.2.0");
     const marked = cur.body.filter((l) => isBullet(l) && ENTRY_DEV.test(l));
     assert.ok(
       marked.length >= 5,

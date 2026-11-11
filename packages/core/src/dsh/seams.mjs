@@ -44,9 +44,14 @@ export function turnStoppingListener({ warn } = {}) {
   return async ({ agent } = {}) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
-      // 顺序固定：ttl 回收 → 改动面报告 → KPI 结算（后两步都依赖前一步不留残留）。
+      // 顺序固定：ttl 回收 → 改动面报告 → 额度台账 → KPI 结算（后三步都依赖前一步不留残留）。
       await sweepTurnGrants(sid, warn)
       await reportBlastRadius(sid, state)
+      // 2026-11-08 修（卷宗【四】在真实会话里恒空）：本行原在 settleKpi 内、且在
+      // `kpiNow === 0` 的提前 return **之后**——没有 KPI 增量的回合（大多数回合）永远不写，
+      // 于是额度台账只剩一张表头。与 reportBlastRadius 同一类病、同一类修法：搬出提前 return 的射程。
+      // 放在 settleKpi 之前：结算是"加分"，不该因为结算异常连本回合的额度快照都丢掉。
+      saveLedger(projDirOf(agent), state)
       await settleKpi({ agent, sid, file, state })
     } catch (error) {
       if (typeof warn === 'function') warn('KPI 结算缝异常（不阻塞）:', (error && error.message) || error)
@@ -114,7 +119,6 @@ async function settleKpi({ agent, sid, file, state }) {
     state.kpiLowReported = false
   }
   saveState(file, state)
-  saveLedger(projDirOf(agent), state)
   await publishKpiSnapshot(state)
   auditRow(
     sid,

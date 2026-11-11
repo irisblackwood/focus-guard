@@ -69,7 +69,7 @@ dsh plugin --profile <你的 profile> add github:irisblackwood/focus-guard#path:
 ## 三条命令
 
 ```bash
-npm test              # 验收（含版本一致性、文档-实现对齐）
+npm test              # 全量测试（所有测试文件；acceptance 只是其中之一）
 npm run test:eligibility   # 资格审核 + 红线豁免 + 申辩
 npm run eval          # 威胁评测（高危检出率 + 良性误报率）
 ```
@@ -98,4 +98,4 @@ hooks/guard.mjs   ZCode 执行壳（已封存：版本号独立，不随主版�
 
 ## License
 
-AGPL-3.0-only © 2026 irisblackwood（商业使用需单独授权）
+AGPL-3.0-only © 2026 irisblackwood（商业许可为 AGPL 之外的可选路径，例如用于免除第 13 条的开源义务；合规使用无需购买）
