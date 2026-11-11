@@ -189,14 +189,14 @@ export function loadCaseRecords(p) {
     const t = readFileSync(p, "utf8");
     for (const line of sectionOf(t, "【三】").split("\n")) {
       if (!line.startsWith("|")) continue;
-      // 2026-11-11：`\|` 必须在 split 前保护——否则含竖线的单元格被劈成两列，`c.length !== 9` 静默丢掉整行（POSIX 合法文件名）。
-      const c = line.replace(/\\\|/g, "\u0000").split("|").map((x) => x.trim().replace(/\u0000/g, "|"));
+      // 2026-11-11：`\\` 与 `\|` 都要在 split 前保护——只护竖线的话，反斜杠结尾的路径仍会被劈开并静默丢行。
+      const c = line.replace(/\\([\\|])/g, (_, ch) => (ch === "\\" ? "\u0001" : "\u0000")).split("|").map((x) => x.trim().replace(/\u0001/g, "\\").replace(/\u0000/g, "|"));
       // 7 列 = 首尾各一个空串 + 7 段。列数不符一律跳过——旧格式（8 列）因此自然读不出来，
       // 当作"没有记录"重建缓存即可；卷宗【三】是可重建的取证缓存，不是权威数据。
       if (c.length !== 9) continue;
       const [, readAt, mtime, size, sha, changes, ttl, file] = c;
       if (!/^\d{4}-\d{2}-\d{2}T/.test(readAt)) continue; // 表头与分隔行
-      const path = uncell(file);
+      const path = file;
       if (!path) continue;
       const n = parseInt(changes, 10) || 0;
       const m = Date.parse(mtime) || 0;
@@ -209,7 +209,7 @@ export function loadCaseRecords(p) {
         changes: n,
         // 最近变更时刻不单独存：观察到 n 次变更且此后没再变，最后一次变更就在当前 mtime 上。
         lastChange: n > 0 ? m : 0,
-        ttlOverride: /^自适应/.test(ttl) ? "" : uncell(ttl),
+        ttlOverride: /^自适应/.test(ttl) ? "" : ttl,
         via: sha && sha !== "-" ? "mtime+size+sha" : "mtime+size",
       };
     }
@@ -217,14 +217,12 @@ export function loadCaseRecords(p) {
   return out;
 }
 
-/** 卷宗表格单元格转义。只转义竖线：markdown 表格里 `\` 不需要转义，多转一次只是给读者加噪音。 */
+/**
+ * 卷宗单元格转义。反斜杠必须先转，否则 `a\|b` 与「a、分隔、b」分不开（code-scanning #9）。
+ * 逆运算**不单独成函数**：它只在 `loadCaseRecords` 分列时用一次，另立一份必然与这里漂移。
+ */
 function cell(v) {
-  return String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-}
-
-/** `cell()` 的逆运算。转义必须成对：读入即还原、写出才转义，否则每写一次反斜杠就翻一倍。 */
-function uncell(v) {
-  return String(v ?? "").replace(/\\\|/g, "|");
+  return String(v ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 /** 卷宗内统一的时间写法：本地时间、不带 `Z`。同一份文档只允许一种写法（UTC 会差 8 小时）。 */

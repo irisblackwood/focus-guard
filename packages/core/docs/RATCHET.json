@@ -43,6 +43,14 @@
       "smells": 8,
       "duplicates": 21,
       "note": "还债 2 条：src/dsh/index.js 的「只报不改」三条自检（策略可达性 / 钩子顺序 / 工具类别）各抄了一遍同样的 try/catch + next 透传，收成 apply() 内的 selfCheck 模板，重复块 23→21，apply() 顺带短了 11 行。结构异味 8 条不变：core/state.mjs 因卷宗七列改造涨到 424 行成为第 9 条，当场把 saveCaseRecords / saveLedger 的 tmp+rename 样板收成 rewriteCase，压回 398 行还掉，没有进账——与 3.3.2 / 3.3.3 同一处置：拆代码，不抬阈值。"
+    },
+    {
+      "version": "3.4.1",
+      "date": "2026-11-11",
+      "commit": "0136589",
+      "smells": 8,
+      "duplicates": 19,
+      "note": "还债 2 条：selftest.mjs 里「未命中绝对红线但被资格闸接管」的断言 `(deny || ask) && !/绝对红线/` 在 A1/A2 抄了三遍，收成 notRedline()，重复块 21→19。结构异味 8 条不变：本轮 state.mjs 删掉多余的 uncell（分列阶段已还原，再还原一次会把 `\\|` 吃成 `|`）反而降到 397 行，仍是 8 条；selftest.mjs 因新增 3 行辅助函数从 517 涨到 520，超长文件本就记在账上，未新增条目。"
     }
   ]
 }

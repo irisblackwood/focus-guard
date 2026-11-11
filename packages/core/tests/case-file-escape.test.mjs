@@ -70,6 +70,27 @@ test("卷宗往返：含竖线的路径必须能读回（转义先保护再切�
   }
 });
 
+// 2026-11-11 补：反斜杠也必须转义（code-scanning #9）。
+//
+// 旧实现只把 `|` 写成 `\|`，`\` 裸着进表格。它靠「全表只有一个转义符」侥幸自洽，
+// 但那是巧合不是契约——再加一个转义符（比如换行、比如 HTML）就会互相吞。
+// 路径已 `normalize` 成正斜杠，所以真正能带 `\` 的只剩 `ttlOverride`（人工覆盖列）。
+test("卷宗往返：反斜杠必须先转义，不得与竖线互吞", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fg-case-bs-"));
+  try {
+    const p = "/tmp/c.mjs";
+    const ttl = "a\\|b"; // 真实值：a 反斜杠 竖线 b
+    saveCaseRecords(dir, {
+      [p]: { path: p, readAt: Date.now(), mtime: 1, size: 3, sha: "abc", changes: 0, ttlOverride: ttl },
+    });
+    const back = loadCaseRecords(casePath(dir));
+    assert.equal(Object.values(back).length, 1, "含 `\\` 与 `|` 的行不得被列数校验丢掉");
+    assert.equal(Object.values(back)[0].ttlOverride, ttl, "反斜杠与竖线都必须原样还原");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // 2026-11-08 补：毫秒取整口径必须与 `Date` 一致（截断），否则免重读会随机失效。
 //
 // 起因：`fingerprint` 一度用 `Math.round(st.mtimeMs)`。Windows 上 mtimeMs 的小数尾巴

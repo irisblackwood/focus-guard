@@ -40,6 +40,7 @@
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-29 |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 | 参考 | 4.0 前置 | 2026-10-19 |
 | [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 | 参考 | 4.5 前置 | 2026-10-30 |
+| [BRAIN-VIZ.md](../packages/core/docs/BRAIN-VIZ.md) | 脑可视化渲染实现：两个版本的区别 / 星空与黑洞怎么画 / draw call 拆分 / `?stars=0` 的用途 | 参考 | 3.4.0 | 2026-11-11 |
 | [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 | 参考 | 3.2.1 | 2026-10-27 |
 | [HOOK-ORDERING.md](../packages/core/docs/HOOK-ORDERING.md) | 钩子定序核查（四条路与各自代价） | 参考 | 3.3.0 | 2026-10-29 |
 | [packages/core/README.md](../packages/core/README.md) | 核心包英文说明 | 参考 | 3.2.1 | 2026-10-27 |

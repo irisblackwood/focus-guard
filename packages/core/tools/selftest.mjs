@@ -190,6 +190,10 @@ check('注册了 tools/pre-execute 监听', events.some(([t, e]) => t === 'on' &
   )
 }
 
+/** 「没命中绝对红线、但被资格闸接管」的共同断言：A1/A2 三个样本都是这个形状，抄三遍就漂三份。 */
+const notRedline = (gate) =>
+  (gate.kind === 'deny' || gate.kind === 'ask') && !/绝对红线/.test(String(gate.reason || ''))
+
 console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）==')
 {
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf /' } })
@@ -223,7 +227,7 @@ console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf "./app-src"' } })
   check(
     '带引号的非根路径不命中红线（改由资格闸拦）',
-    (gate.kind === 'deny' || gate.kind === 'ask') && !/绝对红线/.test(String(gate.reason || '')),
+    notRedline(gate),
     JSON.stringify(gate),
   )
 }
@@ -234,7 +238,7 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
   const gate = await run({ name: 'bash', arguments: { command: 'rm -rf ./test-dir' } })
   check(
     'rm -rf ./test-dir 不在红线（改由资格闸拦）',
-    (gate.kind === 'deny' || gate.kind === 'ask') && !/绝对红线/.test(String(gate.reason || '')),
+    notRedline(gate),
     JSON.stringify(gate),
   )
 }
@@ -242,7 +246,7 @@ console.warn('== 测试 A2：第1层两档分流（普通 rm -rf 不进红线，
   const gate = await run({ name: 'bash', arguments: { command: 'cd /tmp && rm -fr app-src/' } })
   check(
     'rm -fr app-src/ 不在红线（改由资格闸拦）',
-    (gate.kind === 'deny' || gate.kind === 'ask') && !/绝对红线/.test(String(gate.reason || '')),
+    notRedline(gate),
   )
 }
 {
