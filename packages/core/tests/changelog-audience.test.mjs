@@ -31,7 +31,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** 对外已分发的最高版本（各渠道取最高者，见文件头） */
-const PUBLISHED_MAX = "3.4.0";
+const PUBLISHED_MAX = "3.4.1";
 
 const CHANGELOG = fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url));
 /** ≤3.0.7 的历史段（2026-11-07 原样移出主文件，内容未改） */
