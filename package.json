@@ -1,6 +1,6 @@
 {
   "name": "focus-guard-monorepo",
-  "version": "3.4.1",
+  "version": "3.5.0",
   "private": true,
   "description": "FocusGuard 聚焦护栏 monorepo：packages/core（focus-guard，零依赖范本）+ packages/extended（focus-guard-extended，外接三件套衍生包）。下载核心包永不拉取扩展依赖。",
   "workspaces": [
@@ -26,9 +26,9 @@
     "bench:control": "node packages/core/tests/task-control.mjs",
     "bench:ab": "node packages/core/tools/bench-ab.mjs",
     "focusguard": "node packages/core/tools/focusguard.mjs",
-    "brain": "node packages/core/tools/brain.mjs --open",
-    "brain:build": "node packages/core/tools/brain.mjs",
-    "brain:cosmic": "node packages/core/tools/brain-cosmic.mjs",
+    "brain": "node packages/core/tools/brain-cosmic.mjs",
+    "brain:build": "node packages/core/tools/brain-cosmic.mjs --quiet",
+    "brain:cosmic": "node packages/core/tools/brain-cosmic.mjs --strict",
     "memory:audit": "node packages/core/tools/memory-audit.mjs",
     "privacy:sweep": "node packages/core/tools/first-run-sweep.mjs",
     "schema:verify": "node packages/core/tools/schema-fingerprint.mjs",
@@ -59,7 +59,9 @@
     "knowledge": "node packages/core/tools/knowledge.mjs",
     "manifest:check": "node packages/core/tools/manifest-sync.mjs",
     "manifest:sync": "node packages/core/tools/manifest-sync.mjs --write",
-    "gate:inputs": "node packages/core/tools/gate-inputs.mjs"
+    "gate:inputs": "node packages/core/tools/gate-inputs.mjs",
+    "brain:distill": "node packages/core/tools/memory-distill.mjs",
+    "brain:asset": "node packages/core/tools/make-cortex-asset.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

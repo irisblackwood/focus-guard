@@ -98,6 +98,38 @@
 
 <script>
 const DATA = /*__FG_BRAIN_DATA__*/null;
+/* 皮层网格资产（`assets/cortex.bin`，base64 内联）。没有就是 null。
+   **它和 npm 包不同步是故意的**：源数据 CC BY-SA 3.0 与本仓 AGPL-3.0-only 不兼容，
+   所以只随 GitHub 分发，不进 npm `files`。于是 clone 有真皮层、npm 装没有，
+   头部会如实报当前用的是哪一档——不猜、不假装。 */
+const CORTEX = /*__FG_CORTEX__*/null;
+
+/* 解 FGCX 资产：magic / u16 ver / u16 保留 / u32 count / f32×6 包围盒 / count×7 字节。
+   每点 x,y,z 各 uint16 量化 + grv uint8。量化精度 2/65535 ≈ 3e-5，比一个像素小两个数量级。 */
+const MESH = (() => {
+  if (!CORTEX) return null;
+  const bin = atob(CORTEX);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const dv = new DataView(u8.buffer);
+  if (u8.length < 36 || String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "FGCX") return null;
+  const n = dv.getUint32(8, true);
+  const mn = [0, 1, 2].map((a) => dv.getFloat32(12 + a * 4, true));
+  const mx = [0, 1, 2].map((a) => dv.getFloat32(24 + a * 4, true));
+  if (!(n > 1000) || u8.length < 36 + n * 7) return null;
+  const pts = new Array(n);
+  let o = 36;
+  for (let i = 0; i < n; i++) {
+    pts[i] = [
+      mn[0] + (dv.getUint16(o, true) / 65535) * (mx[0] - mn[0]),
+      mn[1] + (dv.getUint16(o + 2, true) / 65535) * (mx[1] - mn[1]),
+      mn[2] + (dv.getUint16(o + 4, true) / 65535) * (mx[2] - mn[2]),
+      dv.getUint8(o + 6) / 255,       // 沟深代理：法线与径向的夹角，1 = 回顶、0.25 = 沟底
+    ];
+    o += 7;
+  }
+  return pts;
+})();
 
 /* ══════════════════════════════════════════════════════════════
    判据：位置 = FNV-1a(实体名) → 皮层顶点。
@@ -150,10 +182,50 @@ const smooth01 = (a, b, x) => {
 const Q = new URLSearchParams(location.search);
 const AX = +(Q.get("ax") || 0.84), AY = +(Q.get("ay") || 0.56), AZ = +(Q.get("az") || 1.0);
 
+/* ── 沟回（2026-11-11）─────────────────────────────────────────────
+ * 此前这里只有 `0.022 * (n1 - 0.5)` 的噪声起伏，于是模板版是一颗**光滑的蛋**：
+ * 和本机皮层版（真 PLY 网格，96,521 点）摆在一起，一眼就是两个东西。
+ * 用户的原话是「关键是从外观上也长得不一样啊」——不是背景有没有星，是脑壳不是同一副。
+ *
+ * 真脑表面是「宽回 + 窄沟」：回是圆润的凸起，沟是**窄而深**的凹槽。
+ * 判据就取这三条，缺一条都会退化成皱纹纸或核桃：
+ *   ① 沟窄——噪声取正值再取幂，只有峰值附近才塌下去；
+ *   ② 回宽——负值几乎不动，凸起因此连成片，不是一条条孤立的棱；
+ *   ③ 主沟有方向——外侧裂沿前后走、中央沟横着斜下，这是侧脸最好认的两条线。
+ * 深度取半径的 5~6%。真脑约 1 cm / 8.5 cm ≈ 12%，但这里点稀疏，照搬会变成核桃。
+ * `?sulc=0` 可关掉，供 A/B 对照（默认开）。
+ */
+const SULC = +(Q.get("sulc") ?? 1);
+
+function folds(x, y, z) {
+  // 两个八度：低频给大回，高频给细沟。domain 是单位球，7.4 → 约 15 道沟跨一个半球。
+  const a = vnoise(x * 7.4 + 11.3, y * 7.4 - 4.1, z * 7.4 + 2.7);
+  const b = vnoise(x * 15.1 - 6.2, y * 15.1 + 8.9, z * 15.1 - 3.4);
+  const f = 0.58 * a + 0.42 * b;                       // [0,1]
+
+  // ①② 只刻沟：阈值以上取幂塌成窄槽，阈值以下不动。
+  /* 阈值 0.38、幂 1.2 是量出来的，不是拍的：实测这一组让**约 25% 的表面**落进沟里
+     （最深 0.16 半径）。上一版取 0.50 / 1.7 只有 5%，沟窄得像刻刀划痕——
+     稀疏点云里根本看不见，等于没加。 */
+  let d = -0.10 * Math.pow(Math.max(0, (f - 0.38) / 0.62), 1.2);
+
+  // ③ 外侧裂（Sylvian）：颞叶上方那道横沟，前后走、左右对称地绕过去。
+  const syl = Math.exp(-Math.pow((y + 0.10) / 0.075, 2))
+            * smooth01(-0.62, -0.10, z) * smooth01(0.72, 0.20, z);
+  d -= 0.072 * syl * (0.55 + 0.45 * Math.abs(x) / 0.84);
+
+  // ③ 中央沟（Central）：从顶中线斜向前下，把额叶和顶叶分开。
+  const cen = Math.exp(-Math.pow((z + 0.10 + 0.55 * y) / 0.085, 2)) * smooth01(-0.55, 0.30, y);
+  d -= 0.046 * cen;
+
+  return d * SULC;
+}
+
 /* ── 三个分区的「表面」：只用来决定落点范围，不画出来 ───────────── */
 function cortexAt(x, y, z, out) {
   const n1 = vnoise(x * 4.2, y * 4.2, z * 4.2);
-  const r = 1 + 0.022 * (n1 - 0.5);
+  const fold = folds(x, y, z);
+  const r = 1 + 0.022 * (n1 - 0.5) + fold;
   let X = x * r * AX, Y = y * r * AY, Z = z * r * AZ;
 
   /* 顶点略平、枕侧略高：真脑的顶不是圆弧，前后也不对称。 */
@@ -172,9 +244,22 @@ function cortexAt(x, y, z, out) {
   X += Math.sign(X || 1) * 0.030 * Math.exp(-Math.pow(X / 0.042, 2)) * up;
 
   out[0] = X; out[1] = Y; out[2] = Z;
+  /* 第 4 位带出**这一点的沟深**（负值 = 沟里）。点云没有光照，
+     沟之所以能被看见，全靠 emit 把沟底压暗——几何凹陷只解决一半。 */
+  out[3] = fold;
 }
 
 const CB = { cx: 0, cy: -0.400, cz: -0.640, ax: 0.225, ay: 0.140, az: 0.165 };
+/* 小脑挂在哪儿，**由真网格说**，不是我拍一个常数。
+   原来的 (-0.40, -0.64) 是照着解析椭球配的；换成真皮层之后，枕叶的下缘
+   比椭球低得多，小脑就悬在半空，和皮层之间裂出一道黑缝。
+   判据：取后下方那一片（z < -0.35 且 y < 0）的重心，再往下压 0.05——
+   小脑在枕叶**下面**，不是悬在它后面。没有网格时仍用解剖常量。 */
+if (MESH) {
+  let n = 0, sx = 0, sy = 0, sz = 0;
+  for (const p of MESH) if (p[2] < -0.35 && p[1] < 0) { sx += p[0]; sy += p[1]; sz += p[2]; n++; }
+  if (n > 200) { CB.cx = sx / n; CB.cy = sy / n - 0.050; CB.cz = sz / n; }
+}
 function cerebellumAt(bx, by, bz, out) {
   const folia = 0.022 * Math.sin(bz * 26 + 0.6) + 0.010 * Math.sin(bz * 43 - 1.2);
   const vermis = 1 - 0.10 * Math.exp(-Math.pow(bx / 0.30, 2));
@@ -187,7 +272,8 @@ function cerebellumAt(bx, by, bz, out) {
 /* 脑干：中脑 → 脑桥（膨大）→ 延髓，从小脑前方垂下。
    它同时是侧面轮廓的高度来源：大脑只到 -0.56，剩下的靠它。 */
 function stemAt(t, a, out) {
-  const y = -0.42 - t * 0.34;
+  /* 起点从 -0.42 提到 -0.32：真皮层的下缘比解析椭球低，接不上就成一根断柱。 */
+  const y = -0.30 - t * 0.24;
   const bulge = Math.exp(-Math.pow((t - 0.32) / 0.18, 2));
   const taper = 1 - 0.30 * smooth01(0.55, 1.0, t);
   const rad = (0.070 + 0.045 * bulge) * taper;
@@ -203,7 +289,7 @@ function stemAt(t, a, out) {
    池里同时记住该分区的**中心**：体收缩要朝它收。 */
 const POOL = (() => {
   const rnd = rng32(0x51ED270B);
-  const d = [0, 0, 0], o = [0, 0, 0];
+  const d = [0, 0, 0], o = [0, 0, 0, 0];   // o[3] = 沟深，cortexAt 会写
   const dir = () => {
     const u = rnd() * 2 - 1, th = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
     d[0] = Math.cos(th) * s; d[1] = u; d[2] = Math.sin(th) * s;
@@ -214,12 +300,23 @@ const POOL = (() => {
     cerebellum: { pts: [], c: [CB.cx, CB.cy, CB.cz] },
     stem: { pts: [], c: [0, -0.59, -0.18] },
   };
-  const N = 40000;
-  for (let i = 0; i < N; i++) {
-    dir();
-    cortexAt(d[0], d[1], d[2], o);
-    (o[0] < 0 ? P.left : P.right).pts.push([o[0], o[1], o[2]]);
+  /* 皮层池：**有真网格就用真网格**。
+     判据不是"哪个更好看"，是"有没有真数据"——手里有扫描来的 pial 表面，
+     还去算一个假椭球，等于把「我们记的是什么」和「它长什么样」拆成两套。
+     真网格不在时（npm 装、或资产被删）才退回 cortexAt 的解析椭球，
+     并保留沟回函数——那是"没有真数据时能做到的最好"，不是假装有。 */
+  if (MESH) {
+    for (const p of MESH) (p[0] < 0 ? P.left : P.right).pts.push(p);
+  } else {
+    const N = 40000;
+    for (let i = 0; i < N; i++) {
+      dir();
+      cortexAt(d[0], d[1], d[2], o);
+      (o[0] < 0 ? P.left : P.right).pts.push([o[0], o[1], o[2], o[3]]);
+    }
   }
+  /* 小脑与脑干**始终是解析的**：pial 表面只覆盖大脑皮层，不含这两块。
+     拿皮层点冒充小脑，图上就会出现"小脑长在大脑上"——宁可承认没有。 */
   for (let i = 0; i < 9000; i++) {
     dir();
     cerebellumAt(d[0], d[1], d[2], o);
@@ -311,9 +408,11 @@ const FIELD = (() => {
   const rnd = rng32(0x2F9A31C7);
   const near = new Int32Array(3), nw = new Float64Array(3);
 
-  function emit(px, py, pz, cx, cy, cz, shell) {
-    // 往里收一点，给一点厚度，不要一张皮
-    const k = shell * (0.80 + 0.20 * rnd());
+  function emit(px, py, pz, cx, cy, cz, shell, sh, dim) {
+    /* 厚度带。这层**随机**内收是沟回的头号杀手：它按点独立抽样，
+       幅度一旦接近沟深，刚刻出来的褶皱就被抹平成一层雾。
+       网格版只有 3%（真几何自己带沟，再抖就毁）；解析版 10%（它的沟是算的，需要一点厚度）。 */
+    const k = shell * (MESH ? 0.97 + 0.03 * rnd() : 0.90 + 0.10 * rnd());
     const X = cx + (px - cx) * k, Y = cy + (py - cy) * k, Z = cz + (pz - cz) * k;
 
     let w1 = 0, w2 = 0, w3 = 0, i1 = -1, i2 = -1, i3 = -1;
@@ -343,23 +442,38 @@ const FIELD = (() => {
     const g0 = (tg / tw) * m + BASE[1] * (1 - m);
     const b0 = (tb / tw) * m + BASE[2] * (1 - m);
 
+    /* 沟底压暗。点云没有法线也没有光照，几何凹下去在稀疏点里读不出来——
+       必须再给一层明暗，沟才成立。压暗**只动颜色不动透明度**：
+       降 alpha 会变成"洞"，那是缺数据的样子，不是阴影。
+       `sh` 由 take() 算好传进来：解析版从沟深换算，网格版直接用沟深代理。 */
     pos.push(X, Y, Z);
-    col.push(r0, g0, b0);
+    col.push(r0 * sh, g0 * sh, b0 * sh);
     siz.push(0.0060 + 0.0055 * rnd());
-    alp.push(0.024 + 0.46 * Math.pow(inf, 0.9));
+    alp.push((0.024 + 0.46 * Math.pow(inf, 0.9)) * (dim || 1));
   }
 
-  const take = (pts, cx, cy, cz, want) => {
+  const take = (pts, cx, cy, cz, want, dim) => {
     const step = Math.max(1, Math.floor(pts.length / want));
     for (let i = 0; i < pts.length; i += step) {
       const p = pts[i];
-      emit(p[0], p[1], p[2], cx, cy, cz, 1);
+      /* 第 4 位在两种来源里语义**相反**，所以在这里就换算成同一个「明暗系数」：
+         解析版是沟深（负值，越深越暗）→ 1 + d·6；
+         网格版是沟深代理（0.25 沟底 .. 1.0 回顶）→ 直接线性映射。
+         小脑/脑干的池是 3 元组，没有第 4 位，按"不在沟里"算。 */
+      const sh = p[3] === undefined
+        ? 1
+        : MESH ? 0.42 + 0.58 * p[3] : Math.max(0.30, 1 + p[3] * 6);
+      emit(p[0], p[1], p[2], cx, cy, cz, 1, sh, dim);
     }
   };
   take(POOL.left.pts, 0, 0, 0, 11000);
   take(POOL.right.pts, 0, 0, 0, 11000);
-  take(POOL.cerebellum.pts, CB.cx, CB.cy, CB.cz, 3200);
-  take(POOL.stem.pts, 0, -0.59, -0.18, 1600);
+  /* 小脑与脑干是**解析几何**，不是真网格。真皮层在场时它们只做暗示：
+     密度砍到 1/2、亮度压到 0.55——不然两块实心疙瘩贴在真皮层上，
+     比"干脆不画"更假。没有真网格时才用满量（那时整颗脑都是算的，口径一致）。 */
+  const sub = MESH ? 0.55 : 1;
+  take(POOL.cerebellum.pts, CB.cx, CB.cy, CB.cz, MESH ? 1500 : 3200, sub);
+  take(POOL.stem.pts, 0, -0.54, -0.18, MESH ? 420 : 1600, MESH ? 0.42 : 1);
 
   return { pos: new Float32Array(pos), col: new Float32Array(col), siz: new Float32Array(siz), alp: new Float32Array(alp), n: pos.length / 3 };
 })();

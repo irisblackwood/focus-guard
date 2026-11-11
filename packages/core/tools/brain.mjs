@@ -40,10 +40,20 @@ import {
   loadIndex, prune, readNewLines, reclassify, saveIndex, snapshot,
 } from "./lib/brain-core.mjs";
 import { syncDocs } from "./lib/brain-docs.mjs";
+import { distill } from "./memory-distill.mjs";
 import { openInBrowser } from "./lib/open.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, "..", "..", "..");
+/* 数据根跟着**工作区**走，不跟包安装位置（2026-11-11）。
+   装成依赖后 `HERE` 是 `<proj>/node_modules/focus-guard/tools`，上三级刚好是 `<proj>`——
+   那是巧合正确，不是判据：DSH 插件装在 `~/.dsh/plugins/focus-guard` 下，上三级是
+   `~/.dsh/plugins`，于是读到的永远是插件自己的空日志，用户的足迹一条也看不见。
+   判据改成「cwd 下已经有数据目录，那就是工作区」；没有才退回包位置（仓库内开发 / 首次跑）。
+   首次跑也一样对：装成依赖时包位置的上三级就是 `<proj>`，落点仍是工作区。 */
+const PKG_ROOT = resolve(HERE, "..", "..", "..");
+const REPO = [".focus-guard", ".ai"].some((d) => existsSync(join(process.cwd(), d)))
+  ? process.cwd()
+  : PKG_ROOT;
 /* 包根：仓库里是 `packages/core`，装到 node_modules 之后就是包自己。
    文档源的路径在两个位置不同，`readDocs` 两个基都试。 */
 const PKG = resolve(HERE, "..");
@@ -52,6 +62,10 @@ const DEFAULTS = {
   log: join(REPO, ".focus-guard", "AUDIT.log"),
   out: join(REPO, ".focus-guard", "brain.html"),
   index: join(REPO, ".focus-guard", "brain-index.json"),
+  /* 出图数据的落点（2026-11-11）。`build-brain2.mjs`（本地皮层版）读它渲染。
+     以前这份文件是手工导出的静态快照，于是"看着最顺眼的那版"恰恰是唯一不接活数据的：
+     审计日志天天长，它的节点还停在导出那天。让数据层顺手写一份，皮层版才真是"同一颗脑"。 */
+  data: join(REPO, ".focus-guard", "brain-data.json"),
   config: join(REPO, ".focus-guard", "brain-config.json"),
   casefile: join(REPO, ".ai", "CASE_FILE.md"),
   maxNodes: 3000,
@@ -60,7 +74,7 @@ const DEFAULTS = {
 };
 
 function parseArgs(argv) {
-  const o = { ...DEFAULTS, json: false, open: false, rebuild: false, unknown: false, casefileWrite: false };
+  const o = { ...DEFAULTS, json: false, open: false, rebuild: false, unknown: false, casefileWrite: false, dataOnly: false, distill: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") o.json = true;
@@ -68,6 +82,8 @@ function parseArgs(argv) {
     else if (a === "--rebuild") o.rebuild = true;
     else if (a === "--unknown") o.unknown = true;
     else if (a === "--casefile") o.casefileWrite = true;
+    else if (a === "--data-only") o.dataOnly = true;
+    else if (a === "--no-distill") o.distill = false;
     else if (a === "--log") o.log = resolve(argv[++i]);
     else if (a === "--out") o.out = resolve(argv[++i]);
     else if (a === "--index") o.index = resolve(argv[++i]);
@@ -228,26 +244,53 @@ function main() {
   }
 
   const moved = reclassify(idx, cfg);
-  const { added, sources } = readAll(o, idx, now, cfg);
-  // 文档源：日志记的是"我碰过什么"，文档记的是"我知道什么"。
-  // 只有前者的时候，脑认识 `docs/RULES.md` 被提到 85 次，却不知道那 85 次说了什么。
-  const docs = syncDocs(idx, REPO, o.docs, PKG);
-  const dropped = prune(idx, now);
+  const grown = growMemory(o, idx, now, cfg);
   saveIndex(o.index, idx, now);
 
   const g = snapshot(idx, now, o.maxNodes, o.maxEdges, o.maxInf);
-  // 每个点自证位置：分区是按什么判据定的。没有这一行，点开只看到"它在左脑"，
-  // 却不知道为什么——那正是"知识看起来莫名其妙"的来源。
-  // 记忆块的分区来自**它所在的文档**（法条→脑干、方法→小脑），不是词表打分，所以单独标。
+  const meta = buildMeta(o, idx, g, grown, cfg);
+
+  if (o.json) {
+    process.stdout.write(JSON.stringify({ meta, nodes: g.nodes, edges: g.edges }, null, 1));
+    return;
+  }
+  if (!writeOutput(o, meta, g)) return;
+
+  const cf = o.casefileWrite ? writeCaseFile(o.casefile, g, now, idx.seen) : 0;
+  report(o, { g, idx, moved, cf, ...grown, regionCount: meta.regions, from: meta.from, to: meta.to });
+  if (o.open) openInBrowser(o.out);
+}
+
+/**
+ * 记忆的三步：沉淀 → 读文档 → 遗忘。**顺序不能换。**
+ * 沉淀写的就是读文档要读的那三份文件；放在后面，新条目要等下一轮才进脑——
+ * "今天学到的东西明天才想起来"。
+ * `--no-distill` 可关（只读场景，比如 CI 里不想改工作区）。
+ */
+function growMemory(o, idx, now, cfg) {
+  const { added, sources } = readAll(o, idx, now, cfg);
+  const distilled = o.distill ? distill({ repo: REPO, dry: false }) : null;
+  // 文档源：日志记的是"我碰过什么"，文档记的是"我知道什么"。
+  // 只有前者的时候，脑认识 `docs/RULES.md` 被提到 85 次，却不知道那 85 次说了什么。
+  const docs = syncDocs(idx, REPO, o.docs, PKG);
+  return { added, sources, distilled, docs, dropped: prune(idx, now) };
+}
+
+/** 元信息：界面上的每一个数字都从这里来，不另算一份。 */
+function buildMeta(o, idx, g, grown, cfg) {
+  /* 每个点自证位置：分区是按什么判据定的。没有这一行，点开只看到"它在左脑"，
+     却不知道为什么——那正是"知识看起来莫名其妙"的来源。
+     记忆块的分区来自**它所在的文档**（法条→脑干、方法→小脑），不是词表打分，所以单独标。 */
   for (const n of g.nodes) n.w = n.type === "memory" ? "source" : classify(n.type, n.name, cfg).why;
   const regionCount = {};
   for (const n of g.nodes) regionCount[n.r] = (regionCount[n.r] || 0) + 1;
   const from = g.nodes.reduce((m, n) => (!m || (n.f && n.f < m) ? n.f : m), "");
   const to = g.nodes.reduce((m, n) => (n.l && n.l > m ? n.l : m), "");
+  const { added, sources, dropped, docs } = grown;
 
-  const meta = {
+  return {
     log: o.log.replace(REPO, "").replace(/\\/g, "/"),
-    generatedAt: new Date(now).toISOString(),
+    generatedAt: new Date(Date.now()).toISOString(),
     events: idx.seen,
     added,
     sources,
@@ -268,20 +311,36 @@ function main() {
     regions: regionCount,
     halfLives: Object.fromEntries(Object.entries(REGIONS).map(([k, v]) => [k, v.halfLife])),
   };
+}
 
-  if (o.json) {
-    process.stdout.write(JSON.stringify({ meta, nodes: g.nodes, edges: g.edges }, null, 1));
-    return;
+/** 出图：模板版 HTML 与 `brain-data.json` 各落一次。
+    返回 false 表示只写了数据（`--data-only`），调用方不必再汇报产物路径。 */
+function writeOutput(o, meta, g) {
+  const dump = JSON.stringify({ meta, nodes: g.nodes, edges: g.edges });
+  if (o.dataOnly) {
+    // 只更新索引与出图数据，不写模板版 HTML——皮层版要的是前者，后者它会自己覆盖。
+    writeFileSync(o.data, dump);
+    return false;
   }
-
-  const tpl = readFileSync(join(HERE, "brain-view.html"), "utf8");
-  const payload = JSON.stringify({ meta, nodes: g.nodes, edges: g.edges }).replace(/<\//g, "<\\/");
+  const payload = dump.replace(/<\//g, "<\\/");
+  /* 皮层网格资产（`assets/cortex.bin`，189 KB → base64 258 KB）。
+     有就内联，没有就留 null，模板版退回解析椭球并如实标注。
+     **它不在 npm 包里**：源数据 CC BY-SA 3.0 与本仓 AGPL-3.0-only 不兼容，
+     只随 GitHub 分发。所以 clone 出来的脑是真皮层，npm 装的是降级版——这是故意的，
+     不是漏打包；`report()` 会把这句打出来。 */
+  const cortexBin = join(HERE, "..", "assets", "cortex.bin");
+  const cortex = existsSync(cortexBin) ? readFileSync(cortexBin).toString("base64") : null;
   mkdirSync(dirname(o.out), { recursive: true });
-  writeFileSync(o.out, tpl.replace("/*__FG_BRAIN_DATA__*/null", payload));
-
-  const cf = o.casefileWrite ? writeCaseFile(o.casefile, g, now, idx.seen) : 0;
-  report(o, { g, idx, added, sources, moved, dropped, docs, regionCount, from, to, cf });
-  if (o.open) openInBrowser(o.out);
+  writeFileSync(
+    o.out,
+    readFileSync(join(HERE, "brain-view.html"), "utf8")
+      .replace("/*__FG_BRAIN_DATA__*/null", payload)
+      .replace("/*__FG_CORTEX__*/null", cortex ? JSON.stringify(cortex) : "null")
+  );
+  o.cortex = Boolean(cortex);
+  // 同一份数据再落一次盘，给皮层版吃（`build-brain2.mjs` 读 o.data）。
+  writeFileSync(o.data, dump);
+  return true;
 }
 
 /* 汇总输出单独成函数：它跟"跑一遍"本来就是两件事，混在 main() 里只会让流程读不清。
@@ -298,7 +357,9 @@ function report(o, x) {
       (x.docs.missing.length ? `，缺 ${x.docs.missing.length} 份` : "") +
       (x.docs.stale ? `，跳过作废 ${x.docs.stale} 条` : "") + `）\n` +
       memLine(x.docs) +
+      distillLine(x.distilled) +
       `  ${x.g.nodes.length} 实体 / ${x.g.edges.length} 边（推断 ${x.g.inferred}）　${rl}\n` +
+      `  脑壳：${o.cortex ? "真皮层网格（assets/cortex.bin）" : "解析椭球（未找到 assets/cortex.bin，形状是算的）"}\n` +
       `  知识簇：${x.g.clusters.map((c) => `${c.name}(${c.size})`).slice(0, 6).join(" · ") || "（无）"}\n` +
       (o.casefileWrite ? `  卷宗【六】已写：${x.cf} 条相关条目 → ${o.casefile.replace(REPO, ".")}\n` : "") +
       // 空态下不报日期范围：那两头的日期来自**文档条目**的 mtime，跟"事件"没关系，
@@ -309,6 +370,15 @@ function report(o, x) {
 
 /* 关联要报**连上了多少**，不能只报"有连边"——孤岛多少同样是事实。
    上一版只写「记忆 356 块」，于是"关联做好了"这句话成立了三周，图上一直是散点。 */
+/* 沉淀要报**新增几条、作废几条**。只报"跑了沉淀"等于没说——
+   用户没法判断它是真在长，还是每次都空转。 */
+function distillLine(d) {
+  if (!d) return "";
+  if (!d.ok) return `  记忆沉淀：跳过（${d.reason}）\n`;
+  return `  记忆沉淀：新增 ${d.added.length} 条 · 作废 ${d.expired.length} 条` +
+    (d.added.length ? `　最硬：${d.added.slice(0, 3).map((a) => a.name).join(" · ")}` : "") + "\n";
+}
+
 function memLine(d) {
   return `  记忆关联：痕迹 ${d.trace} · 互引 ${d.ref} · 同题 ${d.share}` +
     (d.orphan ? `　落空 ${d.orphan} 处` : "") + "\n";

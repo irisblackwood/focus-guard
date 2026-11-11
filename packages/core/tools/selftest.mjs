@@ -200,21 +200,16 @@ console.warn('== 测试 A：第1层绝对红线（短路 deny，不进第2层）
   check('rm -rf / 短路 deny', gate.kind === 'deny', JSON.stringify(gate))
   check('deny 理由含红线名', typeof gate.reason === 'string' && gate.reason.includes('rm-rf-root'))
 }
-{
-  const gate = await run({ name: 'bash', arguments: { command: 'rm -rf ~/' } })
-  check('rm -rf ~/ 命中红线 deny', gate.kind === 'deny')
-}
-{
-  const gate = await run({ name: 'bash', arguments: { command: 'git push -f origin main' } })
-  check('git push -f 命中红线 deny', gate.kind === 'deny')
-}
-{
-  const gate = await run({ name: 'bash', arguments: { command: 'DROP DATABASE prod' } })
-  check('DROP DATABASE 命中红线 deny', gate.kind === 'deny')
-}
-{
-  const gate = await run({ name: 'bash', arguments: { command: 'TRUNCATE TABLE orders' } })
-  check('TRUNCATE TABLE 命中红线 deny', gate.kind === 'deny')
+/* 其余红线样本走表驱动。原来是四个各抄一遍「run → 断言 deny」的块，
+   同一个动作换个命令字符串——样本再加五个就是五份复制，改一处要改五遍。 */
+for (const [cmd, why] of [
+  ['rm -rf ~/', 'rm -rf ~/ 命中红线 deny'],
+  ['git push -f origin main', 'git push -f 命中红线 deny'],
+  ['DROP DATABASE prod', 'DROP DATABASE 命中红线 deny'],
+  ['TRUNCATE TABLE orders', 'TRUNCATE TABLE 命中红线 deny'],
+]) {
+  const gate = await run({ name: 'bash', arguments: { command: cmd } })
+  check(why, gate.kind === 'deny')
 }
 {
   // 2026-10-09 更新：本用例只验"红线层不误伤"，但管线在红线之后还有**资格闸**（3.0.5 加入）——

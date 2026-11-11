@@ -72,18 +72,24 @@ npm install focus-guard
 它告诉你「什么东西在长、什么东西正在被忘掉」。
 
 ```bash
-npm run brain                # 增量重算 → 生成完直接用默认程序打开
-npm run brain:build          # 只生成不打开（脚本 / 无桌面环境用）
-npm run brain -- --rebuild   # 丢掉索引，从头重算
+npm run brain                # 仓库里：增量重算 → 渲染 → 打开
+npm run brain:build          # 仓库里：同上，不打开（脚本 / 无桌面环境用）
+npm run brain -- --rebuild   # 仓库里：丢掉索引，从头重算
+npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/AUDIT.log，生成后打开
 ```
 
+数据根跟着**工作区**走：cwd 下有 `.focus-guard/` 或 `.ai/` 就用它，否则退回包的安装位置。
+所以插件用户在自己项目里跑，看的是自己的足迹，不是包目录里那份空的。
+
 产物固定在 `.focus-guard/brain.html`（引擎的隐藏状态目录里）。跑完终端会打出 `file://` 的**绝对地址**，
-点一下就能开；不想记路径就用 `npm run brain`，它自己会打开。零依赖（不引 three.js、不连 CDN），产出是**单个 HTML 文件**，双击即开。它只读审计：不写
+点一下就能开；不想记路径就用 `npm run brain` / `npx focus-guard-brain`，它们会自己打开。产出是**单个 HTML 文件**，双击即开。它只读审计：不写
 `AUDIT.log`、不碰状态、不在任何工具调用路径上——**跑不跑都不影响拦截**。
 
-> **`npm run brain:cosmic`** 是**本地实验版**入口：用真 PLY 皮层网格渲染，产物约 6 MB。
-> 它的生成器与皮层数据都**不在版本库里**（数据来自 `memory-brain`，CC BY-SA 3.0，不随仓库分发），
-> 所以 clone 下来跑会直接提示「找不到生成器」并退出——这是预期行为，不是坏掉。
+> **渲染分三档，入口只有一个。** 仓库里带一份皮层资产（`packages/core/assets/cortex.bin`，
+> pial 表面降采样点云），clone 下来脑壳就是真皮层；`npm i` 装的没有这份资产
+> （CC BY-SA 3.0 与 AGPL 不兼容，见 `assets/NOTICE.md`），退回程序化沟回。
+> 跑完看终端那行「脑壳：…」就知道自己用的是哪一档，不猜。
+> 真 PLY 全网格只在本地：`npm run brain:cosmic`（强制皮层版，没资产会明说并退出）。
 
 **第一次跑是空的，这是对的**：新装没有足迹，脑的形状由沟回 + 法线光照撑住，不靠记忆点亮。
 跑几次让 guard 记下动作，足迹与连线才长出来。头部如实报「实读几份文档、缺几份」——
