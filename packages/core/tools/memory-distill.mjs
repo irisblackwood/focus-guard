@@ -182,10 +182,18 @@ export function distill(opts = {}) {
   const memDir = join(repo, "self-improvement", "memory");
   const idxPath = join(repo, ".focus-guard", "brain-index.json");
 
-  if (!existsSync(idxPath)) {
-    return { ok: false, reason: "没有索引（先跑一次 npm run brain）", added: 0, expired: 0 };
+  /* 索引优先用调用方传进来的那份。`brain.mjs` 里沉淀排在 `saveIndex` 之前
+     （新条目要同轮进脑），此时盘上还没有索引——去读文件会得到"没有索引，
+     先跑一次 npm run brain"，而用户正在跑的**就是** brain。 */
+  let ents;
+  if (opts.idx) {
+    ents = opts.idx.entities || {};
+  } else {
+    if (!existsSync(idxPath)) {
+      return { ok: false, reason: "没有索引（先跑一次 npm run brain）", added: 0, expired: 0 };
+    }
+    ents = JSON.parse(readFileSync(idxPath, "utf8")).entities || {};
   }
-  const ents = JSON.parse(readFileSync(idxPath, "utf8")).entities || {};
   const now = Date.now();
   const files = loadFiles(memDir);
   const seen = indexAuto(files);

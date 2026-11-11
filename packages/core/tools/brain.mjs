@@ -269,7 +269,7 @@ function main() {
  */
 function growMemory(o, idx, now, cfg) {
   const { added, sources } = readAll(o, idx, now, cfg);
-  const distilled = o.distill ? distill({ repo: REPO, dry: false }) : null;
+  const distilled = o.distill ? distill({ repo: REPO, idx, dry: false }) : null;
   // 文档源：日志记的是"我碰过什么"，文档记的是"我知道什么"。
   // 只有前者的时候，脑认识 `docs/RULES.md` 被提到 85 次，却不知道那 85 次说了什么。
   const docs = syncDocs(idx, REPO, o.docs, PKG);
