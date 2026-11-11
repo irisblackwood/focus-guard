@@ -214,13 +214,24 @@ function auditSurface(files) {
   const notes = []
 
   // —— 断言 A：exclude 可读 ——
+  //
+  // 2026-11-11：**没有清单 = 这台机器没有私有面**，A 不可判，记 skip 不记 fail。
+  // 起因：`npm run check` 2026-11-08 起进了发布闸（publish.yml），而 CI checkout 里
+  // `.ai/` 整个目录不入库 → `.git/info/exclude` 为空 → A 必红 → npm 发不出去。
+  // 这不是"忘了装"（那才是 A 要抓的），是"这台机器根本没有私有面配置"。
+  // 与 D 断言、`changelog-audience`（无 origin/main 时 skip）、`env-platform.test.mjs`
+  // （缺环境指纹时 skip）同一惯例：前置缺失不该报成缺陷。
+  // **检出能力保留**：本地清单还在，"有清单但 exclude 为空"照样红。
   let rules = []
+  const hasCanonical = existsSync(CANONICAL_PATH)
   if (!existsSync(EXCLUDE_PATH)) {
-    failures.push({ code: 'A', msg: '.git/info/exclude 不存在，私有面没有设防' })
+    if (hasCanonical) failures.push({ code: 'A', msg: '.git/info/exclude 不存在，私有面没有设防' })
+    else notes.push('未找到 .git/info/exclude 与清单备份——本机没有私有面，跳过 A（CI / 新 clone 属此列）')
   } else {
     rules = parseRules(readFileSync(EXCLUDE_PATH, 'utf8'))
     if (rules.length === 0) {
-      failures.push({ code: 'A', msg: '.git/info/exclude 为空，私有面没有设防' })
+      if (hasCanonical) failures.push({ code: 'A', msg: '清单备份存在但 .git/info/exclude 为空（换机器忘了装？）' })
+      else notes.push('exclude 为空且无清单备份——本机没有私有面，跳过 A（CI / 新 clone 属此列）')
     }
   }
   if (rules.length === 0) return { rules, failures, notes }
@@ -288,7 +299,12 @@ function printHuman({ rules, files, failures, notes }, verbose) {
   console.log(`[privacy-guard] 私有规则 ${rules.length} 条 · 已跟踪 ${files.length} 个文件`)
   for (const note of notes) console.log(`  · ${note}`)
   if (failures.length === 0) {
-    console.log('[privacy-guard] PASS：私有面干净（无已跟踪命中、无 .gitignore 点名、清单已装）')
+    // skip 时不能说「清单已装」——那是没检查过的事。文案必须跟着判据走。
+    console.log(
+      rules.length === 0
+        ? '[privacy-guard] PASS：本机无私有面（A/D 不可判，已跳过）'
+        : '[privacy-guard] PASS：私有面干净（无已跟踪命中、无 .gitignore 点名、清单已装）',
+    )
     return
   }
   for (const f of failures) {

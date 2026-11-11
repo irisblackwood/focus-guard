@@ -167,6 +167,16 @@
   - **改法**：改为「**不得低于**」。领先 = 发布进行中（合法状态）；落后 = 真错（对外展示比远端旧，
     影响面会判错）。**检出能力不变**——常量忘了跟随时它仍然落后，仍然红。
   - **边界**：这是判据变更，不是放宽。改的是那条在发布窗口内自相矛盾的写法，不是阈值。
+- fix(release): `privacy:gate` 在 CI 上必红，npm 发布被它挡死〔开发期〕
+  - **原状**：断言 A 要求 `.git/info/exclude` 可读且非空。
+  - **病灶**：`.ai/` 整个目录不入库，CI checkout 后既没有清单备份、exclude 也是空的 → A 必红。
+    而 `npm run check` 2026-11-08 起就是发布闸（`publish.yml`），于是 **3.4.0 的 npm 发布第一次跑
+    就红在这里**，与代码质量无关——发布闸装上了一项只能在本地通过的检查。
+  - **改法**：没有清单备份时 A 记 **skip** 不记 fail——「这台机器没有私有面」不是缺陷。
+    与 D 断言、`changelog-audience`（无 `origin/main` 时 skip）、`env-platform.test.mjs`
+    （缺环境指纹时 skip）同一惯例：前置缺失不该报成缺陷。
+  - **检出保留**：本地清单还在，「有清单但 exclude 为空」照样红。两种场景各实测一次。
+  - **顺带**：skip 时总结行原本仍写「清单已装」——那是没检查过的事，改为「本机无私有面」。
 - fix(release): 发布闸只跑测试，不跑整条 `check`〔开发期〕
   - **原状**：`publish.yml` 跑 `npm test` + `working-directory: packages/core`，即
     `tests/audit-isolation.mjs`——763 条测试，但**仅此一项**。
