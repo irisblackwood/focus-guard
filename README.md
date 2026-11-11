@@ -1,11 +1,11 @@
 # FocusGuard 聚焦护栏
 
-> **状态**：权威 · 适用版本 3.3.3 · 最后核对 2026-11-07
+> **状态**：权威 · 适用版本 3.3.4 · 最后核对 2026-11-11
 
 [English](packages/core/README.md) · 中文
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.3.3-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.3.4-369eff)](CHANGELOG.md)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
@@ -114,7 +114,7 @@ npm run brain -- --rebuild   # 丢掉索引，从头重算
 
 ## 版本
 
-当前 **v3.3.3**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前 **v3.3.4**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 
