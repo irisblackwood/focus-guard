@@ -70,6 +70,24 @@
     而 `acceptance.test.mjs` 又把它显式置空、改用 `ZCODE_PROJECT_DIR` 注入。
     于是「两个都没设」这条分支零覆盖，坏了也全绿。
 
+### 审计落点
+
+- fix(audit): 〔开发期〕原生缝的项目根 provider 改为「先问本会话工作区」
+  - 原来只有 `() => process.env.FG_PROJECT_DIR || ''`，而这个变量**全仓没有一处设置**
+    （只有测试把它置空）→ provider 恒返回空串 → 母版审计全部回退到
+    `%TEMP%/focus-guard/`，用户工作区 `.focus-guard/AUDIT.log` 一条也看不到。
+  - 新增 `seams/shared.mjs::rememberWorkspace(agent)`：在 `agent/created` 与
+    `agent/pre-step` 两处登记「会话 → 工作区」。后者是每回合必过的缝，
+    覆盖恢复会话、热重载、以及 `agent/created` 不响的情况。
+  - provider 签名从 `() => string` 变成 `(sid) => string`。旧 provider 忽略参数，行为不变。
+- fix(audit): 〔开发期〕`auditTarget()` 的缓存从「进程级单值」改为「按会话」
+  - 原实现 `if (auditFile !== null) return auditFile`，第一次解析完就锁死；
+    而兜底路径里带 sid（`focus-guard-<sid>-AUDIT.log`）。一个进程只服务一个工作区时
+    看不出来，DSH 这种并发多会话的宿主里，**第二个会话会写进第一个的文件**。
+  - 现在按 sid 缓存（上限 128，超了先进先出淘汰）。登记得再准，缓存不跟 key 走也白搭。
+- test(audit): 新增 `audit-workspace-routing.test.mjs`——两会话各写各的工作区，
+  未登记的会话退临时目录（不猜工作区：猜错等于把别人的日志写脏）。
+
 ### 已知局限
 
 - 右脑的**偏好**仍只能人写。工具从日志推不出偏好，推出来的都是"最近做了什么"。

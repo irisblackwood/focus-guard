@@ -6,7 +6,20 @@ import { join, dirname } from "node:path";
 import { rotateAuditIfNeeded } from "./audit-writer.mjs";
 import { stateDir } from "./tempPath.mjs";
 
+/** 最近一次解析出的审计路径（只供观测，**不要拿它当判据**——真正的缓存见 `auditFiles`）。 */
 export let auditFile = null;
+
+/**
+ * 会话 → 审计路径。2026-11-15 由「进程级单值缓存」改为按会话缓存。
+ *
+ * 原来是 `if (auditFile !== null) return auditFile`：整个进程只认第一个解析结果。
+ * 一个进程只服务一个工作区时看不出问题，但两个前提同时成立时就错了：
+ *   ① 宿主进程并发服务多个会话（DSH 就是这样）；
+ *   ② 兜底路径里带 sid（`focus-guard-<sid>-AUDIT.log`）——缓存后**第二个会话会写进第一个的文件**。
+ * 现在 provider 能按 sid 给出各自的工作区，缓存必须跟着 key 走，否则登记得再准也没用。
+ */
+const auditFiles = new Map();
+const AUDIT_CACHE_MAX = 128;
 
 /**
  * 项目目录来源由**宿主适配层注入**（2026-10-22 分层泄漏修复）。
@@ -24,24 +37,34 @@ export function auditTarget(sid) {
   // 困扰，测试里是假绿来源——以为重定向了，其实还在写真实日志。显式路径不进缓存。
   const explicit = process.env.FG_AUDIT_FILE;
   if (explicit) return explicit;
-  if (auditFile !== null) return auditFile;
+  const key = String(sid ?? "");
+  const hit = auditFiles.get(key);
+  if (hit) return hit;
   // 2026-10-18 修（REPORT-2026-10-12 P1「审计单一入口未收敛」）：
   // 显式 FG_AUDIT_FILE 优先级最高。此前这里只认 ZCODE/CLAUDE 项目目录，于是
   // 测试把 FG_AUDIT_FILE 指向 tmpdir 时，走核心 audit() 的那条路（risk.mjs penalize()）
   // 仍然写真实 AUDIT.log —— 隔离形同虚设，CHANGELOG 的"零增长"实测不成立。
   let dir = "";
   try {
-    dir = (projectDirProvider && projectDirProvider()) || "";
+    // 2026-11-15：把 sid 交给 provider。宿主侧的工作区是按会话登记的（同一进程可能服务
+    // 多个工作区），provider 不给参数就只能全局猜一个。旧 provider 忽略参数，行为不变。
+    dir = (projectDirProvider && projectDirProvider(sid)) || "";
   } catch {
     dir = "";
   }
+  let resolved = "";
   if (dir) {
     try {
-      if (statSync(dir).isDirectory()) auditFile = join(dir, ".focus-guard", "AUDIT.log");
+      if (statSync(dir).isDirectory()) resolved = join(dir, ".focus-guard", "AUDIT.log");
     } catch {}
   }
-  if (!auditFile) auditFile = join(stateDir(), `focus-guard-${sid}-AUDIT.log`);
-  return auditFile;
+  if (!resolved) resolved = join(stateDir(), `focus-guard-${sid}-AUDIT.log`);
+  if (auditFiles.size >= AUDIT_CACHE_MAX && !auditFiles.has(key)) {
+    auditFiles.delete(auditFiles.keys().next().value);
+  }
+  auditFiles.set(key, resolved);
+  auditFile = resolved;
+  return resolved;
 }
 
 // 3.0.0 因果链：auditCtx 随每次钩子调用初始化；seq=时间戳36进制.调用内序号（全局唯一），

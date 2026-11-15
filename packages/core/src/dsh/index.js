@@ -22,6 +22,7 @@ import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSectionOnce } from '
 import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
 import { setProjectDirProvider } from '../core/audit.mjs'
+import { workspaceOf } from './seams/shared.mjs'
 // 熔断告知（2026-10-27）：文案在母版，宿主缝只决定"何时注入"。
 import { FUSE_NOTICE } from '../core/constants.mjs'
 import { loadState, statePath } from '../core/state.mjs'
@@ -30,7 +31,12 @@ import { appendAudit, buildAuditRow } from '../core/audit-writer.mjs'
 
 // 分层纪律（2026-10-22）：项目目录由宿主层注入；DSH 侧用中立变量 FG_PROJECT_DIR，
 // 母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_（那是替别的宿主代言）。
-setProjectDirProvider(() => process.env.FG_PROJECT_DIR || '')
+//
+// 2026-11-15 修：此前只读 `FG_PROJECT_DIR`，而这个变量**全仓没有一处设置**（只有测试置空），
+// 于是 provider 恒返回空串 → 母版审计全部回退到 `%TEMP%/focus-guard/`，
+// 用户工作区里一条也看不到。现在先问「本会话的工作区」（由 `agent/created` /
+// `agent/pre-step` 登记，见 `seams/shared.mjs::rememberWorkspace`），再退环境变量。
+setProjectDirProvider((sid) => workspaceOf(sid) || process.env.FG_PROJECT_DIR || '')
 import { installTraceMeta, recordFuseWaste } from './traceMeta.mjs'
 
 /**

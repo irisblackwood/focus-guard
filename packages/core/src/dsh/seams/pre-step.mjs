@@ -28,12 +28,15 @@ import {
   STOP_ORDER_RE,
 } from '../../core/constants.mjs'
 import { noteTracePosition } from '../traceMeta.mjs'
-import { auditRow, humanTextOf, isSubagent, loadOrInit } from './shared.mjs'
+import { auditRow, humanTextOf, isSubagent, loadOrInit, rememberWorkspace } from './shared.mjs'
 
 export function preStepListener({ warn } = {}) {
   return async ({ agent, messages, turn, step } = {}, next) => {
     try {
       const { sid, file, state } = loadOrInit(agent)
+      // 每回合补登一次工作区（2026-11-15）：`agent/created` 只在新建时触发，
+      // 恢复会话、热重载、或宿主改走别的创建路径时它不响——pre-step 是唯一每回合必过的缝。
+      rememberWorkspace(agent)
       // 位置元数据（2026-10-19 人类批示）：pre-step 是唯一能拿到 {turn, step} 的缝，
       // 记下来供 audit-writer 的 provider 注入（exec 上没有这两个字段）。
       noteTracePosition(sid, turn, step)

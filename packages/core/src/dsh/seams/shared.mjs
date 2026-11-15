@@ -42,6 +42,44 @@ export function projDirOf(agent) {
 }
 
 /**
+ * 会话 → 工作区 的登记簿（2026-11-15）。
+ *
+ * 为什么需要它：`core/audit.mjs` 的项目根 provider 签名是 `() => string`，**拿不到 agent**；
+ * 而 DSH 侧唯一知道工作区的地方是监听器载荷里的 `agent.session.header.cwd`。
+ * 于是 provider 只能退 `process.env.FG_PROJECT_DIR`——而全仓没有一处设置这个变量
+ *（只有测试把它置空），结果原生缝的审计与台账全部回退到临时目录，
+ * 用户工作区 `.focus-guard/AUDIT.log` 一条也看不到。这与 `brain.mjs`
+ * 「数据根跟包安装位置走」是同一个病：判据里缺了「工作区自己」。
+ *
+ * 登记点只有两处：`agent/created`（新会话）与 `agent/pre-step`（每回合，覆盖恢复与热重载）。
+ * **不登记 `process.cwd()` 兜底值**——插件进程的 cwd 是宿主安装目录，
+ * 记错比不记更坏：provider 会把审计引到那儿去。拿不到真工作区就留空，让调用方自己回退。
+ */
+const WORKSPACES = new Map()
+const WORKSPACES_MAX = 64
+
+/** 记下某会话的工作区。拿不到真值（只有 cwd 兜底）时不记。 */
+export function rememberWorkspace(agent) {
+  const sid = sidOf(agent)
+  const dir =
+    (agent && agent.session && agent.session.header && agent.session.header.cwd) ||
+    process.env.FG_PROJECT_DIR ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.env.ZCODE_PROJECT_DIR ||
+    ''
+  if (!sid || !dir) return
+  if (WORKSPACES.size >= WORKSPACES_MAX && !WORKSPACES.has(sid)) {
+    WORKSPACES.delete(WORKSPACES.keys().next().value)
+  }
+  WORKSPACES.set(sid, dir)
+}
+
+/** 会话对应的工作区；没登记过返回空串（调用方自行回退，别在这里猜）。 */
+export function workspaceOf(sid) {
+  return (sid && WORKSPACES.get(sid)) || ''
+}
+
+/**
  * 是否为子代理会话（`origin === 'subagent'`）。
  *
  * 2026-10-10 实测必要性：hermes-loop 的复盘子代理走 `ctx.agents.create({ meta: { origin: 'subagent' } })`，

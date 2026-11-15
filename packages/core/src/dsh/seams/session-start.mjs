@@ -28,7 +28,7 @@ import {
 import { noteFail } from '../../core/audit.mjs'
 import { detectEnv, probeShells, quickShellId } from '../../core/env.mjs'
 import { ENGINE_VERSION } from '../../core/constants.mjs'
-import { sidOf, projDirOf, isSubagent, auditRow } from './shared.mjs'
+import { sidOf, projDirOf, isSubagent, auditRow, rememberWorkspace } from './shared.mjs'
 
 /** 42条 版本核验的候选清单（封存版单列，命中即豁免——见下方 checkVersionDrift 注释）。 */
 const SEALED = new Set(['packages/core/hooks/guard.mjs'])
@@ -43,6 +43,9 @@ export function sessionStartListener({ warn } = {}) {
       const sid = sidOf(agent)
       const file = statePath(sid)
       const projDir = projDirOf(agent)
+      // 先把「本会话的工作区」登记给母版审计 provider（2026-11-15）。放在子代理早退**之前**：
+      // 子代理与父会话同工作区，登记了也只是覆盖同一个值，漏登记反而会让子代理的审计跑偏。
+      rememberWorkspace(agent)
       const state = loadState(file)
       const first = !existsSync(file)
 
