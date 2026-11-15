@@ -50,7 +50,7 @@ import { quickShellId, detectEnv, platformBashViolation } from "../src/core/env.
 import { backupSeq, backupBeforeEdit } from "../src/core/backup.mjs";
 
 // 分层纪律（2026-10-22）：项目目录由**宿主层**注入，母版 `core/audit.mjs` 不再读 ZCODE_/CLAUDE_ 变量。
-setProjectDirProvider(() => projectDir());
+setProjectDirProvider(() => projectDir(input));
 // 分层纪律（2026-10-22）：ZCode/Claude 的工具名在**宿主层**登记成语义类别，母版不再写死宿主方言。
 registerToolKind("mutation", ["Write", "Edit", "MultiEdit", "Delete", "Move", "Patch", "ApplyPatch", "NotebookEdit"]);
 registerToolKind("shell", ["Bash", "Shell", "sh", "pwsh", "powershell", "cmd", "Terminal", "RunCommand"]);
@@ -105,12 +105,12 @@ if (mode === "start") {
   rmSync(path, { force: true });
   cleanStaleTemp(sid); // 2.5.3（61条落地）：清扫临时目录 30 天未动的残留状态/档案
   // 2.0 环境检测：会话级一次，写入 state.envCache（总纲三）
-  const env = detectEnv(projectDir());
+  const env = detectEnv(projectDir(input));
   // 2.0 卷宗载入：重建 readSetCache 与 TTL 表（总纲七）
   const st = loadState(path);
   st.envCache = env;
   st.taskChain = "S" + Date.now().toString(36); // 3.0.0 因果链：会话根链
-  const projDir = projectDir();
+  const projDir = projectDir(input);
   if (projDir) {
     // FG-D4：卷宗初始化包防御——工作区只读时 SessionStart 整体抛错违反降级哲学，改降级继续
     try {
@@ -240,7 +240,7 @@ if (mode === "reset") {
 
   // 总纲三：仅当明确探测到 shell 变化时重检环境
   if (state.envCache && state.envCache.shellIdKey && state.envCache.shellIdKey !== quickShellId()) {
-    state.envCache = detectEnv(projectDir());
+    state.envCache = detectEnv(projectDir(input));
     audit(sid, "env-redetect", { level: null, evidence: `shell 变化 → 重检为 ${state.envCache.shell}` });
   }
 
@@ -672,7 +672,7 @@ if (mode === "pre") {
       const rec = (state.caseCache || {})[filePath];
       if (rec) {
         const fp = fingerprint(rawPath);
-        const pDir = projectDir();
+        const pDir = projectDir(input);
         const dirty = fp.sha ? null : gitDirty(pDir, rawPath);
         const changed =
           rec.mtime !== fp.mtime ||
@@ -701,7 +701,7 @@ if (mode === "pre") {
   }
 
   // 2.2.0 一.2：所有闸通过、本次调用确定执行 → 备份改动前内容到 .ai/backup/（新文件无内容可备份，跳过）
-  if (/^(Write|Edit)$/.test(tool) && !handoff && rawPath) backupBeforeEdit(rawPath, projectDir());
+  if (/^(Write|Edit)$/.test(tool) && !handoff && rawPath) backupBeforeEdit(rawPath, projectDir(input));
 
   process.exit(0);
 }
@@ -752,7 +752,7 @@ if (mode === "post" || mode === "postfail") {
           mtime: fp.mtime,
           size: fp.size,
           sha: fp.sha || "",
-          gitDirty: fp.sha ? null : gitDirty(projectDir(), ti.file_path),
+          gitDirty: fp.sha ? null : gitDirty(projectDir(input), ti.file_path),
           readAt: Date.now(),
           changes: (prev ? prev.changes || 0 : 0) + (changedFp ? 1 : 0),
           lastChange: prev ? (changedFp ? Date.now() : prev.lastChange || 0) : 0,
@@ -766,7 +766,7 @@ if (mode === "post" || mode === "postfail") {
           ccKeys.sort((a, b) => (cc[a].readAt || 0) - (cc[b].readAt || 0));
           for (const k of ccKeys.slice(0, ccKeys.length - CASE_MAX_ROWS)) delete cc[k];
         }
-        const pDir = projectDir();
+        const pDir = projectDir(input);
         if (pDir) saveCaseRecords(pDir, { ...loadCaseRecords(casePath(pDir)), ...cc });
       } catch {}
     }
@@ -1057,7 +1057,7 @@ if (mode === "stop") {
       // 改为引擎写事实骨架（触发/证据/时间），「教训」一行留给模型补——引擎不替模型下结论。
       if (formalFuse && !wasFused) {
         try {
-          const pd = projectDir();
+          const pd = projectDir(input);
           if (pd) appendPatternStub(pd, { sid, reason: "明示熔断" });
         } catch {
           noteFail(sid, "PATTERNS.md 经验库写入");
@@ -1163,7 +1163,7 @@ if (mode === "stop") {
   }
   saveState(path, state);
   // 2.0 总纲七：更新工作额度台账到卷宗
-  const pDir = projectDir();
+  const pDir = projectDir(input);
   if (pDir) saveLedger(pDir, state);
   // 回合诊断：与 reset-fired 对照，定位 UserPromptSubmit 是否触发
   const settleSeq = audit(sid, "stop-fired", { level: null, evidence: `turnCalls=${input && input.stop_hook_active !== undefined ? "有" : "?"} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} budget=${state.taskBudget} kpi=${kpiNow}` });

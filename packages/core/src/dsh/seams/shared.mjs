@@ -23,9 +23,22 @@ export function sidOf(agent) {
   )
 }
 
-/** 工作目录：与桥同源（session.header.cwd），缺省用进程 cwd。 */
+/**
+ * 工作目录：与桥同源（session.header.cwd），缺省用进程 cwd。
+ *
+ * 2026-11-15 补两道退路：`header.cwd` 缺失时原先直接退 `process.cwd()`，
+ * 而插件进程的 cwd 是**宿主安装目录**，于是 `.ai/` 会长在宿主那边、用户工作区里看不到——
+ * 与 `brain.mjs` 那条「数据根跟包安装位置走」是同一个病。现在先问宿主声明的环境变量，
+ * 都没有才退进程 cwd。与 `hooks/protocol.mjs::projectDir()` 同一套顺序，不各写一套。
+ */
 export function projDirOf(agent) {
-  return (agent && agent.session && agent.session.header && agent.session.header.cwd) || process.cwd()
+  return (
+    (agent && agent.session && agent.session.header && agent.session.header.cwd) ||
+    process.env.FG_PROJECT_DIR ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.env.ZCODE_PROJECT_DIR ||
+    process.cwd()
+  )
 }
 
 /**
