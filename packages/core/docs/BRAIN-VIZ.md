@@ -23,13 +23,13 @@
 | 档 | 触发条件 | 判据 |
 |---|---|---|
 | 真 PLY 网格 | `npm run brain:cosmic` + 私有 PLY | 最像，但资产 19 MB 且在私有面，只有本机能跑 |
-| 皮层点云 | 仓库里有 `assets/cortex.bin` | clone 即可得，27,638 点，轮廓与沟回都是真的 |
-| 解析椭球 | 上面两者都没有（`npm i` 装的） | 形状是算的，头部会明写 |
+| 皮层点云 | 包里有 `assets/cortex.bin` | clone 与 `npm i` 都有，27,638 点，轮廓与沟回都是真的 |
+| 解析椭球 | 上面两者都没有（`assets/` 被删） | 形状是算的，头部会明写 |
 
-**为什么不是"要么真要么假"**：真 PLY 是 CC BY-SA 3.0，本仓是 AGPL-3.0-only，两者不兼容。
-`assets/cortex.bin` 是它的降采样产物，放在 `assets/` 下**按 CC BY-SA 单独授权**、
-不进 npm `files`——于是 clone 有、npm 装没有。这是取舍，不是漏打包，详见
-[assets/NOTICE.md](../assets/NOTICE.md)。
+**为什么不是"要么真要么假"**：真 PLY 是 CC BY-SA 3.0，本仓代码是 AGPL-3.0-only，两者不兼容。
+`assets/cortex.bin` 是它的降采样产物，放在 `assets/` 下**按 CC BY-SA 单独授权**，
+与代码**并列分发**（mere aggregation）——3.5.0 起已列入 npm `files`，两条安装路径拿到的资产一致。
+条款与署名见 [assets/NOTICE.md](../assets/NOTICE.md)。
 
 缺资产时**回退而不是报错**：用户要的是「看到脑」，不是「知道有个更高级的版本自己装不起」。
 

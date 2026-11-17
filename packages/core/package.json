@@ -1,15 +1,15 @@
 {
   "name": "focus-guard",
   "version": "3.5.0",
-  "description": "FocusGuard 聚焦护栏核心包：给 AI 编码智能体（ZCode / DSH 双端原生硬拦截）装上的履职纪律与监察系统。日常零打扰、只查行为；六条钩子覆盖会话启动到收尾全程，含三预算池、L1-L6 梯度处罚、高危命令审批单、KPI 兑现、因果链留痕与积木图书馆。零依赖（Node.js ≥18），是所有人下载的范本包——外接集成见 focus-guard-extended。",
-  "displayName": "FocusGuard 聚焦护栏",
+  "description": "司会（Keepward）核心包：给 AI 编码智能体（ZCode / DSH 双端原生硬拦截）装上的履职纪律与监察系统。三件事：① 硬拦截——六条钩子覆盖会话启动到收尾，三预算池、L1-L6 梯度处罚、高危命令审批单、KPI 兑现；② 长期记忆——反复出现的动作自动沉淀，TTL 到期即遗忘；③ 前缀稳定——观测 system-prompt 装配的前缀抖动，缓存断开即告警。日常零打扰、只查行为，全程因果链留痕，含积木图书馆。零依赖（Node.js ≥18），是所有人下载的范本包——外接集成见 focus-guard-extended。",
+  "displayName": "司会 Keepward",
   "displayNameI18n": {
-    "zh-CN": "聚焦护栏",
-    "en": "FocusGuard"
+    "zh-CN": "司会",
+    "en": "Keepward"
   },
   "descriptionI18n": {
-    "zh-CN": "AI 编码智能体的纪律与监察系统：四类失控自动触发 L1-L6 梯度处罚，双端硬拦截、全程留痕、零依赖。",
-    "en": "Hook-level guardrails for AI coding agents on DSH: unverified edits, high-risk commands and context-burning reads become mechanically blocked events with an auditable trail."
+    "zh-CN": "AI 编码智能体的纪律与监察系统：硬拦截、长期记忆、前缀稳定三件事，双端原生、全程留痕、零依赖。",
+    "en": "Discipline and audit for AI coding agents: hard interception, long-term memory, and prompt-prefix stability — dual-host, fully traced, zero dependencies."
   },
   "license": "AGPL-3.0-only",
   "engines": {
@@ -26,6 +26,7 @@
     "skills",
     "docs",
     "src",
+    "assets",
     "NOTICE"
   ],
   "bin": {
@@ -75,10 +76,14 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "zcode",
+    "keepward",
+    "sihui",
     "agent-hooks",
-    "focus",
-    "guard",
+    "agent-guard",
+    "agent-memory",
+    "prompt-cache",
     "cordis"
   ],
   "homepage": "https://github.com/irisblackwood/focus-guard#readme",

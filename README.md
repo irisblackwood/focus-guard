@@ -1,8 +1,12 @@
-# FocusGuard 聚焦护栏
+# 司会 Keepward
 
 > **状态**：权威 · 适用版本 3.4.1 · 最后核对 2026-11-11
 
 [English](packages/core/README.md) · 中文
+
+> **旧名**：FocusGuard / 聚焦护栏（3.5.0 起更名）。**包名 `focus-guard`、插件 id `focus-guard`、
+> 状态目录 `.focus-guard/`、环境变量 `FG_*` 一律不变**——更名只动展示层，不动技术契约。
+> 新名取《周礼·天官》「司会」，掌邦国财政考核，读 **sī kuài**（会计之会，非 huì）。
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
 [![version](https://img.shields.io/badge/version-3.4.1-369eff)](CHANGELOG.md)
@@ -12,7 +16,7 @@
 > **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 已发 `3.3.3`（2026-11-07，OIDC 受信发布 + provenance）。
 > 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
-**AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `FocusGuard` / `聚焦护栏` 保留，衍生版本不得沿用。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
+**AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `司会` / `Keepward` 保留，衍生版本不得沿用；旧名 `FocusGuard` / `聚焦护栏` 作为历史别名同样保留。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
 
 ## 30 秒速览
 
@@ -85,11 +89,13 @@ npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/A
 点一下就能开；不想记路径就用 `npm run brain` / `npx focus-guard-brain`，它们会自己打开。产出是**单个 HTML 文件**，双击即开。它只读审计：不写
 `AUDIT.log`、不碰状态、不在任何工具调用路径上——**跑不跑都不影响拦截**。
 
-> **渲染分三档，入口只有一个。** 仓库里带一份皮层资产（`packages/core/assets/cortex.bin`，
-> pial 表面降采样点云），clone 下来脑壳就是真皮层；`npm i` 装的没有这份资产
-> （CC BY-SA 3.0 与 AGPL 不兼容，见 `assets/NOTICE.md`），退回程序化沟回。
-> 跑完看终端那行「脑壳：…」就知道自己用的是哪一档，不猜。
+> **渲染分三档，入口只有一个。** 包里带一份皮层资产（`packages/core/assets/cortex.bin`，
+> pial 表面降采样点云，约 2.8 万点），**clone 和 `npm i` 都能拿到**，脑壳就是真皮层；
+> 把 `assets/` 删掉才退回程序化沟回。跑完看终端那行「脑壳：…」就知道自己用的是哪一档，不猜。
 > 真 PLY 全网格只在本地：`npm run brain:cosmic`（强制皮层版，没资产会明说并退出）。
+>
+> 皮层资产是 CC BY-SA 3.0、代码是 AGPL-3.0-only，两者按**并列分发**处理，
+> 条款各自约束各自部分——署名与条款全文见 `assets/NOTICE.md`，再分发请保留该文件。
 
 **第一次跑是空的，这是对的**：新装没有足迹，脑的形状由沟回 + 法线光照撑住，不靠记忆点亮。
 跑几次让 guard 记下动作，足迹与连线才长出来。头部如实报「实读几份文档、缺几份」——

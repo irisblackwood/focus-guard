@@ -10,18 +10,22 @@
 | 许可 | **CC BY-SA 3.0**（源数据来自 memory-brain，Anderson Winkler） |
 | 与主许可的关系 | 本仓代码为 **AGPL-3.0-only**。CC BY-SA 3.0 与 AGPL 不兼容，因此本目录**整体按 CC BY-SA 3.0 授权**，作为独立作品与代码并列分发（mere aggregation），不并入程序源码。 |
 
-### 为什么不进 npm 包
+### 与 npm 包的关系
 
-`packages/core/package.json` 的 `files` 白名单不含 `assets/`。npm 上分发的是 AGPL 代码，
-若把 CC BY-SA 数据一并打包，等于把两种互不兼容的 copyleft 条款压进同一个 tarball。
+自 3.5.0 起 `assets/` **已列入 `packages/core/package.json` 的 `files` 白名单**，
+npm 包与 GitHub clone 拿到的皮层资产完全一致，脑壳在两条路上都是真皮层网格。
 
-所以：
+两种互不兼容的 copyleft 靠**并列分发**处理，不靠把条款缝在一起：
 
-- **GitHub clone / 下载 release**：有 `assets/cortex.bin`，脑用真皮层网格渲染。
-- **`npm i focus-guard`**：没有这个文件，脑退回程序化沟回（解析椭球 + 噪声刻槽），
-  输出会明写「解析椭球（未找到 assets/cortex.bin，形状是算的）」。
+- 代码（`src/` `hooks/` `tools/` …）按 **AGPL-3.0-only** 授权。
+- 本目录（`assets/`）整体按 **CC BY-SA 3.0** 授权，**是独立作品**，不是程序的组成部分。
+- 两者在同一 tarball 内属于 **mere aggregation**：聚合不产生衍生作品，各自条款只约束各自部分。
+- 因此 `package.json` 的 `license` 字段仍只声明代码的 `AGPL-3.0-only`；本文件即为数据部分的
+  完整许可声明与署名，二者缺一不可。
 
-两条路都可用，差别如实报出来，不假装一样。
+再分发时请保留本文件。若只取用代码、不需要皮层形状，删掉 `assets/` 即可——
+脑会自动退回程序化沟回（解析椭球 + 噪声刻槽），输出明写
+「解析椭球（未找到 assets/cortex.bin，形状是算的）」，不会静默降级。
 
 ### 再生成
 
