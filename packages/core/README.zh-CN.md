@@ -107,9 +107,9 @@ npm run check               # 发版闸门跑的全部
 
 | 面 | 值 | 含义 |
 |---|---|---|
-| npm registry | `3.3.3` | 最后一次 `npm publish`（2026-11-07，OIDC 受信发布 + provenance） |
-| GitHub `main` | `3.4.1` | `PUBLISHED_MAX`——本项目说"已发布"时的那个号 |
-| 本树 | `3.5.0` | 在飞；领先已发布不等于已发布 |
+| npm registry | `3.5.0` | 最后一次 `npm publish`（2026-11-17，OIDC 受信发布 + provenance） |
+| GitHub `main` | `3.5.0` | `PUBLISHED_MAX`——本项目说"已发布"时的那个号 |
+| 本树 | `3.5.0` | 与已发布齐平；未推的改动会领先，而领先不等于已发布 |
 
 ## 文档
 

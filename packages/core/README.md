@@ -107,9 +107,9 @@ Three numbers, three meanings — do not mix them:
 
 | Surface | Value | Meaning |
 |---|---|---|
-| npm registry | `3.3.3` | last `npm publish` (2026-11-07, OIDC trusted publishing + provenance) |
-| GitHub `main` | `3.4.1` | `PUBLISHED_MAX` — what "released" means for this project |
-| This tree | `3.5.0` | in flight; ahead of released is not the same as released |
+| npm registry | `3.5.0` | last `npm publish` (2026-11-17, OIDC trusted publishing + provenance) |
+| GitHub `main` | `3.5.0` | `PUBLISHED_MAX` — what "released" means for this project |
+| This tree | `3.5.0` | level with released; unpushed work runs ahead, and ahead is not released |
 
 ## Docs
 
