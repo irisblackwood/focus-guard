@@ -1,6 +1,6 @@
 # 司会 Keepward
 
-> **状态**：参考 · 适用版本 3.5.0 · 最后核对 2026-11-17
+> **状态**：参考 · 适用版本 3.5.1 · 最后核对 2026-11-17
 
 > 旧名 **FocusGuard 聚焦护栏**（3.5.0 起更名）。包名 `focus-guard`、插件 id、
 > 状态目录 `.focus-guard/`、环境变量 `FG_*` 一律不变——更名只动展示层，不动技术契约。
@@ -27,7 +27,7 @@ dsh plugin --profile <你的 profile> add focus-guard
 
 | 写法 | 拿到什么 |
 |---|---|
-| `add focus-guard` | 最近一次 npm 发版（当前 `3.5.0`），带 provenance 签名 |
+| `add focus-guard` | 最近一次 npm 发版（当前 `3.5.1`），带 provenance 签名 |
 | `add github:irisblackwood/focus-guard#path:/packages/core` | `main` 上此刻的代码，可能领先已发布版本 |
 | `add <路径>/packages/core` | 你本地这份（开发态） |
 
@@ -113,9 +113,9 @@ npm run check               # 发版闸门跑的全部
 
 | 面 | 值 | 含义 |
 |---|---|---|
-| npm registry | `3.5.0` | 最后一次 `npm publish`（2026-11-17，OIDC 受信发布 + provenance） |
-| GitHub `main` | `3.5.0` | `PUBLISHED_MAX`——本项目说"已发布"时的那个号 |
-| 本树 | `3.5.0` | 与已发布齐平；未推的改动会领先，而领先不等于已发布 |
+| npm registry | `3.5.1` | 最后一次 `npm publish`（2026-11-17，OIDC 受信发布 + provenance） |
+| GitHub `main` | `3.5.1` | `PUBLISHED_MAX`——本项目说"已发布"时的那个号 |
+| 本树 | `3.5.1` | 与已发布齐平；未推的改动会领先，而领先不等于已发布 |
 
 ## 文档
 
