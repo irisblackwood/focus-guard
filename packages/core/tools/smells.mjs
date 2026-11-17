@@ -36,8 +36,8 @@
  *   那条闸门永远红，等于没有闸门。所以改成上限 28 的棘轮：不许新增，降下来后手工下调。
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // 去字面量与注释的共用实现（2026-10-27 抽到 tools/lib/）。
 // 本文件第一版自己写了一份、**忘了处理正则字面量**，于是 `/['"]/` 里的引号被当成字符串开头，
@@ -45,6 +45,8 @@ import { fileURLToPath } from 'node:url'
 // 量成了"不存在"。同一段逻辑写两遍就一定会分叉，现统一。
 import { stripLiterals as stripNoise } from './lib/source-text.mjs'
 import { loadRatchet, paybackNote } from './lib/ratchet.mjs'
+// 目录遍历复用 lib 里那一份：带 SKIP_DIRS 的版本曾在 lint / smells 各抄一遍（2026-11-17 收成参数）。
+import { walk } from './lib/import-graph.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：测试要造夹具目录跑真扫描，否则这个工具自己没被测量。
@@ -89,6 +91,10 @@ const BUDGET = 8
  *
  * 2026-10-31 下调 41 → 29：四个工具各复制一份 `decode()`，收成 `lib/sessionDump.mjs`。降了就要下调，
  * 否则棘轮记的是旧高度，等于把还掉的债又借回来。（补这行注释把本文件顶到 401 行，自己踩了自己的线。）
+ *
+ * 2026-11-17 又还 2 条（17 → 15）：`lint` / `smells` 各抄的那份带 `SKIP_DIRS` 的 `walk()`，
+ * 收成 `lib/import-graph.mjs` 的可选参数。剩下 4 份（`schema-fingerprint` / `capture-fixtures` /
+ * `gate-audit` / `collect-panel`）没动——它们的过滤条件各不相同，收口要改四个工具的入口，留到下次。
  */
 const DUP_BUDGET = 29
 
@@ -96,28 +102,6 @@ const DUP_BUDGET = 29
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])
 // 导出给 gate-inputs.mjs 复用：同口径才叫对账，那边再写一份目录列表就是两个真相源。
 export const ROOTS = ['packages/core/src', 'packages/core/tools', 'packages/core/tests', 'packages/core/hooks', 'packages/extended/src'].map((d) => resolve(REPO, d))
-
-function walk(dir, out = []) {
-  let entries
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    if (SKIP_DIRS.has(e)) continue
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (/\.(mjs|cjs|js)$/.test(e)) out.push(p)
-  }
-  return out
-}
 
 const FUNC_START = [
   /^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/,
@@ -278,7 +262,7 @@ function findDuplicateBlocks(entries) {
 }
 
 const findings = []
-const files = ROOTS.flatMap((r) => walk(r))
+const files = ROOTS.flatMap((r) => walk(r, [], SKIP_DIRS))
 const entries = []
 
 for (const file of files) {

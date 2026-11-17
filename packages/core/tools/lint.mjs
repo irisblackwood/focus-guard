@@ -41,12 +41,14 @@
  *   新增一条就红；③ 修好了不许反弹（存量降下来时手工把 BUDGET 往下调）。
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // 去字面量与注释：与 smells.mjs 共用同一实现（2026-10-27 抽到 tools/lib/）。
 // 各写一份必然分叉——smells 那份就漏了正则字面量，把 398 行的函数抹成 0。
 import { stripLiterals } from './lib/source-text.mjs'
+// 目录遍历复用 lib 里那一份：带 SKIP_DIRS 的版本曾在 lint / smells 各抄一遍（2026-11-17 收成参数）。
+import { walk } from './lib/import-graph.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：测试要造夹具目录跑真扫描，否则这个工具自己没被测量。
@@ -70,28 +72,6 @@ const BUDGET = 0
 const GATED = /^packages\/(core\/(src|tools|tests)|extended\/src)\//
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.stryker-tmp', '.mutate-tmp', 'reports', '.ai'])
-
-function walk(dir, out = []) {
-  let entries
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    if (SKIP_DIRS.has(e)) continue
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (/\.(mjs|cjs|js)$/.test(e)) out.push(p)
-  }
-  return out
-}
 
 /**
  * 解析 import 语句：返回 [{ start, end, source, names: [{ local, imported }] }]。
@@ -240,7 +220,7 @@ function checkConsole(file, plain) {
   }
 }
 
-const files = roots.flatMap((r) => walk(r))
+const files = roots.flatMap((r) => walk(r, [], SKIP_DIRS))
 for (const file of files) {
   let src
   try {

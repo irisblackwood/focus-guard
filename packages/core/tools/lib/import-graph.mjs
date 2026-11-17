@@ -21,7 +21,12 @@ import { reachClosure } from './reach.mjs'
 const IMPORT_RE =
   /(?:^|\n)\s*(?:import|export)\b[^\n]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|new\s+URL\s*\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g
 
-export function walk(dir, out = []) {
+/**
+ * 递归收集源文件。`skip` 是**可选**的目录名黑名单：`lint` 与 `smells` 原先各自抄了一份
+ * 「同样 17 行 + SKIP_DIRS」的遍历，重复块里最粗的一条就是它（2026-11-17 收成参数）。
+ * 不给 skip 时行为与抽取前完全一致——`health` / `mutate` 只走 `src`，不需要黑名单。
+ */
+export function walk(dir, out = [], skip = null) {
   let entries
   try {
     entries = readdirSync(dir)
@@ -29,6 +34,7 @@ export function walk(dir, out = []) {
     return out
   }
   for (const e of entries) {
+    if (skip && skip.has(e)) continue
     const p = join(dir, e)
     let st
     try {
@@ -36,7 +42,7 @@ export function walk(dir, out = []) {
     } catch {
       continue
     }
-    if (st.isDirectory()) walk(p, out)
+    if (st.isDirectory()) walk(p, out, skip)
     else if (/\.(mjs|cjs|js)$/.test(e)) out.push(p)
   }
   return out
