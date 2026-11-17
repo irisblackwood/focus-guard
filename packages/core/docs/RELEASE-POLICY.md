@@ -160,9 +160,17 @@ CHANGELOG.md                                 最新条目（须等于上述版�
 4. 面向使用者的改法同步 `README.md` / `README.zh-CN.md` / `INSTALL.md`
 5. `npm run check`（含 schema 指纹、真实夹具回归、等变矩阵、受众口径）；全绿才允许提交
 6. 本地提交；**推送只在每天 20:00 批次**
-7. **npm 发布**：`gh workflow run publish.yml --ref main`（OIDC 受信发布，本地无 token，`npm publish` 必 401）。
-   跑完等两三分钟再核 —— npm 的 `+ focus-guard@x.y.z` 是「已接收」，registry 要过一遍处理流水线
-   才查得到；`publish.yml` 的 Verify 步骤只等 5 秒，**看到旧号是正常的，它也不断言**。
-   核验用：`npm view focus-guard dist-tags`。
+7. **打 tag + 建 Release**——这一步本身就是 npm 发布。`publish.yml` 由 `release: published` 触发，
+   建 Release 就等于发 npm：
+   ```bash
+   git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
+   gh release create vX.Y.Z --title "vX.Y.Z · YYYY-MM-DD" --notes-file <说明>
+   gh release edit vX.Y.Z --latest      # 钉住 Latest，见下
+   ```
+   **只跑 `workflow_dispatch` 会漏掉 Release 对象**——2026-11-17 的 3.5.0 就是这么漏的：
+   npm 上有了、GitHub 上没有。反过来漏了也能补建，`publish.yml` 的守卫会在「registry 已有该版本」时跳过发布。
+   `gh release create` 会把**最后创建的那个**标成 Latest，补建历史版本时会抢走标记，所以补完要重钉。
+   核验：`npm view focus-guard dist-tags`。npm 打印 `+ pkg@ver` 只是「已接收」，
+   registry 还要过两三分钟处理流水线；`publish.yml` 的 Verify 现在轮询到出现为止，读不到即红。
 8. **回填 npm 版本声明**（三处，闸门查不到）：根 `README.md` 的版本口径行、两份包 README 的版本表。
    `docs:lint` 不上网，这三处只能人工同步——2026-11-17 实测漏了一整轮，文档写 `3.3.3` 时 npm 已经是 `3.4.1`。
