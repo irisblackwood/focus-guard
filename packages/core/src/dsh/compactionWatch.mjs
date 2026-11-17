@@ -24,15 +24,28 @@
  *
  * ── 留痕口径 ───────────────────────────────────────────────────────────
  * 走 audit.mjs 的统一入口 `appendAudit`（JSONL，与 deny / redline-exempt 同文件同格式）。
- * 新增三个 action，纯增量，不改变既有记录的语义：
+ * 新增若干 action，纯增量，不改变既有记录的语义：
  *   compaction           一次压缩落定（result: ok | failed）
  *   compaction-anomaly   标记对异常（未闭合的 start / 无主的 end / id 不匹配）
  *   context-overflow     请求撞上下文窗口 —— 这是"该压却没压"的唯一硬证据
+ *   compaction-loss      这次压缩丢了多少**坐标**（锚点计数差，见 compactionWatch/anchors.mjs）
+ *   compaction-loss-skip 压缩前读不到原文，无法度量 —— 每会话只报一次，自证降级
  *   compaction-watch-ready / compaction-watch-degraded
  *                        进程级启动自证：本层是否真的挂上了两条缝。
  *                        没有它，AUDIT.log 无法独立回答"监察层在不在"——
  *                        只能靠 status.json 侧面推断，而 status.json 是心跳文件、不是审计台账。
  *                        **同一状态每进程只报一次**；降级↔就位发生翻转时会再报一次（那是真实状态变化）。
+ *
+ * ── 损失度量的口径（2026-11-16）───────────────────────────────────────
+ * `compaction-loss` 只记**四类锚点的计数差**，不存原文、不存摘要正文：
+ *   path（文件路径）/ lineref（file:行号）/ errcode（E\d{4}）/ const（SCREAMING_CASE）
+ * 理由是这三样东西恰好是压缩最容易杀、而事后最无法重建的东西 —— 字数可以再生成，
+ * 坐标不能。判据也不是"少了多少字"，而是"少了多少个可检索的落点"。
+ *
+ * 三态必须分开，不能合并成"损失 0"：
+ *   压缩前取不到原文           → `compaction-loss-skip`（每会话一次，自证降级）
+ *   取到原文但没观测到摘要正文 → **不写**（"未观测"不等于"零损失"）
+ *   两侧都有                   → `compaction-loss`（报差值，可正可负）
  *
  * `compaction/prune`（工具结果剪枝）**不逐条留痕**：它按 8192 字符阈值频繁触发，
  * 逐条写会把审计刷成流水账。改为只累计计数与释放 token，随 compaction / context-overflow
@@ -46,6 +59,7 @@ import { statePath, loadState, saveState } from '../core/state.mjs'
 // 对外 API 不变：index.js 与测试仍从本模块取 announceWatchReady / _resetWatchAnnounce / WATCH_SEAMS。
 export { WATCH_SEAMS, announceWatchReady, _resetWatchAnnounce } from './compactionWatch/announce.mjs'
 import { clampText } from './compactionWatch/announce.mjs'
+import { describeLoss, lossBegin, lossSummary } from './compactionWatch/anchors.mjs'
 import { gateThreshold } from './testRuntime.mjs'
 
 const EV_START = 'compaction/start'
@@ -84,6 +98,9 @@ function stateFor(session) {
       prunedTokens: 0,
       lastInputTokens: 0,
       summary: null, // 本次压缩写下的替换消息（surfaceOp: replace）
+      anchorsBefore: null, // 压缩前锚点计数（路径/错误码/常量/行号）
+      anchorsAfter: null, // 摘要里的锚点计数；null = 未观测（≠ 零损失）
+      lossSkipReported: false, // "拿不到 messages" 只自证一次
       overflowWarned: false,
     }
     states.set(session, state)
@@ -171,6 +188,56 @@ function auditAnomaly(state, kind, detail) {
 }
 
 /**
+ * 压缩损失留痕（2026-11-16）。
+ *
+ * 只数**坐标类**锚点（路径 / 错误码 / 常量名 / 行号引用），只记计数，不记原文。
+ * 三类情况分开写，因为"没数据"和"零损失"是两件完全不同的事：
+ *   · 压缩前取不到原文   → `compaction-loss-skip`（每会话一次，自证降级）
+ *   · 取到原文但没观测到摘要正文 → 不写（不把"未观测"报成"零损失"）
+ *   · 两侧都有           → `compaction-loss`（计数差）
+ *
+ * 这个区分是刻意留的：如果一律写 0，读审计的人会把"FG 看不见"当成"压缩无损"。
+ */
+function auditLoss(state, { open, before, after }) {
+  try {
+    if (!before || !before.total) {
+      if (state.lossSkipReported) return
+      state.lossSkipReported = true
+      appendAudit(
+        row(state, 'compaction-loss-skip', 'compaction/end', {
+          basis: 'builtin:compaction-basic',
+          compaction_id: open && open.compactionId,
+          reason: 'session 未暴露 messages，压缩前的锚点取不到',
+          evidence: '压缩损失未度量：会话未暴露 messages（每会话只报一次）',
+          evidenceLimit: 160,
+        }),
+      )
+      return
+    }
+    if (!after) return
+    appendAudit(
+      row(state, 'compaction-loss', 'compaction/end', {
+        basis: open && open.sourceCommandId ? 'builtin:command-compact' : 'builtin:compaction-basic',
+        compaction_id: open && open.compactionId,
+        before_total: before.total,
+        after_total: after.total,
+        evidence: describeLoss(before, after),
+        evidenceLimit: 240,
+      }),
+    )
+  } catch (error) {
+    // 监察失败不能变成宿主的故障点——与 auditAnomaly 同一条纪律。
+    console.warn('[focus-guard-native] 压缩损失留痕失败（不阻断）:', (error && error.message) || error)
+  }
+}
+
+/** 失败的压缩不度量——原文没被替换，报了只会误导。 */
+function lossEnd(state, open, failed) {
+  if (!failed) auditLoss(state, { open, before: state.anchorsBefore, after: state.anchorsAfter })
+  Object.assign(state, { summary: null, anchorsBefore: null, anchorsAfter: null })
+}
+
+/**
  * 观察一条会话事件。
  * 纯函数式副作用：只更新本会话的监察状态并留痕，永不抛、永不改会话。
  */
@@ -200,6 +267,7 @@ function observe(session, event) {
       at: Number(event.time) || Date.now(),
     }
     state.summary = null
+    lossBegin(state, session)
     return
   }
 
@@ -213,6 +281,7 @@ function observe(session, event) {
         endSeq: op.endSeq ?? null,
         shadowedNodes: sources.length,
       }
+      lossSummary(state, data)
     }
     return
   }
@@ -229,8 +298,7 @@ function observe(session, event) {
       auditAnomaly(state, 'mismatched-id', `start id=${open.compactionId} 对上了 end id=${data.compactionId}`)
     }
     const failed = data.error !== undefined
-    if (failed) state.failed += 1
-    else state.compactions += 1
+    state[failed ? 'failed' : 'compactions'] += 1
     auditCompaction(state, {
       failed,
       durationMs: Math.max(0, (Number(event.time) || Date.now()) - open.at),
@@ -238,7 +306,8 @@ function observe(session, event) {
       summary: state.summary,
       error: data.error,
     })
-    state.summary = null
+    // 损失度量排在 compaction 之后：先有"压了"，再谈"丢了什么"。
+    lossEnd(state, open, failed)
     return
   }
 
