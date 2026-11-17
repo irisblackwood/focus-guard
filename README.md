@@ -1,6 +1,6 @@
 # 司会 Keepward
 
-> **状态**：权威 · 适用版本 3.4.1 · 最后核对 2026-11-11
+> **状态**：权威 · 适用版本 3.5.0 · 最后核对 2026-11-17
 
 [English](packages/core/README.md) · 中文
 
@@ -9,7 +9,7 @@
 > 新名取《周礼·天官》「司会」，掌邦国财政考核，读 **sī kuài**（会计之会，非 huì）。
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.4.1-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.5.0-369eff)](CHANGELOG.md)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
@@ -119,7 +119,7 @@ npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/A
 
 ## 版本
 
-当前 **v3.4.1**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前 **v3.5.0**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 
