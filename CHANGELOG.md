@@ -182,6 +182,13 @@
     （阈值 400）。那个文件 2026-11-05 就为同一原因拆过一次，理由写在它自己头上。
   - 一次性验红：把状态头改回 `3.0.6`，闸门报
     `packages/core/README.md 状态头:1 [version-face-stale] 3.0.6 既非已推送 3.4.1，也非清单 3.5.0`，退出码非 0。
+- docs(install): 安装写法改为「短写法优先」，GitHub 路径降为「跟 main 未发布改动」
+  - `dsh plugin` 是 pnpm 的包装，`add` 后面就是 pnpm spec——裸包名一直合法，
+    profile 里六个插件本来就是这么装的（`dsh-markdown-lint: ^0.3.1` 等）。
+  - 文档长期只写长路径，是两条理由叠加：npm 落后 main（写文档时 npm 3.3.3 / main 3.5.0），
+    以及本仓是 monorepo、GitHub 装法必须带 `#path:/packages/core`。3.5.0 起 npm 与 main 同版本，
+    普通用户该走最短那条。
+  - 顺带修 `INSTALL.md` 标题还叫「FocusGuard 安装指南（v3.0.8）」、状态头停在 3.3.0 / 10-28。
 - fix(docs): 〔影响面：3.4.1〕npm 版本声明回填——三处写 `3.3.3`，实际 npm 已到 `3.4.1`
   - 这三处 `docs:lint` 查不到：闸门不上网，没法核对 registry。改为写进发布清单第 8 条人工同步。
   - 流程陷阱一并记下：npm 打印 `+ focus-guard@3.5.0` 时 registry 仍查不到，要过两三分钟处理流水线；

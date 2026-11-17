@@ -20,18 +20,24 @@
 ### DSH（原生插件，推荐）
 
 ```bash
-dsh plugin --profile <你的 profile> add github:irisblackwood/focus-guard#path:/packages/core
+dsh plugin --profile <你的 profile> add focus-guard
 ```
 
-装完 **重启会话** 生效。bundle 补丁由本包 `package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`。
+`dsh plugin` 是 pnpm 的包装，`add` 后面就是 pnpm spec。三种写法装的是同一个包，差别只在版本来源：
+
+| 写法 | 拿到什么 |
+|---|---|
+| `add focus-guard` | 最近一次 npm 发版（当前 `3.5.0`），带 provenance 签名 |
+| `add github:irisblackwood/focus-guard#path:/packages/core` | `main` 上此刻的代码，可能领先已发布版本 |
+| `add <路径>/packages/core` | 你本地这份（开发态） |
+
+GitHub 那条必须带 `#path:/packages/core`：本仓是 monorepo，根 `package.json` 不是插件包。
+
+装完 **重启会话** 生效。bundle 补丁由本包 `package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`，安装时自动生效，无需手工编辑。
+
+单独用（只装命令行工具，不挂宿主）：`npm install focus-guard`，带 `focus-guard-brain` 可执行入口。
 
 > 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路挂的是同一批缝，同时挂载会双跑（同一条缝双监听），**二选一**。
-
-### npm
-
-```bash
-npm install focus-guard
-```
 
 ### ZCode（并存，非首选）
 

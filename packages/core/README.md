@@ -20,18 +20,24 @@ Every block is appended to `.focus-guard/AUDIT.log` (JSONL) with the rule that a
 ### DSH (native plugin, recommended)
 
 ```bash
-dsh plugin --profile <your-profile> add github:irisblackwood/focus-guard#path:/packages/core
+dsh plugin --profile <your-profile> add focus-guard
 ```
 
-Restart the session to activate. The bundle patch is declared by this package's `package.json` (`dsh.bundle.patch` → `src/dsh/cordis.patch.yml`).
+`dsh plugin` wraps pnpm, so `add` takes any pnpm spec. Three forms, same package — only the version source differs:
+
+| Form | Gets you |
+|---|---|
+| `add focus-guard` | the last npm release (currently `3.5.0`), signed with provenance |
+| `add github:irisblackwood/focus-guard#path:/packages/core` | whatever is on `main` right now — may be ahead of the release |
+| `add <path>/packages/core` | your local working copy (dev) |
+
+The GitHub form needs `#path:/packages/core` because this is a monorepo: the root `package.json` is not the plugin.
+
+Restart the session to activate. The bundle patch is declared by this package's `package.json` (`dsh.bundle.patch` → `src/dsh/cordis.patch.yml`), so no manual `cordis.patch.yml` editing.
+
+Standalone (CLI only, no host): `npm install focus-guard` — ships the `focus-guard-brain` binary.
 
 > **Mutually exclusive** with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Both mount the same seams; mounting both double-runs every hook — pick one.
-
-### npm
-
-```bash
-npm install focus-guard
-```
 
 ### ZCode
 

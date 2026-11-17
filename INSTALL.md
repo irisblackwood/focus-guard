@@ -1,6 +1,6 @@
-# FocusGuard 安装指南（v3.0.8）
+# 司会 Keepward 安装指南（v3.5.0）
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.5.0 · 最后核对 2026-11-17
 
 前置要求：Node.js ≥ 18.17（引擎零依赖，仅用内置模块；与 `package.json` 的 `engines` 一致）。逐行验证：
 
@@ -13,7 +13,7 @@ node -v
 | 平台 | 插件结构 | 拦截语义 | 安装方式 |
 |---|---|---|---|
 | **ZCode** | `.zcode-plugin/plugin.json` + `packages/core/hooks/hooks.json` | PreToolUse 退出码 2 / `decision:block` **硬拦截** | 插件市场（市场源刷新 + UI 更新） |
-| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的 8 个宿主事件 | **8 事件 / 12 监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add <本仓库 packages/core 目录>`（见下文） |
+| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的 8 个宿主事件 | **8 事件 / 12 监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add focus-guard`（三种写法见 §2A） |
 | **DSH·官方桥** | 桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步。但**不含**原生插件独有的资格审核与申辩 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
 
 注意 **DSH 的两条路互斥**——原生插件与官方桥监听同一条 pre-execute 缝，**同时挂载即双跑**。二选一。
@@ -62,21 +62,31 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
 ### 2A. 原生插件（推荐）
 
 ```text
-1) 取得仓库到固定目录（示例 E:\focus-guard-main，git clone 或下载解压）
-   git clone https://github.com/irisblackwood/focus-guard.git E:\focus-guard-main
+1) 装（三选一，<name> 换成你的 profile 名，如 web / desktop）
 
-2) 把 core 包作为插件装进目标 profile（<name> 换成你的 profile 名，如 web / desktop）
-   dsh plugin --profile <name> add E:\focus-guard-main\packages\core
+   ① 普通用户：从 npm 装。最短，带 provenance 签名，版本 = 最近一次发版
+      dsh plugin --profile <name> add focus-guard
 
-3) 重启 DSH 会话生效。
+   ② 跟仓库 main 上的未发布改动（monorepo，必须指到 packages/core）
+      dsh plugin --profile <name> add github:irisblackwood/focus-guard#path:/packages/core
+
+   ③ 改这个仓库：本地目录
+      dsh plugin --profile <name> add E:\focus-guard-main\packages\core
+
+2) 重启 DSH 会话生效。
 ```
 
 要点：
 
-1. **装的是 `packages/core` 目录本身**（含 `package.json` 的那一层），不是仓库根、也不是 `hooks/`。它同时也是 DSH GUI 里显示的版本来源。
-2. bundle 补丁由 `packages/core/package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`，安装时自动生效，无需手工编辑 `cordis.patch.yml`。
-3. **开发态可用 Junction link 挂载**：把 `packages/core` 链到 `<profile>\node_modules\focus-guard`，改代码**实时生效**；但**插件元数据（版本号等）需重启 DSH 才重读**。
-4. 与 B 互斥——若 profile 的 `cordis.patch.yml` 里已有 `dsh-hooks-claude-code` 条目，**先删掉再装 A**。
+1. **三种写法装的是同一个包，差别只在版本来源**：npm = 最近一次发版（当前 3.5.0）；
+   `github:` = `main` 最新（可能领先已发布版本）；本地目录 = 你手上这份。
+   `dsh plugin` 是 pnpm 的包装，`add` 后面就是 pnpm spec，所以裸包名天然合法。
+2. **② 为什么必须带 `#path:/packages/core`**：本仓是 monorepo，仓库根的 `package.json` 不是插件包，
+   插件在 `packages/core`。不指子目录会装到空壳。① 和 ③ 不需要，因为它们的入口本来就是包。
+3. **装的是 `packages/core` 目录本身**（含 `package.json` 的那一层），不是仓库根、也不是 `hooks/`。它同时也是 DSH GUI 里显示的版本来源。
+4. bundle 补丁由 `packages/core/package.json` 的 `dsh.bundle.patch` 指向 `src/dsh/cordis.patch.yml`，安装时自动生效，无需手工编辑 `cordis.patch.yml`。
+5. **开发态可用 Junction link 挂载**：把 `packages/core` 链到 `<profile>\node_modules\focus-guard`，改代码**实时生效**；但**插件元数据（版本号等）需重启 DSH 才重读**。
+6. 与 B 互斥——若 profile 的 `cordis.patch.yml` 里已有 `dsh-hooks-claude-code` 条目，**先删掉再装 A**。
 
 ### 2B. 官方桥（Claude 方言）
 
