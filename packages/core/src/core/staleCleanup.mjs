@@ -30,6 +30,22 @@ const STALE_MS = 7 * 86400e3;
 const STATE_FILE_CAP = 500; // 正常一天约 20 个会话 × 7 天 ≈ 140，500 留足余量
 const TEMP_ENTRY_RE = /^focus-guard-.*(\.json|-AUDIT\.log|\.tmp)$/;
 
+// 2026-11-16（P0-1 第三刀）：tmpdir 根的**临时产物**数量兜底。
+//
+// 为什么前两刀没管住：
+//   ① `purgeLegacyRoot` 是一次性迁移——清完落 `.legacy-purged`，之后**永不回扫** tmpdir 根；
+//   ② `TEMP_ENTRY_RE` 只认 `focus-guard-*` 前缀 + 三种后缀，而测试里约 100 处用的是
+//      `fg-*` 前缀、`.log` 后缀——**两条都不匹配**，从来就没被清过；
+//   ③ `audit-isolation` 的沙箱只覆盖 `npm run check`。**手动跑单个测试**
+//      （`node --test tests/xxx.mjs`）完全绕过它，而这类文件名带 `pid + Date.now()`，
+//      每次都是新名字，测试自己只删当次那个——跑完必留，谁也删不掉谁。
+//
+// 判据仍是**数量**不是年龄：年龄管不住写入量（§1.5②-补 已论证）。后缀白名单是防误删的——
+// `fg-` 只有 3 个字符，不像 `focus-guard-` 那样独特，A2 红队（`focus-guard-notes.json` 被误删）
+// 就是这个坑。加上「1 小时内写的不碰」和「不超限一个都不删」，误伤面收窄到可接受。
+const FG_SCRATCH_RE = /^(?:focus-guard|fg)-.*\.(?:log|json|md|mjs|tmp)$/;
+const FG_SCRATCH_CAP = 200; // 手动跑一遍全量约留 100 个，200 留一倍余量
+
 /** 上限淘汰的年龄下界：这个窗口内写过的状态文件可能属于活会话，不淘汰（R3）。 */
 const EVICT_FLOOR_MS = 3600e3;
 
@@ -113,6 +129,54 @@ function purgeLegacyRoot() {
 }
 
 /**
+ * tmpdir 根的 FG 临时产物数量兜底（2026-11-16）。
+ *
+ * 与 `purgeLegacyRoot` 的分工：那条是**一次性迁移**（清完落标记，永不再扫）；
+ * 这条是**常驻判据**，**不受 `.legacy-purged` 影响**——泄漏源会持续产生，一次性迁移治不了。
+ *
+ * 只删文件、不删目录：`rmSync(force)` 对非空目录会失败，加 `recursive` 又可能连带删掉
+ * 别人的目录树。目录数量比文件少两个量级，先不动。
+ * 1 小时内写过的不碰（`EVICT_FLOOR_MS`）：手动跑测试可能正在写，删了会让当次断言假红。
+ *
+ * `root` / `cap` 可注入仅为可测——生产调用不带参。
+ */
+export function capScratchRoot(root = tmpdir(), cap = FG_SCRATCH_CAP) {
+  if (process.env.FG_STATE_DIR) return 0; // 测试沙箱：整个 tmpdir 都是临时的，跑完整体删
+  if (root === stateDir()) return 0;
+  let names;
+  try {
+    names = readdirSync(root);
+  } catch {
+    return 0;
+  }
+  const items = [];
+  for (const f of names) {
+    if (!FG_SCRATCH_RE.test(f)) continue;
+    const fp = join(root, f);
+    try {
+      const st = statSync(fp);
+      if (!st.isFile()) continue;
+      items.push({ fp, mt: st.mtimeMs });
+    } catch {}
+  }
+  let over = items.length - cap;
+  if (over <= 0) return 0; // 没超限：一个都不碰
+  items.sort((a, b) => a.mt - b.mt); // 最旧在前
+  const evictBefore = Date.now() - EVICT_FLOOR_MS;
+  let n = 0;
+  for (const it of items) {
+    if (over <= 0) break;
+    if (it.mt > evictBefore) continue;
+    try {
+      rmSync(it.fp, { force: true });
+      n++;
+      over--;
+    } catch {}
+  }
+  return n;
+}
+
+/**
  * 状态目录健康检查（R1 / R2，2026-11-01 红队）。
  *
  * R1：`mkdirSync(dir, {mode:0o700})` 的 mode **只对新建生效**。目录已存在时既不报错也不改权限，
@@ -148,6 +212,13 @@ function ensureStateDirHealthy(sid) {
 export function cleanStaleTemp(sid) {
   const protect = sid ? `focus-guard-${sid}.json` : null;
   ensureStateDirHealthy(sid);
-  const cleaned = purgeStaleIn(stateDir(), Date.now() - STALE_MS, STATE_FILE_CAP, protect) + purgeLegacyRoot();
-  if (cleaned) audit(sid, "stale-cleaned", { level: null, evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（>7天或超出 ${STATE_FILE_CAP} 上限 + 旧平铺位置全部）` });
+  const cleaned =
+    purgeStaleIn(stateDir(), Date.now() - STALE_MS, STATE_FILE_CAP, protect) +
+    purgeLegacyRoot() +
+    capScratchRoot();
+  if (cleaned)
+    audit(sid, "stale-cleaned", {
+      level: null,
+      evidence: `61条 清理 ${cleaned} 个陈旧临时状态/档案（>7天或超出上限；含 tmpdir 根 FG 产物，上限 ${FG_SCRATCH_CAP}）`,
+    });
 }
