@@ -15,12 +15,24 @@
 > 发布状态：**未推送**——`PUBLISHED_MAX` 仍为 3.4.1，待拍板。
 > 影响面：开发期。
 
-### 脑壳：clone 下来也是真皮层
+### 更名：FocusGuard → 司会 / Keepward
+
+- feat(brand): 展示层更名，**技术契约一律不动**
+  - 起因：`FocusGuard` 的 `Focus` 只覆盖「硬拦截」一块，记忆沉淀与前缀稳定两块在名字里没有位置。
+  - 新名取《周礼·天官》「司会」，掌邦国财政考核（日成 / 月要 / 岁会），读 **sī kuài**（会计之会）。
+    英文名 `Keepward` = keep watch + keep records，对应「守」与「藏」两层。
+  - 只改 `displayName` / `displayNameI18n` / `description` 与三份 README 标题；
+    **包名 `focus-guard`、插件 id、状态目录 `.focus-guard/`、环境变量 `FG_*` 全部不变**——
+    改这些会让用户机器上已有的台账、卷宗、审批单、记忆全部失联，代价远大于名字好看。
+  - npm 包名迁移留到 4.0.0：届时新名取 `dsh-keepward`（npm 侧实际只有 DSH 用户消费，
+    ZCode 走插件市场、不经 npm），旧包 `deprecate` 转发；`bin` 保留 `focus-guard-brain` 别名一版。
+
+### 脑壳：装哪儿都是真皮层
 
 - feat(brain): 新增 `assets/cortex.bin`——pial 表面降采样点云，27,638 点
   - 此前模板版的脑壳由 `cortexAt()` 算：三个数学函数拼一个椭球，加 0.022 的噪声起伏。
     它和本机真网格版摆在一起一眼是两个东西——不是背景有没有星，是脑壳不是同一副。
-  - 现在 `brain-view.html` 优先读这份资产；没有（`npm i` 装的）才退回解析椭球，
+  - 现在 `brain-view.html` 优先读这份资产；`assets/` 被删才退回解析椭球，
     输出明写「解析椭球（未找到 assets/cortex.bin，形状是算的）」。
   - 每点带一个 `grv`（法线·径向的夹角）用来压暗沟底。点云没有光照，
     只靠几何凹陷在稀疏点里读不出来；压暗**只动颜色不动透明度**，降 alpha 会变成"洞"。
@@ -29,8 +41,13 @@
   - 小脑与脑干的锚点改由网格给（后下方那一片的重心）。`pial` 只覆盖大脑皮层，
     这两块仍是解析几何，但照旧常数挂会悬在半空、裂出一道黑缝。
 - feat(tools): 新增 `make-cortex-asset.mjs`——PLY → 降采样 + uint16 量化 + 法线降维
-- docs(assets): 新增 `assets/NOTICE.md`。CC BY-SA 3.0 与 AGPL-3.0-only 不兼容，
-  该目录按 CC BY-SA 单独授权、不进 npm `files`：clone 有、`npm i` 没有，两条路都可用。
+- feat(assets): `assets/` 列入 `package.json` 的 `files` 白名单——`npm i` 与 clone 拿到同一份皮层资产
+  - 早前为规避许可冲突把 `assets/` 挡在包外，代价是 npm 用户只能看解析椭球。
+    改为**并列分发**（mere aggregation）：代码 AGPL-3.0-only、`assets/` CC BY-SA 3.0，
+    条款各自约束各自部分，聚合不产生衍生作品。
+  - `package.json` 的 `license` 仍只声明代码；数据部分的条款与署名由 `assets/NOTICE.md` 承载，
+    再分发须保留该文件。
+- docs(assets): 新增 `assets/NOTICE.md`，写明来源、生成方式、署名与并列分发口径。
 
 ### 记忆：从「手写才有」改成「自己会攒」
 
@@ -87,6 +104,84 @@
   - 现在按 sid 缓存（上限 128，超了先进先出淘汰）。登记得再准，缓存不跟 key 走也白搭。
 - test(audit): 新增 `audit-workspace-routing.test.mjs`——两会话各写各的工作区，
   未登记的会话退临时目录（不猜工作区：猜错等于把别人的日志写脏）。
+- fix(audit): 〔开发期〕DSH 侧 `appendAudit` 的落点不再跟**包安装位置**走
+  - `AUDIT_FILE` 是按包相对路径上溯 4 级算的（`../../../../.focus-guard/AUDIT.log`）。
+    开发仓里上溯正好是仓库根，看着对；插件装到 `~/.dsh/plugins/<name>` 时上溯就是插件目录，
+    于是审计全部写进安装位置，用户在自己项目里永远看不到 `.focus-guard/AUDIT.log`。
+  - provider 的定义点从 `core/audit.mjs` 下沉到 `core/audit-writer.mjs`
+    （`setAuditProjectDirProvider` / `resolveProjectDir`）。`appendAudit` 在写入器里，
+    反向 import `audit.mjs` 会成环，所以只能把 provider 放在底层；
+    `audit.mjs` 的 `setProjectDirProvider` 改为转发，对外 API 不变。
+  - `appendAudit(row, file)` 的目标从默认参数改为函数内解析——默认参数在调用前求值，
+    拿不到 `row.session`，这也是它一直落回包路径的原因之一。
+  - 落点优先级：`FG_AUDIT_FILE` > 会话工作区 `.focus-guard/AUDIT.log` > 包相对路径（仅开发仓内正确）。
+- test(audit): 新增 `audit-fallback-location.test.mjs`——provider 给出工作区时，
+  `appendAudit` 必须落 `<ws>/.focus-guard/AUDIT.log`，不落包安装位置。
+
+### 压缩监察：这次压缩丢了多少坐标
+
+- feat(compaction): 新增 `compaction-loss`——压缩前后各数一次锚点，只报计数差
+  - 起因：`compaction` 行只记 `shadowedSeqs` / `shadowedTokenCount`，回答的是「折叠了多少」，
+    回答不了「折掉的东西还能不能找回来」。前者是数量，后者才是损失。
+  - 数的是四类**可检索落点**：文件路径、`file:行号`、`E\d{4}`、`SCREAMING_CASE` 常量。
+    不数字数——摘要重写一遍字数可以更多，坐标却一个都回不来。
+    实测（合成语料 1,384 tok / 30 个事实点）：生成式摘要 346 tok 保住 13/30，
+    其中**数值类 0/8 全灭**；抽取式 686 tok 保住 26/30。杀死的不是字数，是坐标。
+  - 只写计数，不存原文、不存摘要正文。一条审计行几十字节，
+    存原文等于把用户代码抄进台账，与「只读监察」的边界冲突。
+- feat(compaction): 新增 `compaction-loss-skip`——压缩前读不到原文时自证降级
+  - 三态分开记，不合并成「损失 0」：读不到原文 → `skip`（每会话一次）；
+    有原文但没观测到摘要正文 → **不写**（"未观测"不等于"零损失"）；两侧都有 → `loss`。
+  - 原文取自 `session.messages`。这一路径在真实宿主里**不保证有**，
+    所以先验一条降级记录，让 AUDIT.log 自己能回答「这次为什么没有损失数据」。
+- test(compaction): 新增 `compaction-loss.test.mjs`——有原文有摘要记 `loss` 且不带原文；
+  无 `messages` 记且只记一次 `skip`。
+  - 摘要正文的取值位置（`data.content[].text`）是照真实事件夹具写的，
+    不是按文档猜的——按文档猜出来的夹具会让整条链在宿主里静默失效。
+
+### 临时文件：6000 个的账
+
+- fix(stale): 〔开发期〕`%TEMP%` 根的 FG 产物加数量上限，超 200 个按 mtime 删最旧
+  - 实测堆到 **6000+ 个**。三条原因叠加，缺一条都到不了这个数：
+    ① `purgeLegacyRoot` 是**一次性迁移**——清完落 `.legacy-purged`，之后**永不回扫** tmpdir 根；
+    ② `TEMP_ENTRY_RE` 只认 `focus-guard-*` 前缀 + `.json`/`-AUDIT.log`/`.tmp` 后缀，
+       而测试里约 100 处用的是 `fg-*` + `.log`——**两条都不匹配**，从来没被清过；
+    ③ `audit-isolation` 的沙箱只覆盖 `npm run check`，**手动跑单个测试完全绕过它**，
+       而这类文件名带 `pid + Date.now()`，每次都是新名字，测试只删当次那个，跑完必留。
+  - 判据用**数量**不用年龄：年龄管不住写入量（§1.5②-补 已论证过这一点）。上限取 200——
+    手动跑一遍全量约留 100 个，留一倍余量。
+  - 防误删三道：后缀白名单（`log`/`json`/`md`/`mjs`/`tmp`）、1 小时内写的不碰、不超限一个都不删。
+    A2 红队（`focus-guard-notes.json` 被误删）的病根就是只看前缀，`fg-` 三个字符比
+    `focus-guard-` 更容易撞上别人的文件，所以后缀白名单不是可选项。
+  - **不受 `.legacy-purged` 影响**：泄漏源会持续产生，一次性迁移治不了常驻问题。
+- fix(test): 〔开发期〕`compaction-loss.test.mjs` 的审计文件从 tmpdir 根挪进一次性目录
+  - 原实现 `join(tmpdir(), 'fg-compaction-loss-<pid>-<ts>.log')`，且只在**每条用例开头**删自己，
+    跑完最后一个用例就留在磁盘上。这次那堆里就有它留的两份。
+- test(stale): 新增 `stale-scratch-cap.test.mjs`——超限按 mtime 删最旧；1 小时内 / 非 FG 命名 /
+  目录一律不动。只写一条用例：四个保护是同一判据的四个分支，拆开只是重复证明。
+
+### 包 README：一份没人检查的对外文档
+
+- fix(docs): 〔影响面：3.4.1〕`packages/core/README.md` / `README.zh-CN.md` 重写
+  - 原文写「not yet reflected in the version number (still `3.0.6`)」。
+    实际已到 3.5.0——差 9 个版本，那句前提（代码已跑、版本号还没记）早已不成立。
+  - 同一段 10 条模块锚点有 5 条指向空行：`audit.mjs:120` 实际在 `:60`（差 60 行）；
+    `workspace.mjs:38` 所在文件如今只剩 5 行（转发壳，实现搬到 `src/memory/`）；
+    `compactionWatch.mjs:239`、`risk.mjs:37`、`wholeFile.mjs:26` 都是空行。
+  - 处置：模块路径**一律不带行号**——行号会静默腐烂，路径不会。
+  - 连带修两处正文自相矛盾：开头那条「L1 打回 → L2 强制取证 → … → L6 上报」与同一份文档的
+    六层表（L2 是绝对红线、L3 是资格审核）**是两套互斥编号**。六层以 `checkEligibility` 为准，
+    前者删除。版本节原是一句「当前 3.4.1」，现拆成三个面：npm `3.3.3` / GitHub `main` `3.4.1` / 本树 `3.5.0`。
+  - 顺手清掉英文版里混进去的中文开头（`注意 Mutually exclusive`）。
+- fix(docs): 〔影响面：3.4.1〕版本面判据从「只读根 README」扩到三份 README
+  - 病因：`checkReadmeVersionFace` 只读 `README.md`，而**最该被检查的那份**
+    （`packages/core/README.md`，即 npm 页面渲染的那份）不在判据里——所以它错了 9 个版本没人发现。
+  - 新判据不是「必须等于已推送」，而是「必须是当下真值之一」：已推送（`PUBLISHED_MAX`）或清单版本。
+    根 README 盯已推送、包 README 写清单版本，两种都合法，但都不能是九个版本之前的号。
+  - 判据本身搬进 `tools/lib/docs-version.mjs`：塞回 `docs-core.mjs` 会把它顶到 418 行
+    （阈值 400）。那个文件 2026-11-05 就为同一原因拆过一次，理由写在它自己头上。
+  - 一次性验红：把状态头改回 `3.0.6`，闸门报
+    `packages/core/README.md 状态头:1 [version-face-stale] 3.0.6 既非已推送 3.4.1，也非清单 3.5.0`，退出码非 0。
 
 ### 已知局限
 

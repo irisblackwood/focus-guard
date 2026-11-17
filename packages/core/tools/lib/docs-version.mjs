@@ -11,8 +11,9 @@
  *
  * 与「适用版本」的区别，别混为一谈：
  * - **当前版本**（本规则）：读者据此决定装哪个版本，必须等于已发布版本。
- * - **适用版本**（状态头）：该文最后核对时对应的版本，是**滞后标记**，允许落后。
- *   强行拉平等于逼文档宣称没做过的核对——那正是旧判据逼文档说谎的老毛病。
+ * - **适用版本**（状态头）：该文最后核对时对应的版本，是**滞后标记**，允许落后——
+ *   但不得落后于已推送版本（`checkReadmeVersionFace` 兜这一层）。强行拉平到在飞版本
+ *   同样是逼文档宣称没做过的核对，那是旧判据逼文档说谎的老毛病。
  *
  * 不含 `CHANGELOG.md`：历史条目里的「当前」指当时，改写历史等于篡改证据。
  * 含 `SKILL.md`：那份文件是喂给模型的，写错版本比 README 写错更危险。
@@ -61,6 +62,59 @@ export function checkVersionClaims(root, published = publishedMax(root)) {
         }
       }
     })
+  }
+  return findings
+}
+
+/** 对外展示的三份 README：根门面 + npm 包页（英文 / 中文）。 */
+const README_FACE_FILES = ['README.md', 'packages/core/README.md', 'packages/core/README.zh-CN.md']
+
+/** 树里的版本（`packages/core/package.json`）；读不到返回 null——不假红。 */
+function treeVersion(root) {
+  try {
+    return JSON.parse(readFileSync(join(root, 'packages/core/package.json'), 'utf8')).version || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 对外展示的版本号必须是**当下真值之一**：已推送（`PUBLISHED_MAX`）或树里的清单版本。
+ *
+ * **为什么不是一个值**：根 README 是门面，盯已推送；包 README 是 npm 页，描述树里这份代码，
+ * 允许写清单版本。两者都合理，但都必须是当下的号——落后两版以上的号既不是"已发布"，
+ * 也不是"在飞"，只说明这份文件没人看过。
+ *
+ * **为什么扩到包 README（2026-11-17）**：此前只读根 `README.md`，于是
+ * `packages/core/README.md` 的「运行面增量」一直写着「版本号仍记 `3.0.6`」——
+ * 实际已到 3.5.0，差 9 个版本，无人发现。**最该被检查的那份（npm 页）恰好没进判据。**
+ */
+export function checkReadmeVersionFace(root, published = publishedMax(root)) {
+  if (!published) return []
+  const tree = treeVersion(root)
+  const allowed = new Set([published, tree].filter(Boolean))
+  const findings = []
+  for (const rel of README_FACE_FILES) {
+    let text = ''
+    try {
+      text = readFileSync(join(root, rel), 'utf8')
+    } catch {
+      continue
+    }
+    const shown = []
+    const badge = text.match(/badge\/version-(\d+\.\d+\.\d+)/)
+    if (badge) shown.push({ where: `${rel} badge`, value: badge[1] })
+    const head = text.match(/适用版本\s*(\d+\.\d+\.\d+)/)
+    if (head) shown.push({ where: `${rel} 状态头`, value: head[1] })
+    for (const s of shown) {
+      if (allowed.has(s.value)) continue
+      findings.push({
+        rule: 'version-face-stale',
+        file: s.where,
+        line: 1,
+        detail: `${s.value} 既非已推送 ${published}，也非清单 ${tree ?? '(读不到)'}`,
+      })
+    }
   }
   return findings
 }

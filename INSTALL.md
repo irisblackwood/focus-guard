@@ -90,13 +90,24 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
    %USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml
    在顶层数组末尾追加（路径按实际安装目录改，必须绝对路径）：
 
-- name: '@deepseek-ai/dsh-hooks-claude-code'
-  config:
-    configPath: 'E:/focus-guard-main/packages/core/hooks/hooks.json'
-    pluginRoot: 'E:/focus-guard-main'
+- insert:
+    - name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: 'E:/focus-guard-main/packages/core/hooks/hooks.json'
+        pluginRoot: 'E:/focus-guard-main'
 
 3) 重启 DSH 会话生效。
 ```
+
+⚠ **`- insert:` 这层不能省**。DSH 的补丁项分两类：带 `id` 的是「改已有条目」，带 `insert` 的是「追加新条目」。
+直接写 `- name: ...` 属于第三类——既无 `id` 又无 `insert`，DSH 判为非法补丁项，**静默跳过**：
+
+```text
+dsh: [...\cordis.patch.yml] patch: id is required for non-insert patches
+```
+
+后果是桥根本没挂上、六条钩子一条都不跑，而启动过程不报错，只在 `dsh --dump-config` 的首行留一行提示。
+自查方法：`dsh --profile <name> --dump-config | grep hooks-claude-code`，**没有输出就是没挂上**。
 
 要点与已知差异（相对 ZCode，均来自官方桥文档，逐条核实过）：
 

@@ -22,7 +22,7 @@ import {
   checkReadmeMetrics,
   checkCitationStyle,
 } from './lib/docs-core.mjs'
-import { checkVersionClaims } from './lib/docs-version.mjs'
+import { checkVersionClaims, checkReadmeVersionFace } from './lib/docs-version.mjs'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const argv = process.argv.slice(2)
@@ -50,6 +50,7 @@ const findings = [
   ...checkReadmeMetrics(ROOT),
   ...checkCitationStyle(ROOT),
   ...checkVersionClaims(ROOT),
+  ...checkReadmeVersionFace(ROOT),
 ]
 const byRule = {}
 for (const f of findings) byRule[f.rule] = (byRule[f.rule] || 0) + 1

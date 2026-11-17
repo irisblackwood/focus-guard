@@ -101,10 +101,13 @@ function cmpVersion(a, b) {
  * 所有清单都被逼着改成那个号——**闸门在逼着文档说谎**。对外读者看到的应当是"已发布"，
  * 不是"作者本地写到哪了"。这就是"四套版本号并存"的机械成因。
  *
- * **现在三条判据，各管一件事**：
+ * **两条判据，各管一件事**：
  *   ① 清单之间必须互相一致（内部自洽；本地可以领先发布，但不能自相矛盾）；
- *   ② CHANGELOG 最新段不得**落后**于清单（可以领先，领先就是"未推送"）；
- *   ③ 对外展示（README badge / 状态头）必须等于 `PUBLISHED_MAX`（已推送），不跟本地开发版本走。
+ *   ② CHANGELOG 最新段不得**落后**于清单（可以领先，领先就是"未推送"）。
+ *
+ * 对外展示（三份 README 的 badge / 状态头）不在本函数：2026-11-17 移到
+ * `docs-version.mjs` 的 `checkReadmeVersionFace`，与"正文里的当前版本断言"同处一处，
+ * 也顺手把本文件从 417 行降回阈值以下。
  */
 export function checkVersionFace(root) {
   const findings = []
@@ -160,42 +163,6 @@ export function checkVersionFace(root) {
     })
   }
 
-  // ③ 对外展示盯远端
-  const published = publishedMax(root)
-  if (published) findings.push(...checkReadmeVersionFace(root, published))
-
-  return findings
-}
-
-/**
- * 对外展示的版本号（README badge / 状态头）必须等于 `PUBLISHED_MAX`。
- *
- * 单独成函数有两个理由：① `checkVersionFace` 会超长函数阈值；
- * ② 这条判据管的是"读者看到的" ，与"清单之间是否自洽"是两件事，分开才改得动。
- */
-function checkReadmeVersionFace(root, published) {
-  const findings = []
-  let readme = ''
-  try {
-    readme = readFileSync(join(root, 'README.md'), 'utf8')
-  } catch {
-    return findings
-  }
-  const shown = []
-  const badge = readme.match(/badge\/version-(\d+\.\d+\.\d+)/)
-  if (badge) shown.push({ where: 'README.md badge', value: badge[1] })
-  const head = readme.match(/适用版本\s*(\d+\.\d+\.\d+)/)
-  if (head) shown.push({ where: 'README.md 状态头', value: head[1] })
-  for (const s of shown) {
-    if (s.value !== published) {
-      findings.push({
-        rule: 'version-face-stale',
-        file: s.where,
-        line: 1,
-        detail: `${s.value} ≠ 已推送 ${published}（对外展示盯远端，不盯本地）`,
-      })
-    }
-  }
   return findings
 }
 

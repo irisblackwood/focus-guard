@@ -1,15 +1,19 @@
-# FocusGuard
+# Keepward
 
-> **状态**：参考 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：参考 · 适用版本 3.5.0 · 最后核对 2026-11-17
+
+> Formerly **FocusGuard**. Renamed in 3.5.0 — the package name `focus-guard`, the plugin id,
+> the `.focus-guard/` state directory and the `FG_*` environment variables are **unchanged**.
 
 [Chinese](README.zh-CN.md) · English
 
-Guardrails for AI coding agents, enforced at the hook layer. Four behaviours that make agents dangerous stop being prompt advice and become mechanically blocked events: **editing without reading first**, **conclusions without `[file:line]` evidence**, **whole-file reads that burn context**, and **asserting findings that were never verified**. A hit escalates through L1 push-back → L2 forced evidence → L3 fuse → L4 record → L5 downgrade → L6 report.
+Guardrails for AI coding agents, enforced at the hook layer. Three kinds of runaway stop being prompt advice and become mechanically blocked events:
 
-- **Zero dependencies** — the core package ships no runtime libraries (`dependencies` is empty)
-- **Two enforcement surfaces** — a native DSH plugin (host hooks) plus the ZCode hook shell
-- **Full audit trail** — every block is appended to `.focus-guard/AUDIT.log` (JSONL, rotated and archived)
-- **Auditable rules** — `docs/RULES.md` marks which clauses are machine-enforced and which are not yet implemented
+- **Thinking** — a conclusion with no `[file:line]` evidence is pushed back before it ships
+- **Resources** — whole-file reads and repeated no-op reads burn context; both are gated
+- **Permissions** — `rm -rf` / `git push -f` / `npm publish` need a grant *before* they run, not an apology after
+
+Every block is appended to `.focus-guard/AUDIT.log` (JSONL) with the rule that actually fired. Nothing here asks the model to behave; it changes what the model is allowed to do.
 
 ## Install
 
@@ -21,42 +25,35 @@ dsh plugin --profile <your-profile> add github:irisblackwood/focus-guard#path:/p
 
 Restart the session to activate. The bundle patch is declared by this package's `package.json` (`dsh.bundle.patch` → `src/dsh/cordis.patch.yml`).
 
-> **On npm.** `npm install focus-guard` installs **3.3.3** — published 2026-11-07 through GitHub OIDC trusted publishing with a signed provenance statement. The GitHub install above tracks the repo directly.
+> **Mutually exclusive** with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Both mount the same seams; mounting both double-runs every hook — pick one.
 
-注意 Mutually exclusive with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Mounting both double-runs the same hooks — pick one.
+### npm
+
+```bash
+npm install focus-guard
+```
 
 ### ZCode
 
-`.zcode-plugin/plugin.json` is ready; import this repository through ZCode's plugin flow.
+`.zcode-plugin/plugin.json` is ready; import this repository through ZCode's plugin flow. The execution shell is sealed — it carries its own version and does not follow the main release.
 
 ## What it blocks
 
 | Situation | Mechanism |
 |---|---|
-| Editing files or running mutating commands without investigating first | Layer 4 precondition: the target must have been read in this session, otherwise one refusal (new files exempt) |
-| High-risk commands (recursive delete, format, force-push, publish, global install, system-path writes) | Layer 3 eligibility: **apply before execute**, denied without a grant; `fg_apply` is the request channel |
-| Absolute red lines (`rm -rf /`, `DROP DATABASE`, `git push -f`) | Layer 1 zero-latency short-circuit denial, **no approval prompt** |
-| Dangerous command strings that are merely **quoted** (test data, docs, eval fixtures) | Context exemption on three criteria (quoted / data marker / read-only command) → downgraded to semantic judgement instead of a hard denial |
+| Editing files or running mutating commands without investigating first | L4 precondition: the target must have been read in this session, otherwise one refusal (new files exempt) |
+| High-risk commands (recursive delete, format, force-push, publish, global install, system-path writes) | L3 eligibility: **apply before execute**, denied without a grant; `fg_apply` is the request channel |
+| Absolute red lines (`rm -rf /`, `DROP DATABASE`, `git push -f`) | L2 zero-latency short-circuit denial, **no approval prompt** |
+| Dangerous strings that are merely **quoted** (test data, docs, eval fixtures) | Context exemption on three criteria (quoted / data marker / read-only command) → downgraded to semantic judgement, never waved through |
 | Wrongly blocked, no appeal path | `fg_appeal`: submit counter-evidence anchors, one human ruling, fully recorded |
+| Whole-file read of a large target | Above `FG_WHOLE_FILE_MAX_LINES` (default 300) without `offset`/`limit` → denied, pointed at XERJ |
+| Vague development request, straight to editing | One refusal before the first write, requiring `brainstorming` or `writing-plans` |
 | One-size-fits-all across models | Model profiles (`src/profiles/`): review intensity follows the model |
 | Writing `grep`/`find` when the machine wants `rg`/`fd` | Environment fingerprint + hard command check, one-line substitution hint |
 
-## Runtime additions (in-tree, 2026-10-18)
+## How it decides
 
-Shipped in the code, not yet reflected in the version number (still `3.0.6`):
-
-- **Heartbeat and liveness** — `src/dsh/heartbeat.mjs:85`, `src/dsh/status.mjs:73`: every 10s the plugin atomically rewrites `.focus-guard/status.json`; `node src/dsh/status.mjs` reports `ALIVE` / `STALE` and exits `0` all-green, `2` module missing, `3` stale, `4` no file.
-- **Module self-check** — `heartbeat.mjs:45`: the ten enforcement seams plus the heartbeat each report at startup; anything missing lands in `degraded`, is warned to the host log, and is injected to the model as `focus-guard-degraded`.
-- **L4 cross-session record** — `src/dsh/workspace.mjs:38` (hash) / `:125` (turn record) / `src/dsh/index.js:71` (injection): state is keyed by `sha256(realpath(cwd))`; a hash mismatch injects nothing, so a renamed folder cannot inherit old state.
-- **Whole-file read gate** — `src/dsh/guard/wholeFile.mjs:26` / `:70`: a target above 300 lines read without `offset`/`limit` is denied and pointed at XERJ (`xerj search` / `xerj def`). Configurable via `FG_WHOLE_FILE_MAX_LINES`.
-- **Superpowers writing gate** — `src/dsh/guard/superpowers.mjs:34`: a vague development request (dev verb + vague marker + no acceptance criteria) gets one denial before the first edit/write/destructive shell, requiring `brainstorming` or `writing-plans`; a retry or a loaded skill passes.
-- **Graded destructive heuristic** — `src/dsh/guard/risk.mjs:37`: `Remove-Item` / `fs.rmSync` weight by target — system path or recursive `0.9` (blocked), TEMP `0.2`, other `0.4`; redirection `0.15`.
-- **Compaction watch** — `src/dsh/compactionWatch.mjs:239` / `:364`: observes `compaction/start|end|prune` and request-error collisions, records them, and never writes surface or cancels a turn.
-- **Denial reasons in the audit** — `src/dsh/audit.mjs:120`: `auditDeny(exec, cmd, {trigger, level})` records the real rule (`redline:<name>`, `env-substitute`, `gate:fg_apply`, `evidence-gate`, `whole-file:lines`, `risk:<category>`) instead of a constant `high-risk-rm`.
-- **Executor detection** — `src/core/env.mjs:18` + `src/dsh/index.js:31`: the master layer honours an explicit `FG_SHELL`; the DSH adapter declares `powershell`, ending the three-way mismatch between record, fingerprint and actual executor.
-- **Audit isolation guard** — `tests/audit-isolation.mjs:1`: snapshots the real `AUDIT.log` before the suites run and fails the run if it grew (verified both ways: clean Δ0 PASS, deliberate pollution Δ1 FAIL).
-
-## Six-layer eligibility
+Six layers, in order. A profile may skip layers; it may never disable L2 or L3.
 
 | Layer | Question |
 |---|---|
@@ -68,34 +65,57 @@ Shipped in the code, not yet reflected in the version number (still `3.0.6`):
 | L5 | Semantic signals — the model probe's `mismatch` / high-risk score |
 | L6 | Grant and record |
 
-## Three commands
+## What else is running
 
-```bash
-npm test                    # full suite (all test files; acceptance is only one of them)
-npm run test:eligibility    # eligibility + red-line exemption + appeal
-npm run eval                # threat evaluation (high-risk detection rate + benign false-positive rate)
-```
+All shipped. Module paths carry no line numbers on purpose — those rot silently.
+
+- **Heartbeat and liveness** — `src/dsh/heartbeat.mjs`, `src/dsh/status.mjs`: every 10s the plugin atomically rewrites `.focus-guard/status.json`; `node src/dsh/status.mjs` reports `ALIVE` / `STALE` and exits `0` all-green, `2` module missing, `3` stale, `4` no file.
+- **Module self-check** — `src/dsh/heartbeat.mjs`: the ten enforcement seams plus the heartbeat each report at startup; anything missing lands in `degraded`, is warned to the host log, and is injected to the model as `focus-guard-degraded`.
+- **Cross-session record** — `src/memory/workspace.mjs`: state is keyed by `sha256(realpath(cwd))`; a hash mismatch injects nothing, so a renamed folder cannot inherit old state.
+- **Compaction watch** — `src/dsh/compactionWatch.mjs`: observes `compaction/start|end|prune` and request-error collisions, and measures how many anchors (paths, line refs, error codes, constants) a summary kept versus the original. Read-only: never writes a surface, never cancels a turn.
+- **Prefix stability** — `src/core/prefixStability.mjs`: fingerprints the assembled prompt prefix each turn and records shifts, so a cache-breaking change shows up as an audit event instead of on an invoice.
+- **Graded destructive heuristic** — `src/dsh/guard/risk.mjs`: `Remove-Item` / `fs.rmSync` weight by target — system path or recursive `0.9` (blocked), TEMP `0.2`, other `0.4`; redirection `0.15`.
+- **Denial reasons in the audit** — `src/dsh/audit.mjs`: `auditDeny(exec, cmd, {trigger, level})` records the real rule (`redline:<name>`, `env-substitute`, `gate:fg_apply`, `evidence-gate`, `whole-file:lines`, `risk:<category>`) instead of a constant `high-risk-rm`.
+- **Executor detection** — `src/core/env.mjs`, `src/dsh/index.js`: the master layer honours an explicit `FG_SHELL`; the DSH adapter declares `powershell`, ending the three-way mismatch between record, fingerprint and actual executor.
+- **Audit isolation guard** — `tests/audit-isolation.mjs`: snapshots the real `AUDIT.log` before the suites run and fails the run if it grew.
 
 ## Architecture
 
 ```
-src/core/           master layer: zero-dependency, host-agnostic judging logic
-src/adapters/dsh/   adapter layer: wires the master into DSH (fg_apply / fg_appeal + eligibility gate)
-src/dsh/pipeline.mjs host hooks: pre-execute / system-prompt / post-execute (orchestration)
-src/dsh/guard/       per-layer gate implementations (10 modules, split 2026-10-27)
-hooks/guard.mjs     ZCode execution shell (sealed: independent version, does not follow the main release)
+src/core/            master layer: zero-dependency, host-agnostic judging logic (26 modules)
+src/adapters/dsh/    adapter layer: wires the master into DSH (fg_apply / fg_appeal + eligibility gate)
+src/dsh/             host seams: pipeline.mjs orchestrates 8 events; guard/ holds the per-layer gates
+src/memory/          cross-session record, tags, workspace hashing
+src/profiles/        five pure-parameter model profiles
+hooks/guard.mjs      ZCode execution shell (sealed: independent version)
 ```
 
-**Layering rule**: the master layer must not depend back on the adapter layer (locked by an acceptance test).
+**Layering rule**: the master layer must not depend back on the adapter layer (locked by an acceptance test). Dependency direction is `core → adapters → seams`, one way only.
+
+## Commands
+
+```bash
+npm test                    # full suite, run inside an audit sandbox
+npm run test:eligibility    # eligibility + red-line exemption + appeal
+npm run eval                # threat evaluation (detection rate + benign false-positive rate)
+npm run check               # everything the release gate runs
+```
 
 ## Version
 
-Currently `3.4.1`. Version surfaces are asserted mutually consistent, and the front-page version must equal the published maximum.
+Three numbers, three meanings — do not mix them:
+
+| Surface | Value | Meaning |
+|---|---|---|
+| npm registry | `3.3.3` | last `npm publish` (2026-11-07, OIDC trusted publishing + provenance) |
+| GitHub `main` | `3.4.1` | `PUBLISHED_MAX` — what "released" means for this project |
+| This tree | `3.5.0` | in flight; ahead of released is not the same as released |
 
 ## Docs
 
-- Capabilities and troubleshooting: repository `README.md`, `INSTALL.md`
-- Rule text: `docs/RULES.md`
+- Capabilities, code anchors, gaps: `docs/ARCH-MAP.md`
+- Rule text, and which clauses are machine-enforced: `docs/RULES.md`
+- Mechanism walkthrough: repository `docs/ARCHITECTURE.md`
 - Changelog: repository `CHANGELOG.md`
 
 ## License
