@@ -45,12 +45,50 @@ export const AUDIT_MAX_AGE_MS = Number(process.env.FG_AUDIT_MAX_AGE_MS) || 30 * 
 export const AUDIT_ARCHIVE_KEEP = Number(process.env.FG_AUDIT_ARCHIVE_KEEP) || 10
 
 /**
- * 当前审计目标路径。
- * `FG_AUDIT_FILE` 可重定向——**测试必须**用它指向 tmpdir，否则会写进真实工作区
- *（2026-10-09 事故：污染 2630 行 / 746 个测试 session）。与 `FG_CASE_FILE` 同思路。
+ * 项目目录来源由**宿主适配层注入**（2026-11-16 从 `core/audit.mjs` 下沉）。
+ *
+ * 为什么定义点放在写入器而不是 `audit.mjs`：DSH 侧唯一写入口 `appendAudit` 在本文件，
+ * 它拿不到 `audit.mjs` 里的 provider——反向 import 会成环（`audit.mjs` → `audit-writer.mjs`）。
+ * 于是 provider 的定义点下沉到这里，`audit.mjs` 改为转发（`setProjectDirProvider` 对外 API 不变）。
+ *
+ * 不设这一层时，`auditFilePath()` 只能回退 `AUDIT_FILE`——那是**按包安装位置上溯 4 级**算出来的。
+ * 开发仓里上溯正好是仓库根，看着对；一旦装到 `~/.dsh/plugins/<name>`，上溯就是插件目录，
+ * 审计全部写进安装位置，用户在自己项目里永远看不到。
  */
-export function auditFilePath() {
-  return process.env.FG_AUDIT_FILE || AUDIT_FILE
+let projectDirProvider = null
+
+export function setAuditProjectDirProvider(fn) {
+  projectDirProvider = typeof fn === 'function' ? fn : null
+}
+
+/** 会话工作区（provider 注入）；未注入或抛错返回空串。 */
+export function resolveProjectDir(sid) {
+  try {
+    return (projectDirProvider && projectDirProvider(sid)) || ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 当前审计目标路径。
+ * 优先级：`FG_AUDIT_FILE`（测试必须用它指向 tmpdir，否则会写进真实工作区）
+ * 　　→ 会话工作区 `.focus-guard/AUDIT.log`（provider 注入）
+ * 　　→ `AUDIT_FILE`（包相对路径，仅开发仓内正确）
+ *
+ * @param {string} [sid] 会话 id；provider 按会话分流工作区
+ */
+export function auditFilePath(sid) {
+  if (process.env.FG_AUDIT_FILE) return process.env.FG_AUDIT_FILE
+  const dir = resolveProjectDir(sid)
+  if (dir) {
+    try {
+      if (statSync(dir).isDirectory()) return join(dir, '.focus-guard', 'AUDIT.log')
+    } catch {
+      /* 目录不可用则继续回退 */
+    }
+  }
+  return AUDIT_FILE
 }
 
 /**
@@ -282,13 +320,22 @@ function withTraceMeta(row) {
  * 统一审计写入入口：所有写点共用，轮转只在这一处生效。
  * @returns {boolean} 是否写入成功
  */
-export function appendAudit(row, file = auditFilePath()) {
+/**
+ * 追加一条审计记录。
+ *
+ * @param {object} row 审计行（`buildAuditRow` 产出，含 `session`）
+ * @param {string} [file] 显式目标；不传则按 `row.session` 解析（见 `auditFilePath`）
+ */
+export function appendAudit(row, file) {
+  // 2026-11-16：目标从默认参数改为函数内解析——默认参数在调用前求值，拿不到 row.session，
+  // 于是 DSH 侧永远落回包相对路径（装到 ~/.dsh/plugins 时写进插件目录）。
+  const target = file || auditFilePath(row && row.session)
   try {
-    rotateAuditIfNeeded(file)
-    mkdirSync(dirname(file), { recursive: true })
+    rotateAuditIfNeeded(target)
+    mkdirSync(dirname(target), { recursive: true })
     // 顺序要紧：先补七字段，再注入位置元数据，最后序列化。
     // 反过来的话 provider 拿到的行还没规范化，判断"缺字段"会看错。
-    appendFileSync(file, JSON.stringify(withTraceMeta(normalizeRow(row))) + '\n')
+    appendFileSync(target, JSON.stringify(withTraceMeta(normalizeRow(row))) + '\n')
     return true
   } catch (error) {
     console.warn('[focus-guard] AUDIT 留痕失败（不阻断）:', (error && error.message) || error)

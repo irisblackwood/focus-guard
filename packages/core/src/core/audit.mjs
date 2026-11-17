@@ -3,7 +3,7 @@
 // 2026-10-27：删掉从 guard.mjs 拆分时复制过来的未使用 import（13 个符号）。ESLint no-unused-vars 全量扫描发现。
 import { statSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { rotateAuditIfNeeded } from "./audit-writer.mjs";
+import { rotateAuditIfNeeded, setAuditProjectDirProvider, resolveProjectDir } from "./audit-writer.mjs";
 import { stateDir } from "./tempPath.mjs";
 
 /** 最近一次解析出的审计路径（只供观测，**不要拿它当判据**——真正的缓存见 `auditFiles`）。 */
@@ -25,10 +25,12 @@ const AUDIT_CACHE_MAX = 128;
  * 项目目录来源由**宿主适配层注入**（2026-10-22 分层泄漏修复）。
  * 母版不再直接读 `ZCODE_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` —— 那是替宿主代言，
  * 换宿主要改母版。ZCode 钩子在 `hooks/guard.mjs` 里注入，DSH 在 `src/dsh/index.js` 注入。
+ *
+ * 2026-11-16：定义点下沉到 `audit-writer.mjs`（DSH 侧 `appendAudit` 也要用同一个 provider），
+ * 这里只做转发——对外 API `setProjectDirProvider` 不变，调用方无需改。
  */
-let projectDirProvider = null;
 export function setProjectDirProvider(fn) {
-  projectDirProvider = typeof fn === "function" ? fn : null;
+  setAuditProjectDirProvider(fn);
 }
 
 export function auditTarget(sid) {
@@ -45,13 +47,10 @@ export function auditTarget(sid) {
   // 测试把 FG_AUDIT_FILE 指向 tmpdir 时，走核心 audit() 的那条路（risk.mjs penalize()）
   // 仍然写真实 AUDIT.log —— 隔离形同虚设，CHANGELOG 的"零增长"实测不成立。
   let dir = "";
-  try {
-    // 2026-11-15：把 sid 交给 provider。宿主侧的工作区是按会话登记的（同一进程可能服务
-    // 多个工作区），provider 不给参数就只能全局猜一个。旧 provider 忽略参数，行为不变。
-    dir = (projectDirProvider && projectDirProvider(sid)) || "";
-  } catch {
-    dir = "";
-  }
+  // 2026-11-15：把 sid 交给 provider。宿主侧的工作区是按会话登记的（同一进程可能服务
+  // 多个工作区），provider 不给参数就只能全局猜一个。旧 provider 忽略参数，行为不变。
+  // 2026-11-16：provider 本体下沉到 audit-writer.mjs，这里取同一个实现（不另存一份变量）。
+  dir = resolveProjectDir(sid);
   let resolved = "";
   if (dir) {
     try {
