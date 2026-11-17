@@ -59,6 +59,14 @@
       "smells": 8,
       "duplicates": 17,
       "note": "还债 2 条：selftest.mjs 里四段「run → 断言 deny」各抄一遍、只换命令字符串（rm -rf ~/ / git push -f / DROP DATABASE / TRUNCATE），收成表驱动的 for-of，重复块 19→17。结构异味 8 条不变：本轮新增两个文件（make-cortex-asset 189 行、memory-distill 约 250 行）都压在 400 行以下；memory-distill 的 distill() 首版 109 行超阈值，当场拆成 loadFiles / indexAuto / expirePass / pickCandidates / entryOf / flush 六件，降到 25 行；brain.mjs 的 main() 因插入沉淀步骤涨到 93 行，把「沉淀→读文档→遗忘」抽成 growMemory、元信息抽成 buildMeta、出图抽成 writeOutput，回到 25 行。两处都是拆代码，不是抬阈值。"
+    },
+    {
+      "version": "3.5.1",
+      "date": "2026-11-17",
+      "commit": "ab18a3a",
+      "smells": 8,
+      "duplicates": 15,
+      "note": "还债 2 条：`lint` 与 `smells` 各抄了一份带 `SKIP_DIRS` 的 `walk()`（同一段 21 行，重复块里最粗的一条），收成 `lib/import-graph.mjs` 的可选第三参数 `skip`——不给就与抽取前逐字一致，`health` / `mutate` 两个调用方零改动。重复块 17→15。顺手删掉两处因此变成死引用的 `readdirSync` / `statSync` / `join`（房规活跃层仍 0 条）。结构异味 8 条不变：本段主体是文档修正（npm 页面渲染的 README、安装写法、发布清单、段头日期口径），引擎 `src/` 一行未动。剩下 4 份 walk（schema-fingerprint / capture-fixtures / gate-audit / collect-panel）过滤条件各不相同，收口要改四个工具入口，留到下次。"
     }
   ]
 }
