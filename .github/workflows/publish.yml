@@ -66,10 +66,10 @@ jobs:
         id: guard
         shell: pwsh
         run: |
-          # Actions 给 pwsh 注入 $ErrorActionPreference = 'Stop'，而 `npm view` 查不到版本时
-          # 退出码是 1——2026-11-17 首次运行，这一步就是这么红的（v3.5.1 没发出去）。
-          # 「查不到」在本步是**正常结果**，不是异常，所以必须降级为 Continue。
-          $ErrorActionPreference = 'Continue'
+          # 为什么最后要显式 exit 0：Actions 的 pwsh 包装会在脚本末尾 `exit $LASTEXITCODE`，
+          # 而 `npm view` 查不到版本时留下 1——脚本内容全对，步骤照样判失败。
+          # 2026-11-17 首跑就是这么红的（v3.5.1 没发出去）；当时误判为 $ErrorActionPreference，
+          # 改成 Continue 仍然红，才定位到这一行。「查不到」在本步是正常结果。
           $v = node -p "require('./packages/core/package.json').version"
           $existing = (npm view "focus-guard@$v" version 2>$null | Out-String).Trim()
           if ($existing -eq $v) {
@@ -78,6 +78,7 @@ jobs:
           } else {
             "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
+          exit 0
 
       - name: Publish
         if: steps.guard.outputs.skip != 'true'
@@ -90,8 +91,8 @@ jobs:
       - name: Verify
         shell: pwsh
         run: |
-          # 同上：轮询的第一圈必然读不到（registry 还没处理完），那一下的退出码 1
-          # 在 Stop 语义下会直接终止整个步骤——「等」就变成了「失败」。
+          # 同上：轮询的第一圈必然读不到（registry 还没处理完），`npm view` 留下 $LASTEXITCODE=1；
+          # 成功分支必须自己 exit 0，失败分支自己 exit 1——别指望包装脚本替我们判。
           $ErrorActionPreference = 'Continue'
           $v = node -p "require('./packages/core/package.json').version"
           for ($i = 0; $i -lt 12; $i++) {
@@ -101,3 +102,4 @@ jobs:
             Start-Sleep -Seconds 20
           }
           Write-Error "4 分钟内 registry 仍未出现 focus-guard@$v"
+          exit 1

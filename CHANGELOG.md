@@ -39,9 +39,11 @@
   - 没有守卫时，给历史版本补建 Release 就红一次（npm 拒绝覆盖已发版本）。
   - Verify 原来只 `print` 不断言、只等 5 秒。npm 打印 `+ focus-guard@3.5.0` 之后 registry
     还要过两三分钟处理流水线，那一步当时读到旧号 `3.4.1` 却照样算绿。
-  - **这两道步骤首次运行即红，v3.5.1 因此没发出去**：Actions 给 pwsh 注入
-    `$ErrorActionPreference = 'Stop'`，而 `npm view` 查不到版本时退出码是 1 → 整步终止。
-    改成 `Continue`——「查不到」在这两步是正常结果，不是异常。
+  - **这两道步骤首次运行即红，v3.5.1 因此没发出去**：Actions 的 pwsh 包装在脚本末尾
+    `exit $LASTEXITCODE`，而 `npm view` 查不到版本留下 1——脚本内容全对，步骤照样判失败。
+    守卫末尾显式 `exit 0`，Verify 两个分支各自 `exit`。
+  - 定位过程也记一笔：首诊写的是 `$ErrorActionPreference = 'Stop'`，改成 `Continue` **仍然红**，
+    才找到 `$LASTEXITCODE`。错因写进注释比不写更坏——下一个人会照着错的地方查。
   - 教训一句：改 CI 却没跑过它，等于没改。这次是「守卫」先红，把要守的东西一起挡了。
 
 ### 版本面
