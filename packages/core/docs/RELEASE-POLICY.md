@@ -80,11 +80,11 @@
 
 | 渠道 | 当前最高 | 备注 |
 |---|---|---|
-| npm | `3.5.1`（2026-11-17，OIDC + provenance） | 走 GitHub Actions `publish.yml`；本地 `npm publish` 无 token 必 401，那是设计 |
-| **GitHub `main`** | **`3.5.1`**（`695773f`） | 公开源码，clone 即得 |
-| GitHub Releases / tags | `v3.5.1` | 2026-11-17 补齐：v3.3.1 / v3.4.1 / v3.5.0 三个历史版本是当天补建的 |
+| npm | `3.5.2`（2026-11-18，OIDC + provenance） | 走 GitHub Actions `publish.yml`；本地 `npm publish` 无 token 必 401，那是设计 |
+| **GitHub `main`** | **`3.5.2`**（`854d700`） | 公开源码，clone 即得 |
+| GitHub Releases / tags | `v3.5.2` | 2026-11-17 补齐 v3.3.1 / v3.4.1 / v3.5.0；此后逐版打 tag |
 
-→ **对外已分发的最高版本 = `3.5.1`**，三个渠道齐平。齐平是常态，「取最高者」这一步不产生分歧，
+→ **对外已分发的最高版本 = `3.5.2`**，三个渠道齐平。齐平是常态，「取最高者」这一步不产生分歧，
 但判据不能因此省掉：2026-10-27 那次 npm 落后 GitHub 两个次版本，只查 npm 会把三个已发布段落误判成开发期。
 
 判据已机械校验：`tests/changelog-audience.test.mjs` 的 `PUBLISHED_MAX` 常量。
