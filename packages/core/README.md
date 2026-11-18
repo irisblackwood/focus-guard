@@ -113,7 +113,7 @@ Three numbers, three meanings — do not mix them:
 
 | Surface | Value | Meaning |
 |---|---|---|
-| npm registry | `3.5.2` | last `npm publish` (2026-11-17, OIDC trusted publishing + provenance) |
+| npm registry | `3.5.2` | last `npm publish` (2026-11-18, OIDC trusted publishing + provenance) |
 | GitHub `main` | `3.5.2` | `PUBLISHED_MAX` — what "released" means for this project |
 | This tree | `3.5.2` | level with released; unpushed work runs ahead, and ahead is not released |
 
