@@ -93,13 +93,15 @@ jobs:
         run: |
           # 同上：轮询的第一圈必然读不到（registry 还没处理完），`npm view` 留下 $LASTEXITCODE=1；
           # 成功分支必须自己 exit 0，失败分支自己 exit 1——别指望包装脚本替我们判。
+          # 窗口 12×20s=4min 在 3.5.1 那次差一秒放弃（10:19:19 放弃，registry 10:19:20 生效），
+          # 成功被记成失败。放宽到 20×20s≈6.7min，仍只认「这个版本」而不是 latest。
           $ErrorActionPreference = 'Continue'
           $v = node -p "require('./packages/core/package.json').version"
-          for ($i = 0; $i -lt 12; $i++) {
+          for ($i = 0; $i -lt 20; $i++) {
             $got = (npm view "focus-guard@$v" version 2>$null | Out-String).Trim()
             if ($got -eq $v) { Write-Output "registry 已有 focus-guard@$v"; exit 0 }
             Write-Output "等待中：第 $i 次未读到 $v（读到 '$got'）"
             Start-Sleep -Seconds 20
           }
-          Write-Error "4 分钟内 registry 仍未出现 focus-guard@$v"
+          Write-Error "约 7 分钟内 registry 仍未出现 focus-guard@$v"
           exit 1
