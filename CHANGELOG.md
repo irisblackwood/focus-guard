@@ -8,6 +8,32 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
+## 3.5.2 · 2026-11-18
+
+> 版本号依据：修一条「装了但没加载」的安装缺陷，无新能力，按补丁号递增。
+> 影响面：`3.5.1` 及以前所有版本——凡走 `dsh plugin add` 装的，包里都带 `postinstall`。
+
+### 安装缺陷：装上了，清单里没有
+
+- fix(install): 〔影响面：3.5.1〕去掉 `postinstall`，自清洁改由会话启动缝调起
+  - 病根：`postinstall` 让 pnpm 10 报 `ERR_PNPM_IGNORED_BUILDS` 并非零退出。`dsh plugin`
+    是 pnpm 的薄转发器，pnpm 一失败，它后面那步「把声明了 `dsh.bundle` 的依赖对账进
+    `dsh.profile.bundles`」就被整段跳过。
+  - 表现：包躺在 `dependencies` 里，`bundles` 里没有它 → dsh 起得来、插件不加载。
+    第三方验证平台报 `L5.4 not-found`（清单 205 条，其中没有 `focus-guard`），
+    而 L4「沙盒安装成功」照样绿——**它测的是装得上，不是加载得到**。
+  - 修法：`package.json` 删掉 `postinstall`；`first-run-sweep.mjs` 改由
+    `session-start.mjs` 的 `sweepOnce()` 异步调起（每进程一次，失败静默）。
+    清洁晚一步，换**装得上**。
+  - 实测（同一台机器、同一个 `dsh plugin add`）：3.5.1 报 `pnpm failed` 且 `bundles`
+    只有 `@deepseek-ai/dsh-base`；3.5.2 的 tarball 装完 `bundles` 自动多出 `focus-guard`，
+    pnpm 2.1s 正常结束。
+- fix(docs): README / INSTALL 补「装成功但清单里没有」的判据
+  - 判据一条：`<profile>/package.json` 的 `dsh.profile.bundles` 里有没有目标包。
+    只有 `dependencies` 里有**不算装上**——loader 清单是按 `bundles` 展开的。
+  - 这条判据也解释了为什么本机一直正常、第三方复现不了：本机 profile 是早先用
+    `dsh plugin add <本地路径>` 装的，那时 pnpm 还没拦 build script。
+
 ## 3.5.1 · 2026-11-17
 
 > 版本号依据：本段动文档、发布流程（含 `publish.yml`）与一处工具链还债，引擎 `src/` 无改动，按补丁号递增。

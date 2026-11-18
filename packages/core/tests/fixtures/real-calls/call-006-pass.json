@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "4cbe896a",
+    "turn": 1,
+    "step": 4
+  },
+  "tool": "grep",
+  "args": {
+    "path": "E:\\DSH\\focus-guard-main\\packages",
+    "pattern": "seams\\.mjs|dsh/seams",
+    "include": "**/*.mjs"
+  },
+  "verdict": "pass",
+  "reason": null
+}

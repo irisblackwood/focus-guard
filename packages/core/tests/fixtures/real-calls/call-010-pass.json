@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "4cbe896a",
+    "turn": 1,
+    "step": 31
+  },
+  "tool": "send_message",
+  "args": {
+    "agent_id": "session-c00d686c-4153-42c9-a006-187badefbeaa",
+    "message": "完成：seams 拆分（纯抽取，行为不变）。\n\n新增文件（全部 ≤400 行/函数 ≤80/嵌套 ≤5）：\n- packages/core/src/dsh/seams/shared.mjs（112 行）sidOf/projDirOf/isSubagent/humanTextOf/loadOrInit/auditRow\n- packages/core/src/dsh/seams/session-start.mjs（153 行）sessionStartListener + 5 个私有 helper\n- packages/core/src/dsh/seams/prompt-rules.mjs（32 行）systemPromptRulesListener + withRulesSection\n- packages/core/src/dsh/seams/pre-step.mjs（180 行）preStepListener + 6 个私有 helper\n\n改动：packages/core/src/dsh/seams.mjs 由 498→137 行（Get-Content .Count 口径），退化为 re-export 三条缝 + turn-stopping。\n\n偏差说明（有意）：turnStoppingListener 留在 seams.mjs 而非新建 turn-stopping.mjs，因 packages/core/tests/kpi-single-source.test.mjs:33-35 直接读 seams.mjs 源码断言 `/from '\\.\\.\\/core\\/kpi\\.mjs'/`；搬走就会红，而\"不动其它文件\"是硬约束。其余三个监听器已按建议拆出。若你允许改那条测试，可再搬成 seams/turn-stopping.mjs。\n\n验证（均已跑）：\n1. `node packages/core/tools/smells.mjs --json` → 过滤 `dsh/seams` = 0 条（seams.mjs 与 seams/*.mjs 均无 file-length/long-function/deep-nesting）。\n2. `node --test seams.test.mjs lifecycle.test.mjs integration.test.mjs preGuard.test.mjs random-fuse.test.mjs trace-meta.test.mjs fuse-lifecycle.test.mjs blast-radius-report.test.mjs grants-ttl.test.mjs kpi-single-source.test.mjs` → tests 101 / pass 101 / fail 0（与改前基线完全一致）。\n3. 另跑 `acceptance quality-audit workspace-quality core-api-shapes toolchain-tools layering` → tests 140 / pass 140 / fail 0。\n4. `node packages/core/tools/lint.mjs` → seams 相关文件 0 条。\n\n未跑 git、未跑 npm run check；未改 hooks/guard.mjs、postProgress.mjs 等其它文件。判定条件/阈值/文案/审计字段逐字保留，仅做 helper 抽取与 await 顺序保持（sweep → blast → KPI 结算，与原实现一致）。"
+  },
+  "verdict": "pass",
+  "reason": null
+}

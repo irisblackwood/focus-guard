@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "352b868c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "write",
+  "args": {
+    "file_path": "C:\\Windows\\System32\\drivers\\etc\\ab-test.txt",
+    "content": "x"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 该工具需先调 fg_apply 申请授权（命中 write-system-path） [FG 存活 15/15]\"}]"
+}

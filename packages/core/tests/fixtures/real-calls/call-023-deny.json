@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "352b868c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "pwsh",
+  "args": {
+    "description": "Append ab-test marker to README",
+    "command": "Add-Content -Path \"packages/core/README.md\" -Value '<!-- ab-test -->'"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native 第3层状态校验：卷宗无取证记录（本会话未读 E:\\\\DSH\\\\focus-guard-main\\\\packages\\\\core\\\\README.md），改动类调用被拒一次；先读取该文件再重试（避免盲写） [FG 存活 1"
+}

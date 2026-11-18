@@ -28,10 +28,21 @@
  * （`.focus-guard/AUDIT.log`、`.ai/CASE_FILE.md` 就是验证安装是否生效的那两行）。
  * 写在这里不新增任何暴露面，反而少一次"名字藏在配置文件里、哪天配置文件丢了就失效"。
  *
+ * ## 什么时候跑（2026-11-18 变更：不再挂 `postinstall`）
+ *
+ * 原先挂在 `postinstall` 上，装完即清。**这条挂载把安装搞挂了**：包里带 lifecycle 脚本
+ * → pnpm 10 报 `ERR_PNPM_IGNORED_BUILDS` 并非零退出 → `dsh plugin` 作为 pnpm 的薄转发器，
+ * pnpm 一失败，它后面「把声明了 `dsh.bundle` 的依赖对账进 `dsh.profile.bundles`」那步
+ * 就被整段跳过。结果是包进了 `dependencies`、却没进 loader 清单，dsh 启动后插件根本不加载。
+ * 第三方验证平台看到的就是「装成功、清单里没有」（2026-11-17 实测）。
+ *
+ * 现在由会话启动缝调起（`src/dsh/seams/session-start.mjs` 的 `sweepOnce()`，每进程一次，
+ * 异步、失败静默）。清洁晚一步，换**装得上**——这笔交易值。
+ *
  * 用法：
  *   node packages/core/tools/first-run-sweep.mjs            # 检查并清理
  *   node packages/core/tools/first-run-sweep.mjs --dry      # 只说会删什么
- * 退出码：恒 0（挂在 postinstall 上，清洁失败不该让安装失败）
+ * 退出码：恒 0（清洁失败不该让任何事失败）
  */
 
 import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
@@ -118,6 +129,6 @@ function main() {
 try {
   main()
 } catch (e) {
-  /* 挂在 postinstall 上：清洁失败不该让用户装不上包。只报，不抛。 */
+  /* 由会话启动缝异步调起：清洁失败不该让用户装不上包，也不该让会话起不来。只报，不抛。 */
   process.stdout.write(`[sweep] 跳过（${e.message}）\n`)
 }

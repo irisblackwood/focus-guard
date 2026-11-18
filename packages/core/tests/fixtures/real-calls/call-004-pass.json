@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "4cbe896a",
+    "turn": 1,
+    "step": 2
+  },
+  "tool": "glob",
+  "args": {
+    "pattern": "packages/core/tests/*.test.mjs"
+  },
+  "verdict": "pass",
+  "reason": null
+}

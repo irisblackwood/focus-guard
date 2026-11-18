@@ -14,9 +14,9 @@
  * 无会话可读（如 CI 无 sessions 目录）时退出 0 并说明「跳过」，不制造假失败。
  */
 
-import { decodeSession as decode } from './lib/sessionDump.mjs'
+import { decodeSession as decode, walkSessionFiles } from './lib/sessionDump.mjs'
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { judgeDrift } from '../src/core/schemaDrift.mjs'
@@ -30,28 +30,7 @@ const LIMIT = Number(process.env.FG_SCHEMA_SESSIONS || 20)
 
 const argv = process.argv.slice(2)
 
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (e === 'session.v4.jsonl.zstd') out.push({ f: p, m: st.mtimeMs, size: st.size })
-  }
-  return out
-}
-
-const files = walk(SESSIONS)
+const files = walkSessionFiles(SESSIONS)
   .filter((x) => x.size < 3 * 1024 * 1024)
   .sort((a, b) => b.m - a.m)
   .slice(0, LIMIT)

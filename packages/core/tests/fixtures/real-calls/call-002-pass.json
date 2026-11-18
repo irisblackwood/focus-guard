@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "4cbe896a",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "node packages/core/tools/smells.mjs --json 2>&1 | Select-Object -First 40",
+    "description": "Run structure smell scanner"
+  },
+  "verdict": "pass",
+  "reason": null
+}

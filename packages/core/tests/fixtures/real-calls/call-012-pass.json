@@ -1,0 +1,13 @@
+{
+  "source": {
+    "session": "5c62a966",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "glob",
+  "args": {
+    "pattern": "packages/core/tests/changelog-format.test.mjs"
+  },
+  "verdict": "pass",
+  "reason": null
+}

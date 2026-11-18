@@ -13,8 +13,8 @@
  *   node packages/core/tools/capture-fixtures.mjs --since 24h   # 只取最近 24h
  */
 
-import { decodeSession as decode } from './lib/sessionDump.mjs'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
+import { decodeSession as decode, walkSessionFiles } from './lib/sessionDump.mjs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -49,27 +49,6 @@ const DENY_RE =
 const DENY_PREFIX_RE = /^\s*Error[:：]/
 const DENY_ZCODE_RE = /^\s*【拦截】/
 
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (e === 'session.v4.jsonl.zstd') out.push({ f: p, m: st.mtimeMs, size: st.size })
-  }
-  return out
-}
-
 /** 截断过长的参数值（content/command 可能上千字），只保留形状。 */
 function compactArg(value, limit = 160) {
   if (typeof value === 'string') return value.length > limit ? `${value.slice(0, limit)}…(${value.length})` : value
@@ -82,7 +61,7 @@ function compactArg(value, limit = 160) {
   return value
 }
 
-const files = walk(SESSIONS)
+const files = walkSessionFiles(SESSIONS)
   .filter((x) => x.size < MAX_BYTES)
   .sort((a, b) => b.m - a.m)
   .slice(0, LIMIT)

@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "352b868c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "pwsh",
+  "args": {
+    "description": "Attempt npm publish dry-run",
+    "command": "npm publish --dry-run --access public"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: focus-guard-native: 该工具需先调 fg_apply 申请授权（命中 publish）；另有 1 条待批已合并（可一次申请：tool=\\\"pwsh,write\\\"） [FG 存活 15/15]\"}]"
+}

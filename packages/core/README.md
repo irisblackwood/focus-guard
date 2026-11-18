@@ -1,6 +1,6 @@
 # Keepward
 
-> **状态**：参考 · 适用版本 3.5.1 · 最后核对 2026-11-17
+> **状态**：参考 · 适用版本 3.5.2 · 最后核对 2026-11-17
 
 > Formerly **FocusGuard**. Renamed in 3.5.0 — the package name `focus-guard`, the plugin id,
 > the `.focus-guard/` state directory and the `FG_*` environment variables are **unchanged**.
@@ -27,7 +27,7 @@ dsh plugin --profile <your-profile> add focus-guard
 
 | Form | Gets you |
 |---|---|
-| `add focus-guard` | the last npm release (currently `3.5.1`), signed with provenance |
+| `add focus-guard` | the last npm release (currently `3.5.2`), signed with provenance |
 | `add github:irisblackwood/focus-guard#path:/packages/core` | whatever is on `main` right now — may be ahead of the release |
 | `add <path>/packages/core` | your local working copy (dev) |
 
@@ -113,9 +113,9 @@ Three numbers, three meanings — do not mix them:
 
 | Surface | Value | Meaning |
 |---|---|---|
-| npm registry | `3.5.1` | last `npm publish` (2026-11-17, OIDC trusted publishing + provenance) |
-| GitHub `main` | `3.5.1` | `PUBLISHED_MAX` — what "released" means for this project |
-| This tree | `3.5.1` | level with released; unpushed work runs ahead, and ahead is not released |
+| npm registry | `3.5.2` | last `npm publish` (2026-11-17, OIDC trusted publishing + provenance) |
+| GitHub `main` | `3.5.2` | `PUBLISHED_MAX` — what "released" means for this project |
+| This tree | `3.5.2` | level with released; unpushed work runs ahead, and ahead is not released |
 
 ## Docs
 

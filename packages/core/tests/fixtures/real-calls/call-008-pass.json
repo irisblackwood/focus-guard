@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "4cbe896a",
+    "turn": 1,
+    "step": 6
+  },
+  "tool": "pwsh",
+  "args": {
+    "command": "node -e \"const {readFileSync}=require('fs');const {stripLiterals}=require('./packages/core/tools/lib/source-text.mjs')||{};\" 2>&1 | Out-String",
+    "description": "Probe module import style of source-text"
+  },
+  "verdict": "pass",
+  "reason": null
+}

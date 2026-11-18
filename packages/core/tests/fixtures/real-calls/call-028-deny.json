@@ -1,0 +1,14 @@
+{
+  "source": {
+    "session": "352b868c",
+    "turn": 1,
+    "step": 1
+  },
+  "tool": "pwsh",
+  "args": {
+    "description": "Attempt cat package.json piped head",
+    "command": "cat packages/core/package.json | head -20"
+  },
+  "verdict": "deny",
+  "reason": "[{\"type\":\"text\",\"text\":\"Error: 本机环境：用 bat 替代 cat。命令：cat packages/core/package.json | head -20 [FG 存活 15/15]\"}]"
+}

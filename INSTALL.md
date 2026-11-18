@@ -1,6 +1,6 @@
-# 司会 Keepward 安装指南（v3.5.1）
+# 司会 Keepward 安装指南（v3.5.2）
 
-> **状态**：权威 · 适用版本 3.5.1 · 最后核对 2026-11-17
+> **状态**：权威 · 适用版本 3.5.2 · 最后核对 2026-11-17
 
 前置要求：Node.js ≥ 18.17（引擎零依赖，仅用内置模块；与 `package.json` 的 `engines` 一致）。逐行验证：
 
@@ -78,7 +78,7 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
 
 要点：
 
-1. **三种写法装的是同一个包，差别只在版本来源**：npm = 最近一次发版（当前 3.5.1）；
+1. **三种写法装的是同一个包，差别只在版本来源**：npm = 最近一次发版（当前 3.5.2）；
    `github:` = `main` 最新（可能领先已发布版本）；本地目录 = 你手上这份。
    `dsh plugin` 是 pnpm 的包装，`add` 后面就是 pnpm spec，所以裸包名天然合法。
 2. **② 为什么必须带 `#path:/packages/core`**：本仓是 monorepo，仓库根的 `package.json` 不是插件包，
@@ -149,6 +149,16 @@ marketplace 清单：.agents/plugins/ → .claude-plugin/ → .cursor-plugin/ �
 
 - ZCode 的 `.zcode-plugin/` 格式 **DSH 不认**，属正常；本仓库的 `.claude-plugin/plugin.json` 命中 DSH 插件清单查找第 2 位（兼容层加载），根 `marketplace.json` 命中 marketplace 第 5 位。
 - 仍找不到：确认安装源指向仓库根目录（含 `package.json` 的那层），而不是 `hooks/`、`skills/` 等子目录。
+
+### 1''. 装成功了，但 dsh 的插件清单里没有它
+
+- **判据一条**：打开 `<profile>/package.json`，看 `dsh.profile.bundles` 数组里有没有目标包。
+  只有 `dependencies` 里有**不算装上**——dsh 的 loader 清单是按 `bundles` 展开的。
+- **已知病因（3.5.1 及以前）**：包里带 `postinstall`，pnpm 10 报 `ERR_PNPM_IGNORED_BUILDS`
+  并非零退出；`dsh plugin` 是 pnpm 的薄转发器，pnpm 一失败，后面「把声明了 `dsh.bundle`
+  的依赖对账进 `bundles`」那步就被整段跳过。**3.5.2 起包里已无任何 lifecycle 脚本。**
+- **修复**：升级到 3.5.2 后重跑一次 `dsh plugin --profile <p> add focus-guard`；
+  若 pnpm 仍拦脚本，先 `pnpm approve-builds` 再装。装完按上面那条判据核一次。
 
 ### 2. L3 熔断解除
 

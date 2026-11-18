@@ -1,0 +1,15 @@
+{
+  "source": {
+    "session": "723015a5",
+    "turn": 1,
+    "step": 11
+  },
+  "tool": "edit",
+  "args": {
+    "file_path": "E:\\DSH\\focus-guard-main\\CHANGELOG.md",
+    "old_string": "- feat(watch): **压缩监察**——`compactionWatch.mjs` 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕，不写 surface、不 cancel。\n  - **口径**：`action=compaction*`；压缩归 DSH 内置栈，第三方不再重复实现。",
+    "new_string": "- feat(watch): **压缩监察**——`compactionWatch.mjs` 只观察 `compaction/start|end|prune` 与 `agent/request-error` 撞窗并留痕。\n  - **口径**：`action=compaction*`；不写 surface、不 cancel；压缩归 DSH 内置栈，第三方不再重复实现。"
+  },
+  "verdict": "pass",
+  "reason": null
+}

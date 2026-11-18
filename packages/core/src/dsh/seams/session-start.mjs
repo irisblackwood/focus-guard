@@ -36,6 +36,34 @@ const VERSION_CANDIDATES = ['hooks/guard.mjs', 'focus-guard/hooks/guard.mjs', 'p
 
 /** 指纹生成器（安装后目录结构不变：src/dsh/seams → ../../../tools）。 */
 const ENV_FP_TOOL = fileURLToPath(new URL('../../../tools/env-fingerprint.mjs', import.meta.url))
+/** 首次运行自清洁（同一个上溯约定：`src/dsh/seams` → `../../../tools`）。 */
+const SWEEP_TOOL = fileURLToPath(new URL('../../../tools/first-run-sweep.mjs', import.meta.url))
+
+/** 自清洁每进程只跑一次。 */
+let swept = false
+
+/**
+ * 首次运行自清洁，**不再挂在 `postinstall` 上**（2026-11-18 移到这里）。
+ *
+ * 病根：包里带 `postinstall` → pnpm 10 报 `ERR_PNPM_IGNORED_BUILDS` 并非零退出
+ * → `dsh plugin` 是 pnpm 的薄转发器，pnpm 一失败，它后面那步
+ * 「把声明了 `dsh.bundle` 的依赖对账进 `dsh.profile.bundles`」就被整段跳过
+ * → 包躺在 `dependencies` 里，却不在 loader 清单里。表现是 dsh 起来了、
+ * 插件没加载，第三方验证平台报 `L5.4 not-found`（2026-11-17 实测，3.5.1 之前都有）。
+ *
+ * 代价：清洁晚一步（首次会话启动而非装包瞬间）。收益：**装得上**。
+ * 脚本自己的三道保险不变（有 `.git` 不动、是本包、realpath 不逃出包根）。
+ */
+function sweepOnce() {
+  if (swept) return
+  swept = true
+  try {
+    const child = spawn(process.execPath, [SWEEP_TOOL], { stdio: 'ignore', windowsHide: true })
+    child.unref()
+  } catch {
+    /* 清洁失败不影响会话——它是第二道闸，不是执法缝 */
+  }
+}
 
 export function sessionStartListener({ warn } = {}) {
   return async ({ agent } = {}) => {
@@ -43,6 +71,8 @@ export function sessionStartListener({ warn } = {}) {
       const sid = sidOf(agent)
       const file = statePath(sid)
       const projDir = projDirOf(agent)
+      // 清扫只碰「安装副本里误打包的运行期产物」，与子代理无关，但每进程跑一次就够。
+      sweepOnce()
       // 先把「本会话的工作区」登记给母版审计 provider（2026-11-15）。放在子代理早退**之前**：
       // 子代理与父会话同工作区，登记了也只是覆盖同一个值，漏登记反而会让子代理的审计跑偏。
       rememberWorkspace(agent)

@@ -1,6 +1,6 @@
 # 司会 Keepward
 
-> **状态**：权威 · 适用版本 3.5.1 · 最后核对 2026-11-17
+> **状态**：权威 · 适用版本 3.5.2 · 最后核对 2026-11-17
 
 [English](packages/core/README.md) · 中文
 
@@ -9,11 +9,11 @@
 > 新名取《周礼·天官》「司会」，掌邦国财政考核，读 **sī kuài**（会计之会，非 huì）。
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.5.1-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.5.2-369eff)](CHANGELOG.md)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 已发 `3.5.1`（2026-11-17，OIDC 受信发布 + provenance）。
+> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 已发 `3.5.2`（2026-11-17，OIDC 受信发布 + provenance）。
 > 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
 **AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `司会` / `Keepward` 保留，衍生版本不得沿用；旧名 `FocusGuard` / `聚焦护栏` 作为历史别名同样保留。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
@@ -68,9 +68,14 @@ npm install focus-guard
 
 验证生效：新会话出现执法模型注入，且工作区生成 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log`。逐行步骤、卸载、FAQ 见 [INSTALL.md](INSTALL.md)。
 
-**首次安装会自清洁**：发布物里不该有审计日志、脑索引、私有面目录。万一哪天打包配置被改错带了出去，
-`postinstall` 会把这些误打包的运行期产物清掉，脑从 0 开始长（法条随文档重新读入）。
+**首次会话会自清洁**：发布物里不该有审计日志、脑索引、私有面目录。万一哪天打包配置被改错带了出去，
+首次会话启动时会把误打包的运行期产物清掉，脑从 0 开始长（法条随文档重新读入）。
 判据是 `.git`——开发副本里的私有产物是**数据**，一律不动；只有安装副本才清。手动跑：`npm run privacy:sweep`。
+
+> 为什么不在 `postinstall` 里做（2026-11-18）：带 lifecycle 脚本的包会让 pnpm 报
+> `ERR_PNPM_IGNORED_BUILDS` 并非零退出，而 `dsh plugin` 是 pnpm 的转发器——它一失败，
+> 「把包对账进 `dsh.profile.bundles`」那步就被跳过。结果是**装上了、清单里没有**。
+> 现在包里没有任何 lifecycle 脚本。
 
 ## 看一眼你的脑（3D，可选）
 
@@ -121,7 +126,7 @@ npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/A
 
 ## 版本
 
-当前 **v3.5.1**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前 **v3.5.2**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 
