@@ -24,7 +24,7 @@
 | [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-20 | 2 | 0 |
 | [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
-| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-20 | 2 | 0 |
+| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-22 | 0 | 0 |
 | [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`packages/core/skills/focus-plan/SKILL.md`](../packages/core/skills/focus-plan/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 2 | 0 |
 | [`packages/core/skills/focus-rules/SKILL.md`](../packages/core/skills/focus-rules/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 2 | 0 |
@@ -69,7 +69,7 @@ packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-19
 packages/core/docs/RELEASE-POLICY.md|权威|3.5.3|2026-11-19
 packages/core/docs/RULES.md|权威|3.5.3|2026-11-20
 packages/core/docs/THREAT-MODEL.md|权威|3.5.3|2026-11-19
-packages/core/docs/VERSION-PLAN.md|权威|3.5.3|2026-11-20
+packages/core/docs/VERSION-PLAN.md|权威|3.5.3|2026-11-22
 packages/core/docs/WRITING-STYLE.md|权威|3.5.3|2026-11-19
 packages/core/skills/focus-plan/SKILL.md|权威|3.5.3|2026-11-20
 packages/core/skills/focus-rules/SKILL.md|权威|3.5.3|2026-11-20
