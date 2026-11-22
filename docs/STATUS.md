@@ -43,9 +43,9 @@
 | [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 19 | — |
 | [`packages/core/assets/NOTICE.md`](../packages/core/assets/NOTICE.md) | 参考 | — | — | — | — |
 | [`packages/core/docs/MCP-4.0-PLAN.md`](../packages/core/docs/MCP-4.0-PLAN.md) | 参考 | 4.0 | 2026-10-28 | 25 | — |
-| [`packages/core/docs/AB-PROMPTS.md`](../packages/core/docs/AB-PROMPTS.md) | 台账 | — | 2026-10-28 | 25 | — |
-| [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-10-28 | 25 | — |
-| [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-10-28 | 25 | — |
+| [`packages/core/docs/AB-PROMPTS.md`](../packages/core/docs/AB-PROMPTS.md) | 台账 | — | 2026-11-22 | 0 | — |
+| [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-11-22 | 0 | — |
+| [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-11-22 | 0 | — |
 | [`docs/vault-notes/README.md`](../docs/vault-notes/README.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/TOP-TAKEAWAYS-FG3.md`](../docs/vault-notes/TOP-TAKEAWAYS-FG3.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/vendors/Anthropic.md`](../docs/vault-notes/vendors/Anthropic.md) | 归档 | — | — | — | — |
@@ -87,9 +87,9 @@ packages/core/README.zh-CN.md|参考|3.5.3|2026-11-19
 docs/GOVERNANCE-LAYERS.md|参考|—|2026-11-03
 packages/core/assets/NOTICE.md|参考|—|—
 packages/core/docs/MCP-4.0-PLAN.md|参考|4.0|2026-10-28
-packages/core/docs/AB-PROMPTS.md|台账|—|2026-10-28
-packages/core/docs/AB-SESSION.md|台账|—|2026-10-28
-packages/core/docs/deepseek-pricing-audit.md|台账|—|2026-10-28
+packages/core/docs/AB-PROMPTS.md|台账|—|2026-11-22
+packages/core/docs/AB-SESSION.md|台账|—|2026-11-22
+packages/core/docs/deepseek-pricing-audit.md|台账|—|2026-11-22
 docs/vault-notes/README.md|归档|—|—
 docs/vault-notes/TOP-TAKEAWAYS-FG3.md|归档|—|—
 docs/vault-notes/vendors/Anthropic.md|归档|—|—
