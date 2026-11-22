@@ -432,7 +432,7 @@ focus-guard/
 │                   focus-rules/SKILL.md（法典运行时镜像 §7-17，按需加载）
 │                   focus-plan/SKILL.md（动笔前拆解，动笔闸认它）
 ├── docs/           RULES.md（本文件）/ LEGISLATION-LAW.md（MASTER-PLAN 两份已移入 docs/archive/）
-├── tests/          acceptance.test.mjs（86 用例）/ threat-eval.mjs / token-bench.mjs
+├── tests/          acceptance.test.mjs（102 用例）/ threat-eval.mjs / token-bench.mjs
 ├── .zcode-plugin/  ZCode 插件清单        .claude-plugin/  DSH 兼容层清单
 ├── .github/        CI（验收 + 对抗评测）
 ├── package.json / marketplace.json / INSTALL.md / README.md / CHANGELOG.md
@@ -458,15 +458,15 @@ focus-guard/
 
 实际发布结构为适配 ZCode 插件规范，与上述蓝图存在以下映射关系：
 
-| 蓝图路径 | 实际部署 | 说明 |
+| 蓝图路径（历史命名，非现行路径） | 实际部署 | 说明 |
 |----------|----------|------|
-| `docs/RULES.md` | `docs/RULES.md` | 本文件，2026-09-29 新建归档 |
-| `src/guard.mjs` | `hooks/guard.mjs` | 引擎 v2.5.3；常驻提示词以 `SESSION_RULES` 常量内嵌，经 SessionStart 注入 |
-| `src/constants.mjs` | 并入 `hooks/guard.mjs` | 阈值未独立成文件 |
-| `prompts/core-discipline.md` | `skills/focus-rules/SKILL.md`（§7–§8） | 条文镜像，共 72 行 |
+| docs/RULES.md | `packages/core/docs/RULES.md` | 本文件，2026-09-29 新建归档 |
+| src/guard.mjs | `packages/core/hooks/guard.mjs`（已封存） | 引擎 v2.5.3；常驻提示词以 `SESSION_RULES` 常量内嵌，经 SessionStart 注入 |
+| src/constants.mjs | 并入 `packages/core/src/core/constants.mjs` | 阈值常量独立成文件（`SESSION_RULES` / `FUSE_NOTICE` 等） |
+| prompts/core-discipline.md | `packages/core/skills/focus-rules/SKILL.md`（§7–§8） | 条文镜像 |
 | `README.md` | `README.md` | 已就绪 |
 | — | `.focus-guard/AUDIT.log` | 执法档案（JSONL，字段见表6；工作区不可写时回退系统临时目录，再失败则上 stderr） |
-| — | `tests/acceptance.test.mjs` | 验收 90 用例（含版本一致性/五处说明互不重复/文档-实现对齐/hooks↔引擎映射/部署漂移/授权识别/Stop 一次性打回自检；另含 threat-eval 对抗评测、token-bench 报文基准） |
+| — | `tests/acceptance.test.mjs` | 验收 102 用例（含版本一致性/五处说明互不重复/文档-实现对齐/hooks↔引擎映射/授权识别/Stop 一次性打回自检；另含 threat-eval 对抗评测、token-bench 报文基准） |
 
 **实施差异备忘**（引擎相对初版蓝图）：
 

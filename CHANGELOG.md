@@ -73,6 +73,15 @@
   `--dump-config` 自查命令区分 Windows `findstr` 与 Git Bash `grep`。
 - fix(docs): 〔开发期〕ARCHITECTURE / RELEASE-POLICY 的「七处清单」同步为「八处（含 lock）」。
 
+### docs:drift 扫描器（2026-11-22）
+
+- feat(docs): 新增 `tools/docs-drift.mjs` + `npm run docs:drift`——把文档里写死的事实拿代码对一遍
+  - 三类判据：`npm run <script>` 必须存在、反引号里的仓库路径必须存在、`FG_*` 必须出现在 `packages/core`；
+  - 跳过外部项目路径、运行期产物目录、计划/设计段落；`--strict` 有漂移则 exit 1。
+- fix(docs): 〔开发期〕按首跑清单修掉 9 处真实漂移——`docs/analysis/`→`docs/vault-notes/`、
+  删掉不存在的 `FG_JUDGE`、`knowledge:index` 标计划、蓝图路径与归档 HANDOFF 路径改指现行位置。
+- fix(docs): 〔开发期〕计数口径对齐代码：判定基准 14→15 用例、acceptance 86/90→102 用例。
+
 ### 兼容声明：约束存在，但平台看不见
 
 - feat(compat): 兼容范围写进 `engines.dsh`，不再只借 `peerDependencies` 表达

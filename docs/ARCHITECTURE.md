@@ -392,7 +392,7 @@ node --test packages/core/tests/integration.test.mjs  # 端到端（画像→审
 node --test packages/core/tests/profile.test.mjs      # 画像加载
 npm run eval                                         # 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即 exit 1
 npm run bench                                        # 报文体量基准
-npm run bench:decision                               # 判定基准：14 用例×10 轮 → 准确率/误伤率/p50-p95（基线锁定）
+npm run bench:decision                               # 判定基准：15 用例×10 轮 → 准确率/误伤率/p50-p95（基线锁定）
 npm run bench:tasks                                  # 任务测试：50 组真实任务串 → 组通过率/误伤/漏拦
 npm run bench:cost                                   # 成本基准：读台账【五】与 AUDIT.log → token/USD/拦截/误伤比
 npm run check                                        # 全链：测试 + eval + selftest + 文档/房规/结构闸（pre-push 跑的就是它）
@@ -431,6 +431,6 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 - **引号内的危险字样：按上下文分级**（3.0.6）——`echo "git push"`、`grep -rn "delete from users"` 这类**被引用的数据**经三条判据（引号内 / 数据标记 / 只读命令）降级到语义预判，不再直接拒；**执行外壳内的一律不豁免**（`bash -c "…"`、`node -e "…"`、`eval "…"`），因为那是真执行。仍未覆盖的形态：无引号又无数据标记的裸引用、`rm${IFS}-rf` 类拼接。判据名与命中片段写入 `AUDIT.log` 可复核；
 - **特征库不可能堵完**：`rm${IFS}-rf`、base64 管道、shell 别名等在射程之外，护栏治的是"顺手失控"，不是定向对抗；
 - **免重读的边界**：指纹一致但会话上下文已被压缩时，用 `offset` 增量读或请批示；【二】依赖声明与【三】TTL 列人工标注可按需放宽/收紧；
-- **行业对照（2026-10 系统提示词研究，详见 `docs/analysis/`）**：各大厂商把 Agent 持久性推到极致（"persist until complete"）且提示词层无一设预算机制。FocusGuard 的定位由此清晰：坚持性交给模型自判（厂商已做好），**成本台账与破坏性关卡由宿主侧硬约束承担**——熔断随模型进化从常开保险丝退为断路器，但断路器不拆；
+- **行业对照（2026-10 系统提示词研究，详见 `docs/vault-notes/`）**：各大厂商把 Agent 持久性推到极致（"persist until complete"）且提示词层无一设预算机制。FocusGuard 的定位由此清晰：坚持性交给模型自判（厂商已做好），**成本台账与破坏性关卡由宿主侧硬约束承担**——熔断随模型进化从常开保险丝退为断路器，但断路器不拆；
 - **违禁词扫描已废弃**（v3.0 起"不查词"）：空气层允许口语与主观语气，执法只看行为。
 

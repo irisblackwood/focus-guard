@@ -68,7 +68,8 @@
     "manifest:sync": "node packages/core/tools/manifest-sync.mjs --write",
     "gate:inputs": "node packages/core/tools/gate-inputs.mjs",
     "brain:distill": "node packages/core/tools/memory-distill.mjs",
-    "brain:asset": "node packages/core/tools/make-cortex-asset.mjs"
+    "brain:asset": "node packages/core/tools/make-cortex-asset.mjs",
+    "docs:drift": "node packages/core/tools/docs-drift.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

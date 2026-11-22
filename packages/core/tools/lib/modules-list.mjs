@@ -313,6 +313,7 @@ export const MODULES = [
     note: '文档判据、状态总表、资料书与全仓成书——管的是文字产物',
     paths: [
       'packages/core/tools/docs-lint.mjs',
+      'packages/core/tools/docs-drift.mjs',
       'packages/core/tools/docs-book.mjs',
       'packages/core/tools/lib/docs-core.mjs',
       'packages/core/tools/lib/docs-status.mjs',
