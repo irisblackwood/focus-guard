@@ -78,8 +78,16 @@ const skillsChars = blockLen(firstUserText, '<available_skills>', '</available_s
 // 锚点用两版注入块的公共前缀 `<focus-guard `：2026-10-24 前的完整版开头是
 // `focus-guard AI履职执法模型v3.0`，之后的精简版是 `focus-guard v3.0`。旧锚点只认前者，
 // 精简版上线后 indexOf 恒 -1 → 本行恒报 0（读起来像"没成本"）。历史会话仍要能测，故取公共前缀。
-const fgRulesChars = blockLen(firstUserText, '<focus-guard ', 'docs/RULES.md')
-const fgWsChars = blockLen(firstUserText, '[FG-WORKSPACE]', '决策：') || 0
+//
+// 2026-11-20 修第二层：FG 注入已从**首个 user 消息**搬到 **system/message**。
+// 实测 6/6 会话 `[FG-WORKSPACE]` 与 `<focus-guard ` 全部命中 system、user 命中 0 条，
+// 而旧口径只查 firstUserText → 两行双双恒报 0。现两处都查：
+// 历史会话（注入在 user）仍能测，当前会话（注入在 system）不再漏。
+// 注意：FG 注入是 system 段的**子集**，只作展示，不参与 totalFixed 合计（避免重复计数）。
+const sysCorpus = sysMsgs.map((l) => JSON.stringify((l.data && l.data.content) || l.data || '')).join('\n')
+const fgCorpus = `${firstUserText}\n${sysCorpus}`
+const fgRulesChars = blockLen(fgCorpus, '<focus-guard ', 'docs/RULES.md')
+const fgWsChars = blockLen(fgCorpus, '[FG-WORKSPACE]', '决策：') || 0
 const costChars = blockLen(firstUserText, '【成本】', '【成本】') || 20
 
 const steps = lines.filter((l) => l.type === 'step/start').length

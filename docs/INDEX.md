@@ -1,6 +1,6 @@
 # 文档索引（docs/INDEX.md）
 
-> **状态**：权威 · 适用版本 3.4.0 · 最后核对 2026-11-11
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
 
 > 3.3 D2：新会话按本页在 **10 分钟**内定位到该读的那份文档。
 > 状态口径：**权威** = 与实现同步、可据此裁决；**参考** = 有价值但可能滞后；**台账** = 过程记录，读取前先看日期；**归档** = 已过期，仅作历史。
@@ -14,39 +14,53 @@
 4. 版本计划 / 里程碑语义 → [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md)
 5. 发版规矩 → [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md)
 6. 基准与数字单点 → [BENCH.md](../packages/core/docs/BENCH.md)
-7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么 → 最新一份 HANDOFF
+7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么这么改 / 排到哪 → [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md)；过程记录 → [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md)（3.2.x 时期那一轮，**此后未再写 HANDOFF**）
 8. **发现新缺口怎么记账** → [RULES.md](../packages/core/docs/RULES.md) **第十五章之四（第九十二条）**：适用范围、标记编排版本、两条必写理由、记录不等于动手、验收须可复跑
 9. **记忆改革要抄什么、不抄什么** → [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) **§五·补**：外部参照 `memory-brain` 的**48 条可抄清单**（判据 7 / 参数 8 / 工程 9 / 开机包 10 / 注入 4 / 输出护栏 6 / 幂等 4），**三个最大差距**是「没有降级为倾向这一档」「据是结论不是方法」「没有开机包」；另有**8 件不抄**、**3D 脑 UI 与 CC BY-SA 3.0 红线**、不接运行时的两条硬理由，以及写死的判据「记忆的消费者是闸门，不是模型」
 10. **改判定链之前查什么、这些约束从哪来** → 两份配对读：[DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md)（判据）+ [THEORY-BASIS.md](THEORY-BASIS.md)（来源）。前者十一条约束、失效模式与落点；后者七层理论、50 脑区归类、记忆与神经元机制、8 篇文献。**约束必须能说出「不做会怎么坏」，说不出的不进判据页**
 11. **哪些漏洞要修、哪些按判据不做** → [THREAT-MODEL.md](../packages/core/docs/THREAT-MODEL.md)：判据是「**本插件不防攻击者，防的是插件自己把用户的机器/数据弄坏**」。含四类损害（删用户东西 / 漏凭据 / 写坏文件 / 静默失效）、2026-11-01 红队的已修清单，以及**三条明确不做**（属主校验 / 状态签名 / `FG_PYTHON` 白名单）——**别再把它们当缺口翻出来**
 
-## 二、权威文档
+## 二、文档目录
 
-| 文档 | 角色 | 状态 | 适用版本 | 最后核对 |
-|---|---|---|---|---|
-| [README.md](../README.md) | 入口页：30 秒速览 / 快速开始 / 文档地图 | 权威 | 3.2.1 | 2026-10-28 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） | 权威 | 3.4.0 | 2026-11-11 |
-| [GOVERNANCE-LAYERS.md](GOVERNANCE-LAYERS.md) | 五层治理对账 + 四条待裁决 + 编排版本 | 参考 | 3.3.2 / 3.5.0 / 4.0-P2 / 4.5 | 2026-11-03 |
-| [DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md) | 十一条设计约束 + 失效模式 + 落点；零件→约束转换规则 | 权威 | 3.4.0 | 2026-11-11 |
-| [THEORY-BASIS.md](THEORY-BASIS.md) | 约束的来源：七层理论 / 脑区归类 / 记忆与神经元机制 / 文献清单 | 参考 | 3.4.0 | 2026-11-11 |
-| [INSTALL.md](../INSTALL.md) | 唯一安装源 | 权威 | 3.2.1 | 2026-10-24 |
-| [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） | 权威 | 3.3.3 | 2026-11-07 |
-| [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 | 权威 | 3.2.1 | 2026-10-27 |
-| [ARCH-MAP.md](../packages/core/docs/ARCH-MAP.md) | 能力状态 + 代码锚点 + 缺口 | 权威 | 3.2.1 | 2026-10-27 |
-| [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md) | 3.3→4.0 排期与完成态语义 | 权威 | 3.2.1 | 2026-10-28 |
-| [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 | 权威 | 3.2.1 | 2026-10-28 |
-| [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 | 权威 | 3.2.1 | 2026-10-27 |
-| [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 | 权威 | 3.3.1 | 2026-11-02 |
-| [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） | 权威 | 3.2.1 | 2026-10-29 |
-| [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 | 参考 | 4.0 前置 | 2026-10-19 |
-| [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 | 参考 | 4.5 前置 | 2026-10-30 |
-| [BRAIN-VIZ.md](../packages/core/docs/BRAIN-VIZ.md) | 脑可视化渲染实现：两个版本的区别 / 星空与黑洞怎么画 / draw call 拆分 / `?stars=0` 的用途 | 参考 | 3.4.0 | 2026-11-11 |
-| [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 | 参考 | 3.2.1 | 2026-10-27 |
-| [HOOK-ORDERING.md](../packages/core/docs/HOOK-ORDERING.md) | 钩子定序核查（四条路与各自代价） | 参考 | 3.3.0 | 2026-10-29 |
-| [packages/core/README.md](../packages/core/README.md) | 核心包英文说明 | 参考 | 3.2.1 | 2026-10-27 |
-| [packages/core/README.zh-CN.md](../packages/core/README.zh-CN.md) | 核心包中文说明 | 参考 | 3.2.1 | 2026-10-27 |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | 提交与 CLA | 参考 | 3.2.1 | 2026-10-19 |
-| [packages/extended/bridges/README.md](../packages/extended/bridges/README.md) | 外接桥契约 | 参考 | 3.2.1 | 2026-10-08 |
+> **状态 / 适用版本 / 最后核对 / 落后几档，统一看 [STATUS.md](STATUS.md)，本页不抄。**
+> **份数、模块数、行数一类会变的计数，本页也不抄**——写「40 份」的那行在文档涨到 42 份时就成了假话，
+> 而没有任何判据盯着本页的描述列（它只查链接可达与覆盖完整）。要数字就去源表取。
+>
+> 2026-11-19 之前本页手抄过这三列，结果 **18 处与文档自己的状态头对不上**：
+> `RULES.md` 自己写 3.3.0·10-28，本页写 3.2.1·10-27；`ARCH-MAP.md` 自己写 3.5.2，本页写 3.2.1。
+> 旧判据只查「链接点不点得到」，**不查抄的数字对不对**，两份真值就这样分叉了二十多天。
+> 修法是**取消手抄**：真值只有一个（每份文档开头那行 `> **状态**：…`），
+> `npm run docs:status` 把它拼成 [STATUS.md](STATUS.md)，手改会被 `docs:lint` 判 `status-table-stale`。
+
+| 文档 | 角色 |
+|---|---|
+| [STATUS.md](STATUS.md) | **全仓文档的状态总表（自动生成）**：谁落后几档、谁多久没核对，一页看完；份数以表内「合计」为准，本页不抄数字 |
+| [MODULES.md](MODULES.md) | **代码模块修订台账（自动生成）**：35 个功能模块各自的最新/中位/最久修订位置，以及「其后全仓又提交了多少次」；防某块被遗忘 |
+| [README.md](../README.md) | 入口页：30 秒速览 / 快速开始 / 文档地图 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 机制正文（触发/处罚/预算/卷宗/审批/资格/委派/配置/环境变量） |
+| [GOVERNANCE-LAYERS.md](GOVERNANCE-LAYERS.md) | 五层治理对账 + 四条待裁决 + 编排版本 |
+| [DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md) | 十一条设计约束 + 失效模式 + 落点；零件→约束转换规则 |
+| [THEORY-BASIS.md](THEORY-BASIS.md) | 约束的来源：七层理论 / 脑区归类 / 记忆与神经元机制 / 文献清单 |
+| [THREAT-MODEL.md](../packages/core/docs/THREAT-MODEL.md) | 四类损害 + 已修清单 + 三条明确不做 |
+| [INSTALL.md](../INSTALL.md) | 唯一安装源 |
+| [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） |
+| [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 |
+| [ARCH-MAP.md](../packages/core/docs/ARCH-MAP.md) | 能力状态 + 代码锚点 + 缺口 |
+| [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md) | **计划唯一载体**：3.3→4.0 排期与完成态语义，含 §1.7 测试债务六档（3.5.4→3.5.9）与退出判据 |
+| [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 |
+| [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 |
+| [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 |
+| [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） |
+| [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 |
+| [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 |
+| [BRAIN-VIZ.md](../packages/core/docs/BRAIN-VIZ.md) | 脑可视化渲染实现：一个脚本三种跑法 / 星空与黑洞怎么画 / draw call 拆分 |
+| [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 |
+| [HOOK-ORDERING.md](../packages/core/docs/HOOK-ORDERING.md) | 钩子定序核查（四条路与各自代价） |
+| [packages/core/README.md](../packages/core/README.md) | 核心包英文说明 |
+| [packages/core/README.zh-CN.md](../packages/core/README.zh-CN.md) | 核心包中文说明 |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | 提交与 CLA |
+| [packages/extended/bridges/README.md](../packages/extended/bridges/README.md) | 外接桥契约 |
+| [vault-notes/](vault-notes/) | 外部资料摘录：厂商研读 + FG3 要点摘录。**正文被 `.git/info/exclude` 屏蔽，仓内只有题录清单**（换机后用 `npm run privacy:gate` 重建）；非项目事实源，**不作裁决依据** |
 
 > **2026-11-07 核对范围（只报核过的）**：`ARCHITECTURE.md` 只核了卷宗 / 留痕 / 环境变量三节——发现并改正 3 处（TTL 判据还写着已废弃的四档阶梯、3 个 `FG_*` 漏登记、计数与表行数不符），并补了两条保留上限；其余章节沿用上次核对日期，未逐条复核。`CHANGELOG.md` 核了段划分：≤3.0.7 的 16 个版本段已原样移入 [archive/CHANGELOG-3.0.7-and-earlier.md](archive/CHANGELOG-3.0.7-and-earlier.md)。
 
@@ -66,8 +80,9 @@
 | [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账（一次记录，属证据） |
 | [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账（外部事实，带日期可追溯） |
 
-> 「待归档」两份**物理未搬**：各被 6 处引用（含 `changelog-format` 测试），搬一份要同步改 6 处，
-> 改漏就断链。先标状态、不搬文件——**标记是判据，搬运是动作，判据可以先落地**。
+> 「待归档两份物理未搬」那段已删（2026-11-19）：指的是 `MASTER-PLAN-2.0.0` / `3.0.0`，
+> 它们早在 `6e2ffe5` 就真搬进 `docs/archive/` 了，说明文字却一直留着。
+> **说明留在原地、被说明的对象已经走了，是台账最常见的假话形态**——和「40 份」同一类。
 
 ## 四、归档（勿引用）
 
@@ -82,7 +97,6 @@
 | [archive/MASTER-PLAN-2.0.0.md](archive/MASTER-PLAN-2.0.0.md) | 2.0 卷宗重构总纲，2.0 已发布（命中出口规则②） |
 | [archive/MASTER-PLAN-3.0.0.md](archive/MASTER-PLAN-3.0.0.md) | 3.0 协作治理总纲，3.0 已完成（命中出口规则②） |
 | [docs/vault-notes/README.md](vault-notes/README.md) | 外部资料摘录，非项目事实源 |
-| [packages/core/skills/focus-thinking/SKILL.md](../packages/core/skills/focus-thinking/SKILL.md) | 旧技能入口，技能目录已迁到 `.agents/skills-core/` |
 
 ## 维护
 

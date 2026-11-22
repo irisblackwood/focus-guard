@@ -314,18 +314,23 @@ test("注册顺序：apply 后观测器在最外层，基线含 rules 追加的 
 
     const out = await runChain({ sections: [{ name: "host-base", text: "宿主" }] });
     const names = (out && out.sections ? out.sections : []).map((s) => s.name);
+    // 2026-11-21：卷宗段已改 pull（fg_workspace 工具），装配结果里不应再出现它。
     assert.ok(
-      names.includes("focus-guard-workspace"),
-      `rules 监听器应追加 workspace 段，实际：${names.join(",") || "(空)"}`,
+      !names.includes("focus-guard-workspace"),
+      `卷宗段应已移出 system 前缀，实际：${names.join(",") || "(空)"}`,
+    );
+    assert.ok(
+      names.includes("focus-guard-rules"),
+      `rules 监听器应追加规则段，实际：${names.join(",") || "(空)"}`,
     );
 
-    // 关键断言：观测器的基线里必须有 workspace 段。
+    // 关键断言：观测器的基线里必须有 rules 段（由内层 rules 监听器追加）。
     // 若它被注册到内层，next() 返回的是 rules 之前的结果，基线里就只有 host-base。
     const fp = mod.prefixTracker.get(sid);
     assert.ok(fp, "观测器应已建基线");
     const tracked = fp.parts.map((p) => p.name);
     assert.ok(
-      tracked.includes("focus-guard-workspace"),
+      tracked.includes("focus-guard-rules"),
       `观测器看不到 rules 追加的段（说明它不在最外层）：${tracked.join(",") || "(空)"}`,
     );
     assert.ok(!tracked.includes("host-base"), "宿主段不该进 FG 基线");

@@ -1,6 +1,6 @@
 # 司会 Keepward
 
-> **状态**：权威 · 适用版本 3.5.2 · 最后核对 2026-11-17
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
 
 [English](packages/core/README.md) · 中文
 
@@ -9,11 +9,11 @@
 > 新名取《周礼·天官》「司会」，掌邦国财政考核，读 **sī kuài**（会计之会，非 huì）。
 
 [![CI](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/irisblackwood/focus-guard/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-3.5.2-369eff)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.5.3-369eff)](CHANGELOG.md)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX`）；npm registry 已发 `3.5.2`（2026-11-17，OIDC 受信发布 + provenance）。
+> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX` = `3.5.2`）；npm registry 已发 `3.5.2`（2026-11-18，OIDC 受信发布 + provenance）；本树 `3.5.3` 未推。
 > 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
 **AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `司会` / `Keepward` 保留，衍生版本不得沿用；旧名 `FocusGuard` / `聚焦护栏` 作为历史别名同样保留。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
@@ -126,7 +126,7 @@ npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/A
 
 ## 版本
 
-当前 **v3.5.2**，完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前已发布 **v3.5.2**（本树 3.5.3 未推），完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 

@@ -47,12 +47,18 @@ export function approvalTtlMs() {
 
 /**
  * 会话身份是否可判定。
- * 母版不认宿主：`unknown` 是母版中性值，`dsh-native` 是适配层取不到真实 id 时的兜底值，
- * 空值同理。**这三类都不是身份，只是"我不知道你是谁"**——拿它当身份去比会误杀合法批准。
+ * 母版不认宿主：`unknown` 是母版中性值，空值与 `native` 同理。
+ * **这三类都不是身份，只是"我不知道你是谁"**——拿它当身份去比会误杀合法批准。
+ *
+ * 2026-11-20：原先把 `dsh-native` 也列进集合，等于母版替 DSH 代言——每加一个宿主
+ * 就得回来改母版一次（层序审查早指出过同一个病）。现改成按**形态**识别：
+ * `<host>-native` 是各适配层"取不到真实 id"时的通用兜底形态，只认后缀不认名字。
  */
-const PLACEHOLDER_SESSIONS = new Set(['', 'unknown', 'native', 'dsh-native'])
+const PLACEHOLDER_SESSIONS = new Set(['', 'unknown', 'native'])
+const HOST_NATIVE_SUFFIX = /^[a-z][a-z0-9]*-native$/
 function identityKnown(session) {
-  return !PLACEHOLDER_SESSIONS.has(String(session ?? '').trim().toLowerCase())
+  const s = String(session ?? '').trim().toLowerCase()
+  return !PLACEHOLDER_SESSIONS.has(s) && !HOST_NATIVE_SUFFIX.test(s)
 }
 
 /**

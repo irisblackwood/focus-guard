@@ -1,6 +1,6 @@
 # Keepward
 
-> **状态**：参考 · 适用版本 3.5.2 · 最后核对 2026-11-17
+> **状态**：参考 · 适用版本 3.5.3 · 最后核对 2026-11-19
 
 > Formerly **FocusGuard**. Renamed in 3.5.0 — the package name `focus-guard`, the plugin id,
 > the `.focus-guard/` state directory and the `FG_*` environment variables are **unchanged**.
@@ -98,6 +98,8 @@ hooks/guard.mjs      ZCode execution shell (sealed: independent version)
 
 **Layering rule**: the master layer must not depend back on the adapter layer (locked by an acceptance test). Dependency direction is `core → adapters → seams`, one way only.
 
+**The methodology skill ships with the package**: the writing gate asks you to load a methodology skill before touching files on a vague dev task, and the skill it recognises is this package's own `skills/focus-plan` — no external skill required. If you have superpowers installed, `brainstorming` / `writing-plans` are accepted too (compatibility, not a prerequisite); any skill whose name contains plan / brainstorm / design / spec is accepted as well. To drop the layer entirely: `FG_WRITING_GATE=off`. So "zero-dependency" here is literal: zero npm dependencies and zero external-skill dependencies.
+
 ## Commands
 
 ```bash
@@ -115,7 +117,7 @@ Three numbers, three meanings — do not mix them:
 |---|---|---|
 | npm registry | `3.5.2` | last `npm publish` (2026-11-18, OIDC trusted publishing + provenance) |
 | GitHub `main` | `3.5.2` | `PUBLISHED_MAX` — what "released" means for this project |
-| This tree | `3.5.2` | level with released; unpushed work runs ahead, and ahead is not released |
+| This tree | `3.5.3` | level with released; unpushed work runs ahead, and ahead is not released |
 
 ## Docs
 

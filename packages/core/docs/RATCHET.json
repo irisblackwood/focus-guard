@@ -75,6 +75,14 @@
       "smells": 8,
       "duplicates": 13,
       "note": "还债 2 条：`capture-fixtures` 与 `schema-fingerprint` 各抄的那份 `walk()`，与 `lib/sessionDump.mjs` 的 `walkSessionFiles` 逐字同形（连 push 的对象字段 `{f, m, size}` 都一样），改为直接复用；两处调用方本来就自己 `.sort((a,b)=>b.m-a.m)`，lib 内置的排序不改变结果。重复块 15→13。结构异味 8 条不变（session-start 加 20 行后 330 行，仍在 400 以下）。本段主体是安装缺陷修复——去掉 `postinstall`（见 CHANGELOG 3.5.2），那条才是「装上了但清单里没有」的根因；还债是顺手，不是主线。剩 2 份 walk（gate-audit / collect-panel）输出形态不同，留到下次。"
+    },
+    {
+      "version": "3.5.3",
+      "date": "2026-11-19",
+      "commit": "dcfb11c",
+      "smells": 8,
+      "duplicates": 9,
+      "note": "还债 2 条：`dead-export` 与 `module-audit` 各抄一份 `walk()`（与 `lib/import-graph.mjs` 的 `walk` 逐字同形，都按 `.mjs|js` 过滤），改为直接复用——两处 ROOTS 不同，但遍历器本身一模一样，之前 `import-graph` 那次「17 行 + SKIP_DIRS 收成参数」的收口漏了这两个调用方。重复块 11→9。结构异味 8 条不变。本段主线是文档落后审查（见 CHANGELOG 3.5.3），还债是顺手：用户问「mjs 是不是重复很多」，实测源文件 11 条重复块里只有这一对是跨工具成对的，其余是 profiles 的同构配置与 hooks/ 封存层的旧副本。"
     }
   ]
 }

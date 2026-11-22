@@ -1394,7 +1394,9 @@ describe("工程自检（防版本与文档漂移）", () => {
 
   test("文档-实现口径对齐：术语 / 43条处置 / 58条阶段 / 未机械化清单 / 安装判据", () => {
     const rules = readFileSync(ROOT("packages/core/docs/RULES.md"), "utf8");
-    const skill = readFileSync(ROOT("packages/core/skills/focus-thinking/SKILL.md"), "utf8");
+    // 2026-11-20：法典段（原 §7-17）从 focus-thinking 拆到 focus-rules——只想要「别跑偏」时
+    // 不该连带付 12,645 字符的法典。判据跟着法条走，读 focus-rules。
+    const skill = readFileSync(ROOT("packages/core/skills/focus-rules/SKILL.md"), "utf8");
     const guard = readFileSync(GUARD, "utf8");
     // 术语统一：映射表不再要求【请示报告】，引擎只认【授权识别】
     assert.ok(!rules.includes("须输出【请示报告】"), "法条映射表仍残留旧术语【请示报告】");
@@ -1409,7 +1411,7 @@ describe("工程自检（防版本与文档漂移）", () => {
     const stop = rules.slice(rules.indexOf("### Stop 阶段"), rules.indexOf("### Reset 阶段"));
     assert.ok(post.includes("第五十八条"), "58条映射应位于 PostToolUse 阶段");
     assert.ok(!stop.includes("第五十八条"), "Stop 阶段不应再列 58条");
-    // 追加额度口径三处统一（引擎/技能/README 同为三池各+10）
+    // 追加额度口径三处统一（引擎 / focus-rules 技能 / README 同为三池各+10）
     assert.ok(skill.includes("执行/侦查/委托三池各+10"));
     // 推送语义统一：法条不再是"由领导执行"，而是"y 放行本次"
     assert.ok(!rules.includes("推送远端属对外发布行为，由领导执行"), "第七十五条仍保留 2.2.0 旧推送口径");
@@ -1417,9 +1419,29 @@ describe("工程自检（防版本与文档漂移）", () => {
     // 断言随之从「锁定 y 放行口径」改为「锁定 fg_apply 口径」。
     assert.ok(!rules.includes("经领导回复 y 放行后方可执行"), "审批单口径应已退役，不得残留");
     assert.ok(rules.includes("须先调 `fg_apply` 取得授权"), "推送须走 fg_apply 事前资格审核（结构化留档）");
-    // 空头条款透明化：未机械化清单必须存在，且已列入"日志/缓存无清理"这条实情
+    // 空头条款透明化：未机械化清单必须存在，且断言必须锁在**清单章节内**。
+    // 2026-11-20 修：原断言用整份 RULES 做 includes("第六十一条")——正文与实现索引都含这串字，
+    // 第六十一条移出清单后它照样绿，等于什么都没证明。改为解析清单章节，并加三条可红判据。
     assert.ok(rules.includes("未机械化条款清单"));
-    assert.ok(rules.includes("第六十一条"), "未机械化清单须包含第六十一条（会话状态无自动清理）");
+    const unmStart = rules.indexOf("**未机械化条款清单**", rules.indexOf("## 第六部分"));
+    const unmEnd = rules.indexOf("> 本表只列", unmStart);
+    assert.ok(unmStart > 0 && unmEnd > unmStart, "未机械化清单章节缺失或边界变了，无法机械校验");
+    const unmList = rules.slice(unmStart, unmEnd);
+    assert.ok(!unmList.includes("第六十一条"), "第六十一条已机械化（staleCleanup + AUDIT_MAX_AGE_MS），不得留在未机械化清单");
+    assert.ok(unmList.includes("第九十二条"), "清单必须列第九十二条（未机械化）——防止清单被清空后断言恒绿");
+    // 每个清单条款都必须能在法条正文找到（编号漂移即红）
+    const bodyStart = rules.indexOf("## 第一部分");
+    const bodyEnd = rules.indexOf("## 第二部分");
+    const bodyText = rules.slice(bodyStart, bodyEnd);
+    for (const art of new Set(unmList.match(/第[一二三四五六七八九十百零]+条/g) || [])) {
+      assert.ok(bodyText.includes(art), `未机械化清单里的 ${art} 在法条正文中不存在（编号漂移）`);
+    }
+    // 索引必须同时给出第六十一条的两处实现，而不是只留一行字
+    const idxText = rules.slice(rules.indexOf("### 实现位置索引"), rules.indexOf("## 第四部分"));
+    assert.ok(
+      idxText.includes("第六十一条") && idxText.includes("staleCleanup") && idxText.includes("AUDIT_MAX_AGE_MS"),
+      "第六十一条的实现索引须同时指向 staleCleanup 与 AUDIT_MAX_AGE_MS",
+    );
     // 注入体量不得残留旧实测值（411 字；393 字是拼接 FUSE_PHRASE 前的错误统计）
     assert.ok(!rules.includes("393 字"), "RULES 常驻注入实测值未同步（应为 411 字）");
     // 跨文档判据：INSTALL 的"验证生效"字符串必须逐字取自引擎真实注入，

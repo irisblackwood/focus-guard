@@ -1,6 +1,10 @@
 # 基准测试（Bench）
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
+
+> 2026-11-19 核对：五类命令与实现路径全部可达、任务集实测 50 组 / 57 次调用与文中一致；
+> 四处行号锚点已失效并改为符号名（见 §三）。**§一、§二 的延迟与 token 数字仍是 10-29 / 11-02 快照，本轮未重测**——
+> 引用前先看日期，本节不假装它们是当前值。
 
 五类基准，各回答一个问题。全部零外部依赖，命令直接跑。
 
@@ -288,7 +292,7 @@ node packages/core/tools/bench-cost.mjs --json   # 机器读：report.fuseWaste
 但 B 臂跑在带病版本上——整文件闸与取证闸按**宿主 cwd** 解析相对路径（会话 cwd 不同即
 `statSync` ENOENT → fail-open），体积闸建立在 `output_mode`/`head_limit` 这些**真实工具
 不存在的合成参数**上。三道闸当时都在静默放行，所以那个降幅**不能归因给 FG**。
-修复见 `pipeline.mjs:94 resolveToolPath` + `tests/real-schema-gates.test.mjs`（7 条真实参数回归）。
+修复见 `src/dsh/guard/tooling.mjs` 的 `resolveToolPath` + `tests/real-schema-gates.test.mjs`（7 条真实参数回归）。
 
 **当前状态：没有一组可用的 A/B 数据。** 要回答「FG 值不值」，必须在全绿的当前版本上按
 上面的协议重跑，n ≥ 5。
@@ -304,14 +308,20 @@ FG 当前注入 440 字符（`focus-guard-rules` 425 + `focus-guard-cost` 15）�
 
 | 数字 | 含义 | 出处 |
 |---|---|---|
-| **425** | `SESSION_RULES` 静态文本（246 全角 + 179 半角，含 FUSE_PHRASE） | `constants.mjs:61` |
-| **440** | DSH 侧实际注入 = 425 + `focus-guard-cost` 15 | `seams.mjs:269` + `pipeline.mjs:1068` |
+| **425** | `SESSION_RULES` 静态文本（246 全角 + 179 半角，含 FUSE_PHRASE） | `constants.mjs` 的 `SESSION_RULES` |
+| **440** | DSH 侧实际注入 = 425 + `focus-guard-cost` 15 | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
 | **545** | `npm run bench` 读数 = guard.mjs 动态 ctx（425 + HANDOFF 巡视 45 + 版本核验告警约 89） | `token-bench.mjs` |
 | **3425** | 场景加权合计（另一维度，别与上面三个直接比） | `README.md` 表 |
 
+> **2026-11-19 核对**：本表原先写的是行号（`constants.mjs:61` / `seams.mjs:269` / `pipeline.mjs:1068`），
+> 四处**全部失效**——`pipeline.mjs` 已从千行缩到 131 行，`seams.mjs` 从 269 行缩到 141 行，
+> `SESSION_RULES` 在 `constants.mjs` 的 104 行而非 61 行。行号是**代码位置的快照**，
+> 重构一次就全错，且没有任何判据能发现（`docs:lint` 只查路径存不存在，不查第 N 行是不是那个符号）。
+> 故本表改为只写**文件 + 符号名**：符号名会改名，但不会像行号那样每次搬代码都骗人。
+
 注意 **545 目前是脏数**：其中约 89 字是版本核验假警报。`hooks/guard.mjs` 头部自述
-「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但 `guard.mjs:136` 仍拿它比对
-`ENGINE_VERSION`，故每次会话必报。`seams.mjs` 已于 10-18 用 `SEALED` 排除修掉，
+「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但 `guard.mjs` 的 `ENGINE_VERSION` 比对仍拿它比对
+（2026-11-19 定位在 159 行），故每次会话必报。`seams` 侧已于 10-18 用 `SEALED` 排除修掉，
 **ZCode 侧未修**。修好后读数应回落至约 470。
 
 注意 **折算口径**：旧文写「4 字符/token ≈ 110 tokens」是英文口径，用于中文会低估约 3 倍。

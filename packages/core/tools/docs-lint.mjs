@@ -6,16 +6,20 @@
  *   node packages/core/tools/docs-lint.mjs --brief    # 一行（供 npm run check）
  *   node packages/core/tools/docs-lint.mjs --json     # 机器读
  *   node packages/core/tools/docs-lint.mjs --strict   # 有问题即 exit 1
+ *   node packages/core/tools/docs-lint.mjs --sync-status  # 重新生成 docs/STATUS.md
  *
  * 闸门是棘轮：`BUDGET` 记当前存量（初始 0），只许降不许升。
  * 这是 3.5「文档重置完成」的前置尺子（D5）；README 硬指标、数字单点、状态头分别归 D1/D4/D2。
  */
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   listMarkdownFiles,
   checkVersionFace,
   checkRelativeLinks,
   checkCodePathRefs,
+  checkScriptRefs,
   checkStatusHeaders,
   checkIndexCoverage,
   allDocFiles,
@@ -23,12 +27,15 @@ import {
   checkCitationStyle,
 } from './lib/docs-core.mjs'
 import { checkVersionClaims, checkReadmeVersionFace } from './lib/docs-version.mjs'
+import { STATUS_DOC, collectDocStatus, renderStatusTable, checkStatusTable } from './lib/docs-status.mjs'
+import { checkModulePaths, checkModuleIds, checkModuleOverlap, checkModuleCoverage } from './lib/modules.mjs'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const argv = process.argv.slice(2)
 const AS_JSON = argv.includes('--json')
 const BRIEF = argv.includes('--brief')
 const STRICT = argv.includes('--strict')
+const SYNC_STATUS = argv.includes('--sync-status')
 const BUDGET = 0
 
 /**
@@ -41,12 +48,27 @@ const BUDGET = 0
 const RULE_BUDGET = { 'dead-code-path': 0 }
 
 const files = listMarkdownFiles(ROOT)
+
+// `--sync-status` 只做生成，不跑判据：生成器不该顺便当闸门，否则"红着生成"会把人搞糊涂。
+if (SYNC_STATUS) {
+  const data = collectDocStatus(ROOT, files)
+  writeFileSync(join(ROOT, STATUS_DOC), renderStatusTable(data))
+  console.log(`已生成 ${STATUS_DOC}：${data.rows.length} 份文档，当前版本 ${data.current}。`)
+  process.exit(0)
+}
+
 const findings = [
   ...checkVersionFace(ROOT),
   ...checkRelativeLinks(ROOT, files),
   ...checkCodePathRefs(ROOT, files),
+  ...checkScriptRefs(ROOT, files),
   ...checkStatusHeaders(ROOT),
   ...checkIndexCoverage(ROOT, allDocFiles(ROOT)),
+  ...checkStatusTable(ROOT, files),
+  ...checkModulePaths(ROOT),
+  ...checkModuleIds(),
+  ...checkModuleOverlap(ROOT),
+  ...checkModuleCoverage(ROOT),
   ...checkReadmeMetrics(ROOT),
   ...checkCitationStyle(ROOT),
   ...checkVersionClaims(ROOT),

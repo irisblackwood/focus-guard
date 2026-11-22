@@ -21,7 +21,7 @@ import { dirname, basename } from 'node:path'
 import { readdirSync } from 'node:fs'
 import { statePath as guardStateFile, loadState, saveState, fingerprint, gitDirty, resolveTTL } from '../core/state.mjs'
 import { backupBeforeEdit } from '../core/backup.mjs'
-import { platformBashViolation } from '../core/env.mjs'
+import { platformBashViolation, shellIdForTool } from '../core/env.mjs'
 import { isDangerousCmd } from '../core/redlines.mjs'
 import { isInvestigation, isMutating, penalize } from '../core/risk.mjs'
 import '../adapters/dsh/tool-kinds.mjs' // 分层纪律：宿主工具名在适配层注册成语义类别
@@ -79,8 +79,17 @@ function collectContext(exec) {
     search: RE_SEARCH.test(tool),
     file,
     state,
-    env: state.envCache || null,
+    // 2026-11-22：执行体按工具判，不按会话判。envCache 是会话级的（常写成 bash），
+    // 但本次调用可能是 pwsh 工具——不改就会把合法 cmdlet 判成「bash 里没有」。
+    env: withToolShell(state.envCache, tool),
   }
+}
+
+/** 用工具名覆盖 env.shellIdKey（不改缓存本身，避免一次 pwsh 调用污染会话指纹）。 */
+function withToolShell(env, tool) {
+  const shell = shellIdForTool(tool)
+  if (!env || !shell || env.shellIdKey === shell) return env
+  return { ...env, shellIdKey: shell }
 }
 
 /** ===== 资料分层隔离：静态资料区与派生积木区均不得直写（防自我投毒）===== */

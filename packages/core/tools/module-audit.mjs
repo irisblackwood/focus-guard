@@ -4,29 +4,14 @@
  * 输出：每个模块的行数/导出符号/TODO/空 catch/console 调用；测试覆盖线索。
  * 只读，不改代码。
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { walk } from './lib/import-graph.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
 const ROOTS = ['src/core', 'src/adapters/dsh', 'src/dsh', 'hooks', 'tools', 'tests']
-
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    const st = statSync(p)
-    if (st.isDirectory()) walk(p, out)
-    else if (/\.(mjs|js)$/.test(e)) out.push(p)
-  }
-  return out
-}
 
 const files = ROOTS.flatMap((r) => walk(join(CORE, r)))
 const rows = []

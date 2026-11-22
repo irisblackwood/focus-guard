@@ -75,7 +75,7 @@ describe("FG 的 pre-execute 阶段表", () => {
     const { PRE_STAGE_ORDER } = await import("../src/dsh/pipeline.mjs");
     assert.deepEqual(PRE_STAGE_ORDER, [
       "redline",
-      "superpowers",
+      "writingGate",
       "wholeFile",
       "hardCheck",
       "eligibility",

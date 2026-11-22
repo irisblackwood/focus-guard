@@ -18,7 +18,7 @@ import { preGuardListener } from './preGuard.mjs'
 import { announceWatchReady, compactionEventListener, contextOverflowListener } from './compactionWatch.mjs'
 // 2026-10-27：两行 import 同一模块（ESLint no-duplicate-imports 命中），已合并。
 import { startHeartbeat, degradedModules, livenessBadge, markModule } from './heartbeat.mjs'
-import { readWorkspace, recordWorkspaceTurn, renderWorkspaceSectionOnce } from './workspace.mjs'
+import { recordWorkspaceTurn } from './workspace.mjs'
 import { augmentDeny } from './repeatGuard.mjs'
 import { registerGateTools } from './tools.mjs'
 import { setProjectDirProvider } from '../core/audit.mjs'
@@ -229,16 +229,13 @@ export function apply(ctx) {
         const extra = []
         // 2026-10-19 按需自证：存活状态不再进系统提示（原 focus-guard-degraded 段已移除）。
         // 需要知道 FG 是否在场时，看拦截理由 / fg_apply 返回里的 `[FG 存活 n/m]` 徽标。
-        // L4 跨会话卷宗（2026-10-18）+ 快速交接（2026-10-22）：只有 workspace_hash 与当前路径一致才注入；
-        // 路径改变 → readWorkspace 返回 null → 一条都不加（DCR 的病根就是没这条）。
-        // 交接快照行只在"换会话"时出现（同一会话里重复自己的快照是噪音）。
+        // L4 跨会话卷宗（2026-11-21 改 pull）：不再进 system 前缀，改由 `fg_workspace` 工具按需拉取。
+        // 理由：卷宗段每会话首步冻结（renderWorkspaceSectionOnce）虽已稳定，但它仍是每步都付的固定
+        // 字节；pull 化后系统前缀更短，模型需要交接信息时自己调工具。写入/冻结逻辑不变。
         try {
           const header =
             context && context.agent && context.agent.session ? context.agent.session.header : null
-          const cwd = header ? header.cwd : null
           const sid = header ? header.id : null
-          const section = renderWorkspaceSectionOnce(readWorkspace(cwd), { sid })
-          if (section) extra.push({ name: 'focus-guard-workspace', text: section })
           // 熔断告知（2026-10-27）：熔断此前只写 warn（日志），模型完全看不见——
           // 实测 turn 128 熔断后仍白走 16 步只读探索。这里在熔断期间追加固定文案，
           // 让模型在下一次请求就知道该收尾。文案固定 → 前缀只变一次，不会每步抖动。

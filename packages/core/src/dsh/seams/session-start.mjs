@@ -107,23 +107,23 @@ export function sessionStartListener({ warn } = {}) {
 }
 
 /**
- * 本宿主应当使用的执行体标识。
+ * 本宿主**主**执行体标识（只用于会话指纹展示与平台规则的兜底）。
  *
- * 2026-11-09 修：原先 win32 恒返回 `'powershell'`，注释称「DSH 的 shell 工具执行体由宿主固定
- * （win32 上是 pwsh）」。**实测不成立**——DSH Desktop 只有 `dsh-tool-bash`，执行 argv 是
- * `["bash", "-c", cmd]`（`@deepseek-ai/dsh-bash-local/lib/index.js:141`），没有 pwsh 工具。
- * 那条注释是 2.x 时代的遗留假定，从未核对；后果是卷宗【一】写 powershell、平台禁令按
- * PowerShell 规则选，而每条命令实际跑在 bash 里。
+ * 2026-11-22 修：此前判据是「PATH 里能解析到 bash 就认 bash」。本机装了 Git Bash，
+ * 于是会话指纹恒为 bash——而 DSH NEXT 的命令实际走 `pwsh` 工具，合法的 `Select-Object`
+ * 被 1.5 层按 bash 规则拒绝（详见 `core/env.mjs::shellIdForTool` 的注释）。
  *
- * 也不能退回 `quickShellId()`：宿主进程 `SHELL` 未定义、`ComSpec` 指向 cmd.exe，它会猜成 `cmd`。
- * 现在的判据是**探测**：扫 PATH，能解析到 `bash` 就认 bash（DSH 的 Bash 工具就是 `bash -c`）；
- * 探不到才退回宿主推断。不写死任何安装路径——装在 D 盘、scoop 目录、或压根没装，都能判对。
+ * 现在：优先认宿主实际提供的 PowerShell（`probeShells` 先列 pwsh7/powershell），
+ * 没有才认 bash，最后退回宿主推断。**逐调用判定仍以工具名为准**（`shellIdForTool`），
+ * 这里的值只影响指纹落档与没有工具名时的兜底。
  * `FG_SHELL` 仍可覆盖，供测试与特殊部署使用。
  */
 function expectedShellId() {
   const forced = String(process.env.FG_SHELL || '').trim().toLowerCase()
   if (forced) return forced
-  return probeShells().includes('bash') ? 'bash' : quickShellId()
+  const shells = probeShells()
+  if (shells.includes('pwsh7') || shells.includes('powershell')) return 'powershell'
+  return shells.includes('bash') ? 'bash' : quickShellId()
 }
 
 /**

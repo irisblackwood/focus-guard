@@ -1,5 +1,7 @@
 # vault-notes（私有研读笔记 · 空壳清单）
 
+> **状态**：归档 · 适用版本 — · 最后核对 —
+
 > 本目录正文为**私有研读精华**，已由 `.git/info/exclude`（本机私有、不入库）屏蔽，不入库、不展示。
 > 为什么不在 `.gitignore` 里：那份文件进版本库、是公开的，点名一条就等于向外界宣告一类私有数据。
 > 校验：`npm run privacy:gate`；换机器 clone 后重装清单：`node packages/core/tools/privacy-guard.mjs --install`。

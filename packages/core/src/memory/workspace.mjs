@@ -168,7 +168,9 @@ export function renderWorkspaceSection(record, opts = {}) {
   // 宿主是 `systemPromptUpdate: "in-history"`——系统段变了是往历史里**追加**一条，
   // 不改写前缀，所以「后面整段历史按未缓存价重付」**不成立**（前缀照常命中）。
   // 真实代价是每变一次多背一份完整系统提示（约 2.5k tok/次），并在历史里堆出多条 system 消息。
-  // 冻结它仍值得，但收益量级是 0.3% 而不是"整段重付"——别用旧口径给这条加权重。
+  // 冻结它的理由不是省钱，是**稳定**：前缀逐字节相同是缓存命中的必要条件，抖一次就必然不命中。
+  // 判据是二值的（版本数 = 1、断点 = 0），不靠任何成本采样。成本只是副产品——
+  // 8 个真实会话实测额外 0.43% token，但分布 0.22%~11.83%（看分母），见 docs/ARCHITECTURE.md。
   // 而指令原文本来就在会话消息里，再抄一份既重复又抖。
   const showDecisions = opts.sid === undefined || shouldInjectHandoff(record, opts.sid)
   const head = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：`

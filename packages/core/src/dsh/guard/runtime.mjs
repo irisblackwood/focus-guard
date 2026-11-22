@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { appendCostRow } from '../audit.mjs'
 import { projDirOf } from '../sessionScope.mjs'
 import { isPeakAt, isSaveStreamEnabled } from '../../peak-cost.mjs'
+import { recordToolResult } from './retryGuard.mjs'
 import { fmtTime } from '../../core/state.mjs'
 
 /** 每次改动流水线递增；用于磁盘/内存版本一致性提示 */
@@ -58,8 +59,18 @@ export function checkDiskVersion(warn = console.warn) {
 
 export { PIPELINE_VERSION_INFO }
 
-/** 成本提示行（≤30 字；省流开启时追加后缀） */
-function promptCostLine() {
+/**
+ * 成本提示行（≤30 字；省流开启时追加后缀）。
+ *
+ * 2026-11-21：**按会话冻结**。原先每步按当前时钟/省流开关重算，峰谷切换或开一次省流
+ * 都会改写 system 段 → 宿主 `in-history` 追加一条新 system 消息（约 2.5k tokens）。
+ * 冻结后同一会话内该段字节恒定，跨峰谷也不再抖。
+ */
+const costLineBySession = new Map()
+const COST_LINE_MAX = 64
+
+function promptCostLine(sid) {
+  if (sid && costLineBySession.has(sid)) return costLineBySession.get(sid)
   let base
   try {
     base = isPeakAt(new Date()).inPeak
@@ -68,11 +79,19 @@ function promptCostLine() {
   } catch {
     base = '【成本】低谷时段，可放心输出。'
   }
+  let line
   try {
-    return isSaveStreamEnabled() ? base + '（主动省流已开）' : base
+    line = isSaveStreamEnabled() ? base + '（主动省流已开）' : base
   } catch {
-    return base
+    line = base
   }
+  if (sid) {
+    if (costLineBySession.size >= COST_LINE_MAX) {
+      costLineBySession.delete(costLineBySession.keys().next().value)
+    }
+    costLineBySession.set(sid, line)
+  }
+  return line
 }
 
 /** 兼容多家常字段名的用量提取；无用量返回 null */
@@ -115,7 +134,8 @@ export function systemPromptListener({ warn }) {
     let downstream
     try {
       downstream = await next()
-      return appendCostLine(downstream, promptCostLine())
+      const header = context && context.agent && context.agent.session ? context.agent.session.header : null
+      return appendCostLine(downstream, promptCostLine(header ? header.id : null))
     } catch (error) {
       warn('system-prompt 注入异常，原样放行：', (error && error.message) || error)
     }
@@ -126,6 +146,11 @@ export function systemPromptListener({ warn }) {
 /** ③ 工具执行后：用量折算落台账（只观测；next 缺失时兜底 undefined，不影响下游默认决策） */
 export function postExecuteListener({ warn }) {
   return async (exec, result, next) => {
+    try {
+      recordToolResult(exec, result)
+    } catch {
+      /* 重复命令闸记录失败不影响成本核算 */
+    }
     try {
       const usage =
         usageOf(result && result.usage) ||

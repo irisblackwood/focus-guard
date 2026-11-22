@@ -39,6 +39,20 @@ test("指定 xerj：提示走 xerj search/def", () => {
   });
 });
 
+// 2026-11-20：existsInPath('xerj') 只证明二进制在 PATH，不证明当前目录被索引过。
+// 装了没索引的用户照 `xerj search` 得到空结果 —— 假提示换了个更隐蔽的形态。
+// 本组锁两件事：① 首选 xerj 时必须声明索引前提；② 退路只在真装了 rg 时给，
+// 否则"退路"本身就是新的假提示。
+test("xerj 首选：声明索引前提；装了 rg 才给退路", () => {
+  const withRg = sh.retrievalHint({ found: { xerj: true, rg: true, fd: false }, preferred: "xerj", forced: false });
+  assert.match(withRg, /autoindex status/, "必须声明 xerj 需先建索引");
+  assert.match(withRg, /rg -n/, "装了 rg 就必须给一条不依赖索引的退路");
+
+  const noRg = sh.retrievalHint({ found: { xerj: true, rg: false, fd: false }, preferred: "xerj", forced: false });
+  assert.match(noRg, /autoindex status/, "无 rg 时仍要声明索引前提");
+  assert.doesNotMatch(noRg, /rg -n/, "没装 rg 时不得提示 rg（否则退路本身是假提示）");
+});
+
 test("完全无后端（PATH 清空 + 不强制）：降级提示不含未安装工具名，且给安装提醒", () => {
   withEnv({ FG_SEARCH_TOOL: undefined, PATH: "", FG_SEARCH_BIN_DIR: "" }, () => {
     const b = sh.detectSearchBackends();

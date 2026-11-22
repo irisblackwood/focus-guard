@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { auditDeny } from '../audit.mjs'
+import { auditAsk, auditDeny } from '../audit.mjs'
 import { RM_RF } from './redline.mjs'
 
 export const RISK_ASK_THRESHOLD = 0.85
@@ -81,10 +81,30 @@ function resolvePython() {
   const raw = process.env.FG_PYTHON;
   if (!raw) return "python";
   try {
-    if (existsSync(raw)) return raw;
-  } catch {}
-  process.stderr.write(`[focus-guard] FG_PYTHON 指向的路径不存在（${raw}），本次回退 python。\n`);
+    if (existsSync(raw) && looksLikePython(raw)) return raw;
+    if (!existsSync(raw)) {
+      process.stderr.write(`[focus-guard] FG_PYTHON 指向的路径不存在（${raw}），本次回退 python。\n`);
+    } else {
+      process.stderr.write(`[focus-guard] FG_PYTHON 不是 Python 解释器（${raw}），本次回退 python（规则层仍会兜底）。\n`);
+    }
+  } catch {
+    process.stderr.write(`[focus-guard] FG_PYTHON 校验失败（${raw}），本次回退 python。\n`);
+  }
   return "python";
+}
+
+/**
+ * 解释器校验（2026-11-21，ARCH-MAP #13）：只校验存在性不够——指到 node 之类可执行文件时，
+ * `sentinel.py` 会被当 JS 解析，报 SyntaxError 又被吞成 ask，错误形式变了、阻断没变。
+ * 这里跑一次 `--version`，输出不含 Python 就回退。
+ */
+function looksLikePython(file) {
+  try {
+    const out = execFileSync(file, ['--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    return /python/i.test(String(out));
+  } catch {
+    return false;
+  }
 }
 const SENTINEL_PYTHON = resolvePython();
 const OBSERVE_UNTIL_JUDGEMENTS = 50 // 观察模式：累计 50 次真实判定后才允许启用 ask
@@ -118,17 +138,29 @@ export function resetSentinelCache() {
 }
 
 function runSentinel(cmd) {
-  const out = execFileSync(SENTINEL_PYTHON, [SENTINEL_PY, '--cmd', String(cmd ?? '')], {
-    encoding: 'utf8',
-    timeout: SENTINEL_TIMEOUT_MS,
-    windowsHide: true,
-    env: { ...process.env, HF_HOME: process.env.HF_HOME || 'E:\\venvs\\hf-cache', FG_SENTINEL_CALLER: 'focus-guard' },
-  })
-  const line = String(out).trim().split(/\r?\n/).filter(Boolean).pop()
-  if (!line) throw new Error('sentinel 无输出')
-  const verdict = JSON.parse(line)
-  if (!verdict || typeof verdict !== 'object') throw new Error('sentinel 输出非对象')
-  return verdict
+  try {
+    const out = execFileSync(SENTINEL_PYTHON, [SENTINEL_PY, '--cmd', String(cmd ?? '')], {
+      encoding: 'utf8',
+      timeout: SENTINEL_TIMEOUT_MS,
+      windowsHide: true,
+      env: { ...process.env, HF_HOME: process.env.HF_HOME || 'E:\\venvs\\hf-cache', FG_SENTINEL_CALLER: 'focus-guard' },
+    })
+    const line = String(out).trim().split(/\r?\n/).filter(Boolean).pop()
+    if (!line) throw new Error('sentinel 无输出')
+    const verdict = JSON.parse(line)
+    if (!verdict || typeof verdict !== 'object') throw new Error('sentinel 输出非对象')
+    return verdict
+  } catch (error) {
+    // 无 Python 的宿主（Windows 默认安装 / Android 上的 DSH）原先会在这里抛出，
+    // 由 riskStage 转成保守 ask；宿主审批不可用时等于把所有 shell 锁死（ARCH-MAP #10）。
+    // 兜底：用进程内启发式给出同样形状的结论，backend 标 rules-js 以便审计区分。
+    const verdict = riskOfHeuristic(cmd)
+    return {
+      ...verdict,
+      backend: 'rules-js',
+      fallbackReason: String((error && error.message) || error).slice(0, 120),
+    }
+  }
 }
 
 export function riskOfSentinel(cmd) {
@@ -160,11 +192,18 @@ export async function riskStage(ctx) {
   const { exec, warn, cmd, riskOf, observe } = ctx
   if (!cmd) return null
   const tool = String((exec && exec.name) || '')
+  // 2026-11-21（ARCH-MAP #12）：已由 fg_apply 授权的工具直接放行，不再走第 2 层 ask——
+  // 此前 L6 资格闸先放行、L2 仍 ask，授权闭环断开（手机端实测：授权后 pwd 仍被拒）。
+  if (ctx && ctx.granted) {
+    warn(`第2层跳过：${tool || 'tool'} 已有 fg_apply 授权（ttl 未到期）。`)
+    return null
+  }
   let verdict
   try {
     verdict = await riskOf(cmd, tool)
   } catch (error) {
     warn('第2层判定失败，保守走审批：', (error && error.message) || error)
+    auditAsk(exec, cmd, { trigger: 'judge_failed', level: 2 })
     return buildAsk(cmd, 'error', 'judge_failed', (error && error.message) || String(error))
   }
   const risk = clampRisk(verdict && verdict.risk)
@@ -190,7 +229,13 @@ export async function riskStage(ctx) {
         `观察模式已累计 ${observe.judgements} 次判定（高危 ${observe.highRisk} 次），可评估是否启用 ask（由人类决定）`,
       )
     }
-    if (observe.effective) return buildAsk(cmd, risk, category)
+    if (observe.effective) {
+      auditAsk(exec, `risk=${risk} category=${category} | ${String(cmd).slice(0, 100)}`, {
+        trigger: `risk:${category}`,
+        level: 2,
+      })
+      return buildAsk(cmd, risk, category)
+    }
   }
   return null
 }

@@ -66,11 +66,13 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L1** | 画像包 · `evasionRisk: high` | 已 | 字段在五份画像（`src/profiles/*.mjs`，取值标 TODO(实测)）；解析**唯一真源** `src/core/profileLoader.mjs` 的 `approvalScopeOf()`：显式 `approvalGate.scope` 优先，否则 `low` → `irreversible`、`high`/缺省/非法 → `mutating`；`checkEligibility.profileScope()` 委托它，pre-execute 闸 `gateToolCall` 走同一入口；用例 `tests/profile.test.mjs` g1-g4（含「low 放行 publish、rm-rf 仍转人工」与「显式优先」） |
 | **L1** | 画像包 · 相位对抗（A/B/C 变体破 KV 盲区） | 待 | 全仓 0 命中（`相位`）|
 | **L1** | 画像包 · 神鬼缓冲垫（Nudge 重试 / 微创切除） | 待 | 全仓 0 命中（`Nudge`）|
-| **L2** | 系统提示 / 示例池 / 严格模式 | 已 | `src/dsh/pipeline.mjs` 编排 + `src/dsh/guard/runtime.mjs` 的 `systemPromptListener` 注入（rules + cost + workspace 三段；2026-10-27 起熔断期间追加第四段 `focus-guard-fuse`，文案在母版 `constants.FUSE_NOTICE`，见 `src/dsh/index.js` 装配缝）|
-| **L2** | Superpowers 澄清→计划→TDD→验证 | 部分 | 动笔闸 已（`guard/superpowers.mjs` 的 `superpowersStage`）；方法论本体是外部技能 |
+| **L2** | 系统提示 / 示例池 / 严格模式 | 已 | `src/dsh/pipeline.mjs` 编排 + `src/dsh/guard/runtime.mjs` 的 `systemPromptListener` 注入（**rules + cost + fuse** 三段；熔断期间追加 `focus-guard-fuse`，文案在母版 `constants.FUSE_NOTICE`）。**2026-11-22 起卷宗段不再进 system**，改由 `fg_workspace` 工具按需拉取 |
+| **L2** | 澄清→计划→TDD→验证 | 部分 | 动笔闸 已（`guard/writing-gate.mjs` 的 `writingGateStage`）；方法论本体是自带技能 `skills/focus-plan`（2026-11-20 起不再依赖外部 superpowers），TDD/验证两段仍靠模型自觉 |
 | **L2** | 宿主接入 ZCode / DSH | 已 | `hooks/hooks.json`（ZCode）+ `src/dsh/index.js`（DSH 原生）|
 | **L2** | 心跳自证 / 模块就位（**按需自证 Lazy Liveness**，2026-10-19） | 已 | 心跳只写 `.focus-guard/status.json`（10s，不进 Prompt）；系统提示**不再注入** `focus-guard-degraded` 段。存活徽标 `[FG 存活 n/m]` 只在三处出现：pre-execute 返回 deny/ask 时追加（`index.js` 的 `withLivenessBadge`）、`fg_apply` 结果文本（`src/dsh/tools.mjs`）、压缩落定事件（`compactionWatch.mjs` 的 `noteLivenessEvent` → 下次徽标带 `事件: compaction`，一次性消费）|
-| **L3** | 四大机械拦截点 | 已 | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸 |
+| **L2** | 前缀审计（`prompt-prefix-shift`）+ 成本行按会话冻结 | 已 | `dsh/index.js` 的 `prefixObserverListener` 每步比对 `focus-guard-*` 段指纹，变化写审计、宿主段另记 `prompt-prefix-host`；`runtime.mjs` 的成本行同会话内恒定（峰谷切换不再重写 system 段）。验收 `tests/prefix-stability.test.mjs` |
+| **L2/L5** | `FG_MODE=lite` 轻量模式 | 已 **开关** | `pipeline.mjs::isLiteMode`：环境变量 `FG_MODE` 或 `$DSH_HOME/focus-guard-mode.txt`（写 `lite`）；只留红线/硬校验/资格闸，跳过 L2 语义、L3 取证、写作/整读/价值/体积/污染五段。验收 `tests/lite-mode.test.mjs` |
+| **L3** | 七道机械拦截点 | 已 | pre-execute 分层：红线 / SP 闸 / 整文件闸 / 硬校验 / 资格闸 / 体积闸 / 取证闸（`FG_MODE=lite` 时只留红线 / 硬校验 / 资格闸）|
 | **L3** | XERJ 检索引擎（file:line / 降 token） | 已 | 整文件闸直接指向 `xerj search` / `xerj def` |
 | **L3** | FGA · 默认只读 | 已 开关 | `FG_PTC_READONLY=1`：写类工具与变更型 shell 未授权即拦（`ptcReasonOf`）|
 | **L3** | FGA · 隐藏高危工具 | 待 | schema 由宿主注入，FG 改不了；只能做"默认拒绝 + 按需解锁"（见上一条）|
@@ -78,9 +80,10 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L3** | FGA · 静默秒批 / 合并出示 | 已 | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
 | **L3** | FGA · 人工闸门（文件审批） | 已 **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
 | **L3** | FGA · TTL 临时权限令牌 | 已 | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
-| **L4** | DSH 原生压缩栈 | 已 | 宿主 preset `compaction-basic`（1M 窗 / 0.3 触发），FG 只监察 |
-| **L4** | 卷宗哈希路由 + 新会话过滤注入 | 已 | `workspace.mjs` 回合落账；hash 不符零注入 |
-| **L4** | **跨会话快速交接**（2026-10-22） | 已 | `workspace.mjs` 的 `snapshot`（工具调用/被拦/KPI/委托，覆盖式、只存 FG 数得出的量）+ `shouldInjectHandoff()`（仅换会话时注入快照行，同会话不重复）+ `renderWorkspaceSection(record,{sid})`；CLI `npm run handoff` 打印简报。**不推断"做到哪了"** |
+| **L3/L5** | 执行体按工具判（环境规则） | 已 | `core/env.mjs::shellIdForTool` + `preGuard.mjs::withToolShell`：`pwsh` 工具按 PowerShell 规则、`bash` 工具按 bash 规则；只覆盖本次判定，不污染会话指纹。验收 `tests/shell-and-retry.test.mjs` |
+| **L4** | DSH 原生压缩栈 | 已 | 宿主 preset `compaction-basic`（窗口按宿主；web profile 阈值 **0.5**，desktop 用默认 **0.8**——2026-11-22 从 0.3 上调，0.3 太频繁压缩会把缓存反复打掉），FG 只监察 |
+| **L4** | 卷宗哈希路由 + 按需拉取 | 已 | `workspace.mjs` 回合落账；hash 不符零注入。**2026-11-22 起不再自动进 system**：模型调 `fg_workspace` 时按 `sid` 渲染（交接快照仍只在换会话时出现） |
+| **L4** | **跨会话快速交接**（2026-10-22） | 已 | `workspace.mjs` 的 `snapshot`（工具调用/被拦/KPI/委托，覆盖式、只存 FG 数得出的量）+ `shouldInjectHandoff()`（仅换会话时出现快照行）+ `renderWorkspaceSection(record,{sid})`；CLI `npm run handoff` 打印简报。**不推断"做到哪了"**。`renderWorkspaceSectionOnce` 冻结逻辑保留但生产已不调用 |
 | **L5** | 无 `[文件:行号]` 打回 | 已 | `src/dsh/stopGuard.mjs` |
 | **L5** | 体积刺客阻断（禁裸 cat 等） | 已 | `guard/volume.mjs` 体积三闸 + `guard/hardCheck.mjs` 硬校验 |
 | **L5** | 高危操作拦截 | 已 | 红线 + 资格闸 + 语义层观察模式 |
@@ -88,6 +91,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L5** | 反规避 · 意图预警（重复试探侦测） | 部分 | 停滞/无效调用计数存在（`stalledStreak`/`ineffCalls`），未做"意图"级预警 |
 | **L5** | 反规避 · 状态一致性 | 已 | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
 | **L5** | 压缩监察 | 已 | 同 P0 |
+| **L5** | 重复命令闸（失败重试） | 已 **默认开** | `guard/retryGuard.mjs`：同会话 `tool+参数哈希` 连续失败 ≥2 次后，第 3 次原样重试直接拒绝（审计 `retry-same-command`）；TTL 30 分钟 / 上限 256 条；`FG_RETRY_GUARD=0` 关闭。验收 `tests/shell-and-retry.test.mjs` |
 | **L6** | 处置结果 allow / deny / ask / 注入记忆 | 已 | pipeline 决策 + `fg_appeal`（ask）+ workspace 注入 |
 | **L6** | 伪 RLHF 闭环（反馈落盘 → A/B 验证） | 部分 | **半**：`bench:ab` / `bench:tasks` / `task-control` 能测 A/B 与成本；**回流台账已建** `docs/PROFILE-TUNING.md`（人工批准制：建议 → 人类批 → 改画像 → 再测；本轮实测可批改动 **0 条**，因 T2/T3 的校准指标采不到）。仍**不做**自动调参 |
 | **L7** | 工作流：提方向 → 验可行 → 下需求 | 部分 | 指令级（`$DSH_HOME/AGENTS.md`），非代码强制 |
@@ -114,20 +118,25 @@ L6 处置结果与伪 RLHF 反馈闭环
 | 7 | **宿主缝仍承担判定（阶段 2 第三刀未做）**（2026-10-27 brooks 复核） | ~~`src/dsh/postProgress.mjs` 的 `postProgressListener` 单闭包 320 行，按段落堆放 7 个互不相干的职责~~ → **2026-10-27 已拆**：9 个命名函数，监听器 **320 → 46 行**（文件 427→502，涨的是签名与段落注释）。**仍欠**：① ~~`preExecuteListener` 400 行、9 个段落，同一个 Divergent Change~~ → **2026-10-27 第六批已拆**：`pipeline.mjs` 只留 106 行编排（`PRE_STAGES` 顺序表），实现分到 `guard/` 10 个模块；② 拆开只解决"一个函数多职责"，判定逻辑本身仍在宿主缝；③ `seams.mjs` 498 行仍是浅模块 | **`preExecuteListener` 暂不拆，风险不对称**：`postProgress` 拆坏 → 事后记账错，测试能抓；它拆坏 → **闸门变松**，而测试抓的是"该拦的没拦"，抓不住"不该放的放了"。拆它需先有"闸门强度"度量兜底 → **`npm run mutate` 已能给出该度量**（见缺口 #6），下一步是给 9 个闸门各跑一遍，拿到杀伤率再动。**先看 postProgress 的 104 个存活**：其中大量集中在 `sidOf`/`projDirOf`/`trackReadSet` 的 `&&`/`\|\|` 回退链——测试只断言"吐出的 reason"，不断言 state 记账（readSet / caseCache / scriptFiles）。这是拆 `preExecuteListener` 之前必须补的一层——**2026-10-27 第六批已按层拆完**（10 模块 / 106 行编排，`npm run check` 522/522） |
 | 8 | **`dsh-code-check` 的评分对 FG 归零**（2026-10-27 实测） | 其线性模型 `100 − errors×8 − warnings×3 − …` 代入 681 warnings 得 0/100。归零唯一原因是 `curly` 586 条——FG 房规"单语句块不加大括号" vs ESLint 默认 `curly: all`。**是配置错配不是缺陷**，关掉后同批代码 95 warnings。该分数不能当质量门，只可取明细 | 若要引入，先在其 `eslint.fallback.config.mjs` 层把 `curly` 设 `off`、`eqeqeq` 设 `smart`、`globals` 补 `performance`；否则分数永远是 0，会重演"质量门没用" |
 | 9 | **注入漂移（DRIFT）未修 + 缺冲突检测 + 条款没有「降级」档 + 「据」不可自动校验**（2026-11-01 由外部参照 `memory-brain` 得到解法形状） | ① 2026-10-27 实测 3 个真实会话中 **2 个 DRIFT**，同一会话中途 system 出现两个版本（`4cbe896a`）。② **没有"两条规则打架"的处理**——后写覆盖前写，且覆盖不留痕。③ 条款只有「已机械化 / 未机械化」二分，**没有"验不了但仍有用的降级档"**，只能选删或假装它还在。④ 第九十二条要求「验收可复跑」，但**没有代码检查它还成不成立**——引用文件被删、脚本改名，没人知道。⑤ `halfLifeOf` 算「文件多久没变」，**没有"这条前科被引用过几次"** | **抄 48 条**（`MEMORY-4.5-PLAN` §五·补：判据 7 / 参数 8 / 工程 9 / 开机包 10 / 注入 4 / 输出护栏 6 / 幂等 4）。优先两条：**C2 冲突检测**（三条件 + 反义词表，纯规则零依赖，已证明可行）与 **A4 evidence 自动校验**。**不接其运行时**：Python+SQLite 破零依赖，`SelfView.render()` 返回字符串＝push 撞单一注入层。**3D 脑 UI 可抄但 `cortex/*.bin` 是 CC BY-SA 3.0、不与 AGPL 兼容**，不能打包分发 |
+| **10（P0）** | **无 python 宿主上「第 2 层判定失败 → 保守 ask」把全部 shell 锁死**（2026-11-20 安卓端实测，FG 3.5.2；**Windows 默认同样触发**） | 手机 DSH（`com.dsh.android`，无 python）里 `pwd` / `echo hi` / `ls` 全部返回 `the user rejected tool`；`dsh.log` 在同一分钟连续出现 `第2层判定失败，保守走审批：spawnSync python EACCES`（19:40:18/21/30/41）。Windows 默认不带 Python；即使存在 `WindowsApps\python.exe` 的 App Execution Alias，它只是商店跳转桩，exec 同样失败 → 同一路径。根因：`src/dsh/guard/risk.mjs:167` 捕获异常后无条件 `buildAsk`，而宿主审批策略为 `never` 时 ask 被自动拒绝——安全兜底成了全量阻断。高危红线（`rm -rf /`）本身拦截正确。**同时与「零依赖」的产品口径冲突**：`dependencies: {}` 但运行时实际需要 Python | **无解释器应降级为启发式**：`ENOENT`/`EACCES`（spawn 失败）与"判定出错"分开处理，前者直接走 `riskStage` 的规则层判据（现成启发式），只有规则层命中高危才 ask；更彻底的做法是把 `sentinel.py` 的判据重写成纯 JS 兜底（Python 只作增强），另补"无 python 环境"用例（Windows 最小镜像/Android）。**2026-11-20 已实现兜底**：`guard/risk.mjs` 的 `runSentinel` 在 spawn/解析失败时走 `riskOfHeuristic`（backend=`rules-js`），不再转 ask；验收见 `tests/sentinel-fallback.test.mjs`（PATH 空 / `FG_PYTHON` 指到 node / 管道进 shell 三例） |
+| **11（P1）** | **ask 决策不落审计**：审批被拒时零 FG 痕迹（2026-11-20 安卓端实测） | `src/dsh/pipeline.mjs:112` 只对第 3 层 deny 调 `auditDeny`；`riskStage` 的 `buildAsk`（`guard/risk.mjs:168`）与观察模式未写审计。手机侧连续 92 步被拒后，`profiles/web/.focus-guard/AUDIT.log` **只有一行 startup**——模型看到 `user rejected tool`，FG 侧没有任何"我提过 ask"的证据 | 在返回 `{kind:'ask'}` 前写一行 `needApproval` 审计（trigger=`risk:<category>` / `judge_failed`，含命令摘要与 level），与 deny 行同表；验收＝制造一次 ask 后 `rg '"action":"needApproval"'` 能查到。**2026-11-21 已修**：`dsh/audit.mjs::auditAsk` 落 `needApproval`，`guard/risk.mjs` 的 `judge_failed` 与观察期 ask 都走它；验收 `tests/grant-covers-l2.test.mjs` |
+| **12（P0）** | **`fg_apply` 授权不覆盖 L2 风险判官**：授权后 shell 仍被拒（2026-11-20 安卓端实测） | 手机侧 `fg_apply` 已返回「资格审核·通过，ttl=turn」，`dsh.log` 同刻仍是 `spawnSync python EACCES`；随后 `pwd` 仍返回 `the user rejected tool bash`。链路：`pipeline.mjs:74` 的 eligibility（L6）先放行，`pipeline.mjs:78` 的 `risk` 阶段不读 grants，照样 `buildAsk`——**授权闭环在 L2 断掉**。`riskStage` 的 ctx（`pipeline.mjs:105`）里没有 grants | `riskStage` 接 grants 查询：已授权/已豁免的工具直接跳过 ask（审计标 `granted`）；或用"授权覆盖到本次 exec"的同一凭据在 L2 判；验收＝`fg_apply` 后同一被拦命令两次内放行。**2026-11-21 已修**：`pipeline.mjs` 把 `ctx.granted`（`grantsFor(sid).has(tool)`）传给 `riskStage`，命中即跳过第 2 层；验收同上测试文件 |
+| **13（P1）** | **`FG_PYTHON` 无解释器校验、L2 判官无禁用开关**（2026-11-20 安卓端实测） | `guard/risk.mjs:80-89` 只 `existsSync`，不校验是不是 Python；指到 `node` 时 `risk.mjs:120` 用 node 执行 `sentinel.py` → SyntaxError，`risk.mjs:166` 又转保守 ask——错误形式变了，阻断没变。且 FG 变量表没有关闭 L2 的开关；`FG_PYTHON` 在模块加载时读（`risk.mjs:89`），须在 harness 启动前设 | 启动时探测 `FG_PYTHON --version` 输出含 `Python`，否则回退并不缓存；提供显式开关 `FG_JUDGE=off`（无 python 宿主用，写审计 `judge-disabled`），默认不开。**2026-11-21 已修校验**：`guard/risk.mjs::looksLikePython` 跑一次 `--version`，指到 node 之类即回退；"关判定"由 `FG_MODE=lite` 承担（见测试 `lite-mode.test.mjs`） |
 
 ---
 
-## 版本路线（2026-11-16 改定；执行清单见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §1.1）
+## 版本路线（2026-11-20 重排；执行清单见 [`VERSION-PLAN.md`](VERSION-PLAN.md) §1.1）
 
 | 序 | 版本/批次 | 目标 | 状态 | 前置 |
 |---|---|---|---|---|
-| 0 | **3.3.1**（10-31） | 文档重置 D1/D3/D4/D6 + `docs/INDEX.md` + sessionScope 去重 + 回合出口 | 已发 | 无 |
-| 1 | **3.4.0**（11-11） | 收口批 55 条（卷宗转义 / 前缀口径 / 文档与清单 / fg_env） | 已发；N1 / N2 / N4 仍未做 | 无 |
-| 2 | **3.4.1**（11-11） | 静态分析告警 + 结构债 + 文档 | 已发 | 序 1 |
-| 3 | **4.0 P0 spike**（无版本号） | deny / `updatedInput` / turn-step 三件实测，失败也记录 | **逾期未做**（原定 3.4 起跑） | **无** |
-| 4 | **3.5.0**（11-17） | 文档收口 + 更名 / 脑壳资产 / 记忆沉淀 / 压缩损失度量 | 已发；同日补 `3.5.1`（文档修正）与 `3.5.2`（去 postinstall，修「装上了不加载」） | 序 2 |
-| 5 | **4.0.0** | 废除外挂 Hook，内核迁 **MCP 常驻进程**（[`MCP-4.0-PLAN.md`](MCP-4.0-PLAN.md)） | 未开始 | spike + 序 4 |
-| 6 | **4.5** | 记忆独立 + 静态知识库索引 + 伪 RLHF；档 4 不排进 4.5 | 未开始 | 档 3 需先定「人格档存什么」 |
+| 0 | **3.3.1**（11-01） | 文档重置 D1/D3/D4/D6 + `docs/INDEX.md` + sessionScope 去重 + 回合出口 | 已推 GitHub（npm 未发）；tag/Release 11-17 补建 | 无 |
+| 1 | **3.4.0 / 3.4.1**（11-11） | 收口批 55 条（卷宗转义 / 前缀口径 / 文档与清单 / fg_env）+ 静态分析告警 | 已发三渠道；N1 / N2 / N4 仍未做 | 无 |
+| 2 | **3.5.0 – 3.5.2**（11-17/18） | 更名（司会/Keepward）/ 脑壳资产 / 记忆沉淀 / 压缩损失度量；文档修正；去 postinstall | 已发 | 序 1 |
+| 3 | **3.5.3**（树上未发） | 台账生成化（`STATUS.md` / `MODULES.md`）+ 兼容声明挪 `engines.dsh` + 逐份核对权威文档 + 法典 v1.2 | 未发布，按攒批等发版 | 序 2 |
+| 4 | **3.5.4 – 3.5.9** | 测试债务六档（[`VERSION-PLAN.md`](VERSION-PLAN.md) §1.7）：先修变异尺子，再补零覆盖 / 守卫入口 / tools 裸奔 | 未开始；**下一动作是 3.5.4** | 序 3 |
+| 5 | **4.0 P0 spike**（无版本号） | deny / `updatedInput` / turn-step 三件实测，失败也记录 | **逾期未做**（原定 3.4 起跑，改为排在 3.5.4 之后） | 无（不碰生产代码） |
+| 6 | **4.0.0** | 废除外挂 Hook，内核迁 **MCP 常驻进程**（[`MCP-4.0-PLAN.md`](MCP-4.0-PLAN.md)） | 未开始 | 序 5 + 序 4 |
+| 7 | **4.5** | 记忆独立 + 静态知识库索引 + 伪 RLHF；档 4 不排进 4.5 | 未开始 | 档 3 需先定「人格档存什么」 |
 
 > **`PUBLISHED_MAX` = 3.5.2**；3.5.0 / 3.5.1 / 3.5.2 均已推齐 `main` / npm / Release。npm 最新即 `3.5.2`
 > （`3.0.7` 及以前是 MIT，不可撤销）。

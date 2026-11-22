@@ -1,5 +1,7 @@
 # 第三方数据说明（`packages/core/assets/`）
 
+> **状态**：参考 · 适用版本 — · 最后核对 —
+
 ## `cortex.bin`
 
 | 项 | 值 |

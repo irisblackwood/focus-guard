@@ -22,8 +22,8 @@
  *   node packages/core/tools/collect-panel.mjs panel.json --json
  */
 
-import { decodeSession as decode } from './lib/sessionDump.mjs'
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { decodeSession as decode, walkSessionFiles } from './lib/sessionDump.mjs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -49,28 +49,7 @@ function isPeak(at) {
 // 官方价目是 USD/1M，故按汇率换算后与面板核对；汇率可被 FG_USD_CNY 覆盖（默认 7.1）。
 const USD_CNY = Number(process.env.FG_USD_CNY || 7.1)
 
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (e === 'session.v4.jsonl.zstd') out.push(p)
-  }
-  return out
-}
-
-const FILES = walk(SESSIONS)
+const FILES = walkSessionFiles(SESSIONS).map((x) => x.f)
 
 /** 从会话记录取结构指标：steps / denies / 工具调用 / 时长。 */
 function structureOf(sidPrefix) {

@@ -15,8 +15,10 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from "node:path";
 
 /** 建库时的头部。原先写死「（79条）」——空库自称有 79 条经验，数字无人维护，已删。 */
+// 2026-11-20：原文写「卡点时 Grep 检索」，`Grep` 是宿主工具名，母版不该认识（分层审计会报）。
+// 改成「按关键词检索」——语义一样，且不绑死某个宿主的检索工具。
 export const PATTERNS_HEADER =
-  "# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时 Grep 检索。\n";
+  "# PATTERNS 经验库\n\n> 格式：[环境:OS] [任务:类型] 以后遇到 X 必须先做 Y。熔断/返工后由 AI 追加；新任务不预读，卡点时按关键词检索。\n";
 
 /** 经验库路径（项目级，不是用户级）。 */
 export function patternsPath(projDir) {

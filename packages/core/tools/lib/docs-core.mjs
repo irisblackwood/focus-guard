@@ -39,6 +39,7 @@ export const AUTHORITATIVE_DOCS = [
   'packages/core/docs/WRITING-STYLE.md',
   'packages/core/docs/BENCH.md',
   'packages/core/docs/PROFILE-TUNING.md',
+  'packages/core/docs/THREAT-MODEL.md',
 ]
 
 // `HANDOFF.md` 是本机私有备忘（在 .git/info/exclude 里），不属于公开文档面，
@@ -321,6 +322,36 @@ export function checkIndexCoverage(root, docs = AUTHORITATIVE_DOCS) {
     if (!reached.has(resolve(root, rel))) {
       findings.push({ rule: 'index-missing', file: rel, line: 1, detail: '权威文档未出现在 docs/INDEX.md 的链接里' })
     }
+  }
+  return findings
+}
+
+/**
+ * 判据：行内代码里的 `npm run <name>` 必须是真实脚本。
+ *
+ * 为什么值得单独一条：文档最常给的**就是命令**，而命令写错只有读者踩到才知道。
+ * 命令名存在与否是硬事实，不需要判断力，属于"机械该做的事"。
+ * 只认 `npm run x` 这一种写法（`npm test` / `npx` / 裸 `node` 不查——它们的目标不是本仓 scripts）。
+ */
+export function checkScriptRefs(root, files = listMarkdownFiles(root)) {
+  const names = new Set()
+  for (const rel of ['package.json', 'packages/core/package.json', 'packages/extended/package.json']) {
+    try {
+      const j = JSON.parse(readFileSync(join(root, rel), 'utf8'))
+      for (const k of Object.keys(j.scripts || {})) names.add(k)
+      for (const k of Object.keys(j.bin || {})) names.add(k)
+    } catch {
+      /* 缺某份清单不影响其他份 */
+    }
+  }
+  const findings = []
+  for (const file of files) {
+    const rel = relative(root, file).split('\\').join('/')
+    readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
+      for (const m of line.matchAll(/`npm run ([\w:.-]+)`/g)) {
+        if (!names.has(m[1])) findings.push({ rule: 'dead-script-ref', file: rel, line: i + 1, detail: `npm run ${m[1]} 不存在于任何 package.json` })
+      }
+    })
   }
   return findings
 }

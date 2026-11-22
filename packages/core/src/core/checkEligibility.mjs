@@ -67,6 +67,179 @@ export function highRiskOf(command) {
 }
 
 /**
+ * 造出 `mark` / `settle` 两个闭包（2026-11-20 从 checkEligibility 提取）。
+ * 它们共享同一个 `steps` 与同一套审计口径——抽出来是为了让主函数只剩"逐层调度"这一件事，
+ * 同时保证**审计字段不会因为层被拆开而分叉**（层函数只拿到注入的 mark/settle，不自己拼审计行）。
+ */
+function createSettler({ steps, tool, command, purpose, scope, ttl, audit, trace }) {
+  const mark = (layer, decision, reason) => {
+    const row = { layer, decision, reason };
+    steps.push(row);
+    if (typeof trace === "function") trace(row);
+    return row;
+  };
+  const skippedRows = () =>
+    steps.filter((s) => s.decision === "skip").map((s) => ({ layer: s.layer, reason: s.reason }));
+  const settle = (decision, layer, reason, modelSignal = null) => {
+    if (typeof audit === "function") {
+      audit({
+        action: decision === "allow" ? "grant" : decision,
+        tool,
+        command: String(command || "").slice(0, 120),
+        purpose,
+        scope,
+        ttl,
+        layer,
+        decision,
+        modelSignal,
+        reason,
+        evidence: reason,
+        skipped: skippedRows(),
+      });
+    }
+    return { decision, layer, reason, modelSignal, trace: steps };
+  };
+  return { mark, settle };
+}
+
+// ── 分层判据（2026-11-20 从 checkEligibility 提取）────────────────────────────
+// 为什么拆：单函数 187 行，超过结构异味阈值（80），而六层本来就是六个独立判据。
+// 拆法遵循「一个函数一层」：返回 `null` 表示继续往下，返回对象表示就此定案。
+// 共享的 `mark` / `settle` 由主函数注入——层函数不自己写审计，避免审计口径分叉。
+
+/** 第 1 层：熔断 / 降权 / 预算（拆两个子判据共用层号 "1"，两者皆关才整层跳过）。 */
+function stateLayer({ state, profile, mark, settle }) {
+  const fuseOn = layerEnabled(profile, "1-fuse");
+  const budgetOn = layerEnabled(profile, "1-budget");
+  if (!fuseOn && !budgetOn) {
+    mark("1", "skip", "profile: stalledFuse 与 budgetGate 均关闭");
+    return null;
+  }
+  if (fuseOn && state.fused) {
+    mark("1", "deny", "熔断中");
+    return settle("deny", "1", "熔断中，仅允许只读");
+  }
+  if (fuseOn && state.probation) {
+    mark("1", "deny", "降权中");
+    return settle("deny", "1", "降权中，资格审核暂停");
+  }
+  const budget =
+    typeof state.taskBudget === "number" ? state.taskBudget : typeof state.budget === "number" ? state.budget : undefined;
+  if (budgetOn && typeof budget === "number" && budget <= 0) {
+    mark("1", "deny", "预算耗尽");
+    return settle("deny", "1", "预算耗尽");
+  }
+  mark("1", "pass", fuseOn && budgetOn ? "状态正常" : `状态正常（${fuseOn ? "budgetGate" : "stalledFuse"} 子判据已关）`);
+  return null;
+}
+
+/** 第 2 层：绝对红线（命中即 deny，不进第 3 层；上下文豁免成立则降级继续）。 */
+function redlineLayer({ command, redlines, profile, mark, settle }) {
+  if (!layerEnabled(profile, "2")) {
+    mark("2", "skip", "profile:redlineGate off");
+    return null;
+  }
+  const hit = (Array.isArray(redlines) ? redlines : []).find(
+    (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
+  );
+  if (!hit) {
+    mark("2", "pass", "未命中绝对红线");
+    return null;
+  }
+  const exempt = redlineExempt(String(command || ""), hit);
+  if (exempt) {
+    mark("2", "pass", `红线豁免降级（${exempt.basis}）：${hit.name}`);
+    return null;
+  }
+  mark("2", "deny", `绝对红线 ${hit.name}`);
+  return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
+}
+
+/**
+ * 第 3 层：资格（高危且本会话无授权 → needApproval）。
+ * 审批层**不可被画像关闭**（否则闸只剩授权表一道防线），故这里不查 `layerEnabled(profile,"3")`。
+ */
+function eligibilityLayer({ tool, command, grants, profile, mark, settle }) {
+  const scope = profileScope(profile);
+  const risky = highRiskOf(command);
+  const inScope = Boolean(risky) && (scope === "mutating" || IRREVERSIBLE_IDS.includes(risky.id));
+  if (inScope && !grants.has(tool)) {
+    mark("3", "needApproval", `高危 ${risky.id} 且无授权（scope=${scope}）`);
+    return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
+  }
+  if (!risky) mark("3", "pass", "非高危");
+  else if (!inScope) mark("3", "pass", `超出审批范围（scope=${scope}）：${risky.id}`);
+  else mark("3", "pass", `已有授权（${risky.id}）`);
+  return null;
+}
+
+/** 第 4 层：前置条件（取证 / 系统路径 / 特殊目录），整体受 evidenceGate 控制。 */
+function preconditionLayer({ tool, command, target, state, profile, mark, settle }) {
+  if (!layerEnabled(profile, "4")) {
+    mark("4", "skip", "profile:evidenceGate off");
+    return null;
+  }
+  if (target && isMutating(tool, { command }, false)) {
+    const readSet = state.readSet || {};
+    if (!readSet[target]) {
+      mark("4", "deny", "未取证");
+      return settle("deny", "4", `改动 ${target} 前未取证（readSet 无此目标）`);
+    }
+  }
+  if (SYSTEM_PATH_RE.test(String(command || ""))) {
+    mark("4", "deny", "系统路径");
+    return settle("deny", "4", "命令涉及系统路径（C:\\Windows / /etc / /usr 等），禁止");
+  }
+  if (SPECIAL_DIR_RE.test(String(command || ""))) {
+    mark("4", "needApproval", "特殊目录");
+    return settle("needApproval", "4", "命令涉及 .git/ 或 node_modules/，需人工审批");
+  }
+  mark("4", "pass", "前置条件通过");
+  return null;
+}
+
+/**
+ * 第 5 层：语义对齐（仅注入了 model 时生效；未注入则跳过，第一步零模型可跑）。
+ * 返回 `{ signal, stop }`：`stop` 非空表示就此定案，否则继续用 `signal` 往下走。
+ */
+async function semanticLayer({ command, purpose, scope, model, mark, settle }) {
+  if (typeof model !== "function") {
+    mark("5", "skip", "未注入模型探针");
+    return { signal: null, stop: null };
+  }
+  let signal;
+  try {
+    signal = await model({ command, purpose, scope });
+  } catch (error) {
+    signal = { mismatch: false, risk: 0, reason: "model-unavailable", error: String((error && error.message) || error) };
+  }
+  if (!signal || typeof signal !== "object") {
+    signal = { mismatch: false, risk: 0, reason: "model-unavailable" };
+  }
+  if (signal.reason === "model-unavailable") {
+    mark("5", "needApproval", "模型不可用");
+    return { signal, stop: settle("needApproval", "5", "模型审核失败，保守审批", signal) };
+  }
+  if (signal.mismatch === true) {
+    mark("5", "deny", "目的不符");
+    return {
+      signal,
+      stop: settle("deny", "5", `声称目的与实际效果不符：${String(signal.actual_effect || signal.reason || "")}`, signal),
+    };
+  }
+  const risk = Number(signal.risk);
+  if (Number.isFinite(risk) && risk > RISK_ASK_THRESHOLD) {
+    mark("5", "needApproval", `语义风险 ${risk}`);
+    return {
+      signal,
+      stop: settle("needApproval", "5", `语义风险 ${risk} 超过阈值 ${RISK_ASK_THRESHOLD}，转人工审批`, signal),
+    };
+  }
+  mark("5", "pass", "语义一致");
+  return { signal, stop: null };
+}
+
+/**
  * 六层资格审核。async：第 5 层要 await 模型信号。
  *
  * @param {object} req
@@ -101,32 +274,7 @@ export async function checkEligibility({
   profile = null,
 } = {}) {
   const steps = [];
-  const mark = (layer, decision, reason) => {
-    const row = { layer, decision, reason };
-    steps.push(row);
-    if (typeof trace === "function") trace(row);
-    return row;
-  };
-  const skippedRows = () => steps.filter((s) => s.decision === "skip").map((s) => ({ layer: s.layer, reason: s.reason }));
-  const settle = (decision, layer, reason, modelSignal = null) => {
-    if (typeof audit === "function") {
-      audit({
-        action: decision === "allow" ? "grant" : decision,
-        tool,
-        command: String(command || "").slice(0, 120),
-        purpose,
-        scope,
-        ttl,
-        layer,
-        decision,
-        modelSignal,
-        reason,
-        evidence: reason,
-        skipped: skippedRows(),
-      });
-    }
-    return { decision, layer, reason, modelSignal, trace: steps };
-  };
+  const { mark, settle } = createSettler({ steps, tool, command, purpose, scope, ttl, audit, trace });
 
   // 第 0 层：申请完整性（规格 §五：purpose / scope 必填，空白即 deny）。无画像开关，永不跳过。
   if (!String(purpose ?? "").trim()) {
@@ -139,52 +287,17 @@ export async function checkEligibility({
   }
   mark("0", "pass", "申请完整");
 
-  // 第 1 层：状态（拆两个子判据，共用层号 "1"；两者皆关才整层跳过）
-  const fuseOn = layerEnabled(profile, "1-fuse");
-  const budgetOn = layerEnabled(profile, "1-budget");
-  if (!fuseOn && !budgetOn) {
-    mark("1", "skip", "profile: stalledFuse 与 budgetGate 均关闭");
-  } else {
-    if (fuseOn && state.fused) {
-      mark("1", "deny", "熔断中");
-      return settle("deny", "1", "熔断中，仅允许只读");
-    }
-    if (fuseOn && state.probation) {
-      mark("1", "deny", "降权中");
-      return settle("deny", "1", "降权中，资格审核暂停");
-    }
-    const budget =
-      typeof state.taskBudget === "number" ? state.taskBudget : typeof state.budget === "number" ? state.budget : undefined;
-    if (budgetOn && typeof budget === "number" && budget <= 0) {
-      mark("1", "deny", "预算耗尽");
-      return settle("deny", "1", "预算耗尽");
-    }
-    mark("1", "pass", fuseOn && budgetOn ? "状态正常" : `状态正常（${fuseOn ? "budgetGate" : "stalledFuse"} 子判据已关）`);
-  }
+  // 第 1 层：状态（判据见 stateLayer）
+  const stop1 = stateLayer({ state, profile, mark, settle });
+  if (stop1) return stop1;
 
-  // 第 2 层：绝对红线（命中即 deny，不进第 3 层）
+  // 第 2 层：绝对红线（判据见 redlineLayer）
   // 3.0.6 补口（HANDOFF §十 缺陷 2）：命中后先过上下文豁免，与 pipeline 文本层同口径。
   // 豁免成立则**降级**（不 deny，继续往下走），绝不直接放行。
-  if (!layerEnabled(profile, "2")) {
-    mark("2", "skip", "profile:redlineGate off");
-  } else {
-    const hit = (Array.isArray(redlines) ? redlines : []).find(
-      (r) => r && r.re instanceof RegExp && r.re.test(String(command || "")),
-    );
-    if (hit) {
-      const exempt = redlineExempt(String(command || ""), hit);
-      if (exempt) {
-        mark("2", "pass", `红线豁免降级（${exempt.basis}）：${hit.name}`);
-      } else {
-        mark("2", "deny", `绝对红线 ${hit.name}`);
-        return settle("deny", "2", `命中绝对红线「${hit.name}」，直接拒绝（不弹审批）`);
-      }
-    } else {
-      mark("2", "pass", "未命中绝对红线");
-    }
-  }
+  const stop2 = redlineLayer({ command, redlines, profile, mark, settle });
+  if (stop2) return stop2;
 
-  // 第 3 层：资格（高危且本会话无授权 → needApproval；已有授权则继续）
+  // 第 3 层：资格（判据见 eligibilityLayer）
   // 3.0.6 修正（HANDOFF §十 缺陷 4/5 + 安全项）：审批层**不可被画像关闭**（否则闸只剩授权表
   // 一道防线），故不再查 layerEnabled(profile,"3")；scope 是唯一可调维度。
   // 3.0.7 判定（回应外部接手模型提问「L3 是否也该接 redlineExempt」）：**不接，是设计决策而非口径遗漏**。
@@ -192,69 +305,17 @@ export async function checkEligibility({
   //   · 闸：「无授权即 deny」，无人类环节，所以它必须自判上下文豁免，否则引号内数据被直接拒绝；
   //   · L3：「命中高危 → 转人工审批」，人类环节本身就是裁决，且人看得到完整命令。
   //   若 L3 也接豁免，"数据形态的高危命令"会无人审批直接放行 —— 风险不对称，故保留转审批。
-  {
-    const scope = profileScope(profile);
-    const risky = highRiskOf(command);
-    const inScope = Boolean(risky) && (scope === "mutating" || IRREVERSIBLE_IDS.includes(risky.id));
-    if (inScope && !grants.has(tool)) {
-      mark("3", "needApproval", `高危 ${risky.id} 且无授权（scope=${scope}）`);
-      return settle("needApproval", "3", `${tool} 命中高危特征「${risky.id}」且本会话无授权，需人工审批`);
-    }
-    if (!risky) mark("3", "pass", "非高危");
-    else if (!inScope) mark("3", "pass", `超出审批范围（scope=${scope}）：${risky.id}`);
-    else mark("3", "pass", `已有授权（${risky.id}）`);
-  }
+  const stop3 = eligibilityLayer({ tool, command, grants, profile, mark, settle });
+  if (stop3) return stop3;
 
-  // 第 4 层：前置条件（整体受 evidenceGate 控制）
-  if (!layerEnabled(profile, "4")) {
-    mark("4", "skip", "profile:evidenceGate off");
-  } else {
-    if (target && isMutating(tool, { command }, false)) {
-      const readSet = state.readSet || {};
-      if (!readSet[target]) {
-        mark("4", "deny", "未取证");
-        return settle("deny", "4", `改动 ${target} 前未取证（readSet 无此目标）`);
-      }
-    }
-    if (SYSTEM_PATH_RE.test(String(command || ""))) {
-      mark("4", "deny", "系统路径");
-      return settle("deny", "4", "命令涉及系统路径（C:\\Windows / /etc / /usr 等），禁止");
-    }
-    if (SPECIAL_DIR_RE.test(String(command || ""))) {
-      mark("4", "needApproval", "特殊目录");
-      return settle("needApproval", "4", "命令涉及 .git/ 或 node_modules/，需人工审批");
-    }
-    mark("4", "pass", "前置条件通过");
-  }
+  // 第 4 层：前置条件（判据见 preconditionLayer，整体受 evidenceGate 控制）
+  const stop4 = preconditionLayer({ tool, command, target, state, profile, mark, settle });
+  if (stop4) return stop4;
 
-  // 第 5 层：语义对齐（仅注入了 model 时生效；未注入则跳过，第一步零模型可跑）
-  let modelSignal = null;
-  if (typeof model === "function") {
-    try {
-      modelSignal = await model({ command, purpose, scope });
-    } catch (error) {
-      modelSignal = { mismatch: false, risk: 0, reason: "model-unavailable", error: String((error && error.message) || error) };
-    }
-    if (!modelSignal || typeof modelSignal !== "object") {
-      modelSignal = { mismatch: false, risk: 0, reason: "model-unavailable" };
-    }
-    if (modelSignal.reason === "model-unavailable") {
-      mark("5", "needApproval", "模型不可用");
-      return settle("needApproval", "5", "模型审核失败，保守审批", modelSignal);
-    }
-    if (modelSignal.mismatch === true) {
-      mark("5", "deny", "目的不符");
-      return settle("deny", "5", `声称目的与实际效果不符：${String(modelSignal.actual_effect || modelSignal.reason || "")}`, modelSignal);
-    }
-    const risk = Number(modelSignal.risk);
-    if (Number.isFinite(risk) && risk > RISK_ASK_THRESHOLD) {
-      mark("5", "needApproval", `语义风险 ${risk}`);
-      return settle("needApproval", "5", `语义风险 ${risk} 超过阈值 ${RISK_ASK_THRESHOLD}，转人工审批`, modelSignal);
-    }
-    mark("5", "pass", "语义一致");
-  } else {
-    mark("5", "skip", "未注入模型探针");
-  }
+  // 第 5 层：语义对齐（判据见 semanticLayer；未注入模型则跳过，第一步零模型可跑）
+  const layer5 = await semanticLayer({ command, purpose, scope, model, mark, settle });
+  if (layer5.stop) return layer5.stop;
+  const modelSignal = layer5.signal;
 
   // 已登记未实现的开关：只在传了画像时登记进 trace，不参与执行
   if (profile) {

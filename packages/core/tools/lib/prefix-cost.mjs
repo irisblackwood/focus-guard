@@ -20,9 +20,10 @@ import { calcCost } from '../../src/peak-cost.mjs'
 export function runCost({ sessionsDir, limit = 8 } = {}) {
   const TOK = (chars) => Math.round(chars / 4)
   const rows = []
-  for (const cand of walkSessionFiles(sessionsDir)
-    .filter((x) => x.size < 3 * 1024 * 1024)
-    .slice(0, limit)) {
+  // 2026-11-20 修选样：原先先 `slice(0, limit)` 再筛「≥5 步」，等于只在前 8 个文件里碰运气——
+  // 而落盘目录里靠前的是 hermes-loop-review 那批短会话，结果恒报「找不到 ≥5 步的会话」。
+  // 现在遍历全部、合格才计数，够 `limit` 个就停。与 `prefix-audit` 的选会话口径对齐。
+  for (const cand of walkSessionFiles(sessionsDir).filter((x) => x.size < 3 * 1024 * 1024)) {
     let lines
     try {
       lines = decodeSession(cand.f)
@@ -83,6 +84,7 @@ export function runCost({ sessionsDir, limit = 8 } = {}) {
       beforeTotal: before + after,
       afterTotal: after,
     })
+    if (rows.length >= limit) break
   }
   return rows
 }

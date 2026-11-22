@@ -34,3 +34,8 @@ __pycache__/
 # IDE 工作区状态（Visual Studio / VS Code）
 .vs/
 .vscode/
+
+# 文档书（2026-11-19）：由 `npm run docs:book` 从全仓 md 生成，1.2 MB。
+# 生成物不入库——它随时可从源重建，入库只会让它和源分叉。
+# 份数不写在这里：文档一涨这行就是假话（同日 INDEX.md 的「40 份」即此类）。
+docs/book.html

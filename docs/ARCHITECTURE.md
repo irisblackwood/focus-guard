@@ -1,6 +1,6 @@
 # 架构与机制（ARCHITECTURE）
 
-> **状态**：权威 · 适用版本 3.3.0 · 最后核对 2026-10-28
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
 >
 > 3.4 D1：从 README 迁出的机制正文（触发层/处罚/预算/卷宗/监察/审批/资格/委派/运行面/配置/工作原理/测试/双包/边界）。
 > README 只保留入口；这里回答「怎么运作」。法条原文仍以 RULES.md 为准。
@@ -122,7 +122,7 @@
 
 ### 正面指引（告诉 AI 怎么干活）
 
-负面清单管下限，正面指引给标准动作（法条第十五章之一，74–79 条；运行时镜像 [packages/core/skills/focus-thinking/SKILL.md](../packages/core/skills/focus-thinking/SKILL.md) §10）：
+负面清单管下限，正面指引给标准动作（法条第十五章之一，74–79 条；运行时镜像 [packages/core/skills/focus-rules/SKILL.md](../packages/core/skills/focus-rules/SKILL.md) §10）：
 
 | 树杈 | 标准动作 | 机械化 |
 |---|---|---|
@@ -143,7 +143,7 @@
 | 模块启动自检 | `heartbeat.mjs:45`（`markModule`） | 10 条执法缝 + 心跳各自报到；缺谁写进 `degraded`，宿主日志告警，模型侧收到 `focus-guard-degraded` 段 |
 | L4 跨会话卷宗 | `workspace.mjs:38`（hash）、`:125`（回合落账）、`index.js:71`（注入段） | `workspace_hash = sha256(realpath(cwd))` 前 16 位；hash 不符零注入（改文件夹名即彻底屏蔽） |
 | 整文件读取闸 | `guard/wholeFile.mjs:26`（口径）、`:70`（闸本体） | 目标 > 300 行且无 offset/limit → deny，提示改用 XERJ `search`/`def`；`FG_WHOLE_FILE_MAX_LINES` 可调 |
-| Superpowers 动笔闸 | `guard/superpowers.mjs:34`（判据 `:21`） | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载 `brainstorming`/`writing-plans`；同条重试与已加载均放行 |
+| 动笔闸 | `guard/writing-gate.mjs:83`（判据 `:34`） | 模糊开发任务（开发动词+模糊标记+无验收词）首次动笔 deny 一次，要求先加载方法论技能——**首选本包自带的 `focus-plan`**，`brainstorming`/`writing-plans` 与名字带 plan/design/spec 的技能同样认；同条重试与已加载均放行 |
 | 风险启发式分级 | `guard/risk.mjs:37`（`destructiveApiWeight`） | 破坏性 API 按目标给权：系统路径/递归 0.9（必拦）、TEMP 0.2、其他 0.4；重定向 0.15 |
 | 压缩监察 | `packages/core/src/dsh/compactionWatch.mjs:239`、`:364` | 只观察 `compaction/{start,end,prune}` 与 `agent/request-error` 撞窗并留痕（`action=compaction*`），**不写 surface、不 cancel 回合**——压缩归 DSH 内置栈 |
 | 审计拦截理由 | `packages/core/src/dsh/audit.mjs:120` | `auditDeny(exec, cmd, {trigger, level})`：`redline:<name>` / `env-substitute` / `gate:fg_apply` / `evidence-gate` / `whole-file:lines` / `risk:<category>` 等，不再是清一色 `high-risk-rm` |
@@ -169,7 +169,7 @@
 | `CASE_MAX_ROWS` | 200 | 卷宗【三】最大行数（超出淘汰最旧） |
 | `BACKUP_KEEP` | 100 | `.ai/backup/` 最大保留份数 |
 | `TTL_FIRST/RECENT/WEEK/STABLE` | 4h / 2h / 24h / 7天 | 卷宗自适应 TTL 四级 |
-| `ENGINE_VERSION` | 3.2.1 | 42条部署版本核验基准。**版本面 = 七处清单 + 两个常量 + CHANGELOG 最新段**（七处：根 `package.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json`；两个常量：本项与 `PIPELINE_VERSION`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在" |
+| `ENGINE_VERSION` | 3.5.3 | 42条部署版本核验基准。**版本面 = 七处清单 + `ENGINE_VERSION` + CHANGELOG 最新段**（七处：根 `package.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在"。`PIPELINE_VERSION` **不在断言里**——它是热重载的磁盘/内存比对标记（在 `src/dsh/guard/runtime.mjs`），不是发布版本 |
 
 ### 环境变量（34 个）
 
@@ -310,9 +310,25 @@ DSH 原生插件（`src/dsh/pipeline.mjs` 编排，各层实现在 `src/dsh/guar
 | 盲写拦截 | 40 | ×1 | 40 |
 | **加权合计** | | | **3425 字 ≈ 2283 tokens**（1 token ≈ 1.5 中文字符，区间 1713–2854） |
 
-注意 **545 里约 89 字是假警报**：`hooks/guard.mjs` 头部自述「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但 `guard.mjs:136` 仍拿它比对 `ENGINE_VERSION`，故每次会话追加一条版本核验告警。`seams.mjs` 已于 10-18 用 `SEALED` 排除修掉，**ZCode 侧未修**。干净状态应为 425 + 45（HANDOFF 巡视）≈ **470 字**，加权合计约 **3336**。上表按实测原值记录，不掩盖。
+注意 **545 里约 89 字是假警报**：`hooks/guard.mjs` 头部自述「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但它仍拿它比对 `ENGINE_VERSION`（2026-11-19 定位在该文件 159 行；原文写 136 行，已随重构失效），故每次会话追加一条版本核验告警。`seams` 侧已于 10-18 用 `SEALED` 排除修掉，**ZCode 侧未修**。干净状态应为 425 + 45（HANDOFF 巡视）≈ **470 字**，加权合计约 **3336**。上表按实测原值记录，不掩盖。
 
 复测：`npm run bench`。v2.2.0 曾对报文做电报体压缩（当时相对更早版本 -31.6%，对比基线已失效，只作历史记录）；2.4.0 起审批单与委派报文变长，故当前总量高于那次优化后的数值。报文只保留"标签 + 动作指令"，规则细节由技能与法典承载。
+
+**技能层成本（2026-11-20 首次量化）**：技能正文**不进常驻注入**——常驻的只有 name + description，正文按需加载。按本仓口径 1 token ≈ 1.5 中文字符：
+
+| 项 | 何时付 | 字符 | tokens |
+|---|---|---|---|
+| 三份技能的 description（常驻） | 每会话 | 123 + 139 + 117 | ≈ 82 + 93 + 78 |
+| `focus-thinking` 正文（只管怎么想） | 加载一次 | 1,042 | ≈ 695 |
+| `focus-plan` 正文（动笔前拆解） | 加载一次 | 1,254 | ≈ 836 |
+| `focus-rules` 正文（法典镜像） | 加载一次 | 12,645 | ≈ 8,430 |
+| 对照：整读 `docs/RULES.md` 全本 | 读一次 | 30,892 | ≈ 20,595 |
+
+**为什么拆成三份**：拆前是一个技能背两件事——§0-6 聚焦方法 948 字符，§7-17 法典 12,453 字符。只想要「别跑偏」时，93% 的加载成本付在了法典上。拆开后聚焦场景每次省 ≈ **7,735 tokens**（8,430 → 695），代价是常驻多一份 description（78 tok/会话，8 会话 624 tok）。约 **12:1** 的账，只要它在一个会话里被加载过一次就回本。
+
+镜像 12,645 字符 = 全本 30,892 的 **41%**，所以「加载镜像而不是整读全本」每次省 ≈ **12,165 tokens**——第一次挡住一次整读就回本。以 8 个真实会话合计 74,143,948 tokens 为分母：常驻 253 tok/会话 × 8 = 2,024 tok ≈ **0.003%**；一次法典加载 ≈ **0.091%**，是前缀抖动成本（0.43%）的 **21%**。
+
+**注意字符/token 比值随文体变**：中文散文约 1.5 字/token，代码与路径接近 4 字/token，用同一个除数算两种文本会差 2.7 倍。所以「0.43% 那个成本」用的是 est4（字符/4，对混合会话校准 1.13x），而本表用 1.5（纯中文技能正文）——两个数不能互相引用。
 
 ### 卷宗条目维护（2026-10-30）
 
@@ -350,7 +366,7 @@ fg case --drop 2               # 删除第 2 条；先整份备份到 archive/ca
 
 **先说宿主怎么处理系统提示**：`request/context` 里 `systemPromptUpdate: "in-history"`——系统提示放在**历史**里，它变了是**追加一条新的 system 消息**，不是改写前缀。所以"系统提示一变，后面整段历史都按未缓存价重付"**不成立**：前缀照常命中，代价是多追加一条（约 2.5k tok/次）。宿主面板 99.6% 的命中率与本节测的"字节稳定率"量的不是一回事，不能直接比。
 
-那为什么还要做稳定？因为追加虽不毁缓存，但**每变一次就多背一份完整系统提示**，且会话里会堆出多条 system 消息。冻结把 N 次追加压成 1 次（通常本来就是 1 次），收益量级约 **0.3%**——小，但是白拿的。
+**为什么做稳定（2026-11-20 改口径）**：前缀逐字节相同是缓存命中的**必要条件**——抖一次就必然不命中。所以这是「FG 有没有把别人的缓存弄坏」的问题，不是「省多少」的问题。判据也是二值的：版本数 = 1、断点 = 0（`prefix:drift --strict`），不依赖任何成本采样。冻结之后同一会话的前缀只有一份，出问题时能直接归因（FG 抖还是宿主变了，`prompt-prefix-host` 分开记）。成本确实也省一点（见下 `--cost`），但那是**副产品**，不是做这件事的理由——只按省钱算，0.43% 会让「不做」也显得合理。
 
 - **实测**（`npm run prefix:drift`，读真实会话落盘）：工具表（56,486 字）与首条 user 段**全程 1 个版本**；系统段 2 个版本。逐字段拆开：**决策 1 版、约束 1 版、「上次会话」2 版**——抖动源是快照行。
 - **病根不是"历史太长"，是"别人的快照"**：`workspace.json` 每工作区一份，同一工作区的并发会话在回合结束各写自己的快照，于是 A 的系统提示里忽而是 B 的快照、忽而是自己的。
@@ -362,8 +378,9 @@ fg case --drop 2               # 删除第 2 条；先整份备份到 archive/ca
 - **fuse 白名单是限次免检**（2026-10-30）：`focus-guard-fuse` 随熔断开关每回合合法翻转，只由它引起的抖动不写审计。但同一会话内累计超过 3 次判为 `churn` 照常报——正常熔断是"拨一下"，连拨第四次说明它在抖（state 读错/写错），白名单不能把真故障吞掉。
 - **黄金指纹**（CI 可复现）：固定 `SESSION_RULES` + 固定卷宗记录 + `FUSE_NOTICE` → 断言 FG 段指纹 / 总字节 / 分段字节。注入内容漂移会直接红，不必等本机探针；改内容须显式更新黄金值（评审门槛）。
 - **压力值**（`npm run prefix:drift --ab`，30 回合 + 并发会话每 3 回合改写快照）：改前 11 版本 / 19 次断点 / 36.7%；改后 1 版本 / 0 断点 / 100%。**这是最坏情况的构造，不是现状**——真实落盘里每会话只变 1 次。
-- **费用比 ≠ token 比**（`npm run prefix:drift --cost`，四个真实会话）：FG 抖 480 字 → 宿主追加 **10,280 字**完整系统提示（21 倍放大），此后每步都背着。合计额外 **149,054 tok / 5,957,471 tok = 2.50%**，费用却是 **$0.019006 → $0.017425，省 8.32%**。差 3.3 倍的原因只有一个：追加的那份是**未命中**（$0.15/M），比命中（$0.003/M）贵 50 倍。
-- **面板对账目前空转**（如实）：`--cost` 能按 sid 前 8 位匹配 `panel-runs.json`，但该文件只有 3 条 10-22 的记录，与当前会话无交集，所以真实运行只输出"无交集，对账没有发生"。功能没坏，是**没有数据**：面板数字只能人工从宿主抄（`collect-panel.mjs --init` 生成模板）。命中率分母统一用**输入**（`cacheRead/(cacheRead+uncached)`），不含 output——与 `collect-panel.mjs` 同口径。
+- **成本量级**（`npm run prefix:drift --cost`，8 个真实会话，2026-11-20 重测）：合计额外 **315,872 tok / 74,143,948 tok = 0.43%**，费用 **$0.224479 → $0.221484（省 1.33%）**。但**分布极不均**：5/8 会话有追加、3/8 一次都没抖；单会话省幅 **0.22% ~ 11.83%，跨度 50 倍**。原因在分母——300 步的 `feda270d` 一个会话占总量 89.6%，却只省 0.47%；20~32 步的会话省 7.6%~11.8%。**所以「省几个百分点」必须带分母，否则同一件事能说出 0.2% 和 11.8% 两个数。**
+- **费用比 ≠ token 比**：FG 抖 480 字 → 宿主追加 **10,280 字**完整系统提示（21 倍放大），此后每步都背着。token 比与费用比差 3.3 倍，原因只有一个：追加的那份是**未命中**（$0.15/M），比命中（$0.003/M）贵 50 倍。
+- **面板对账（2026-11-20 首次生效）**：`panel-runs.json` 有 3 条 10-22 的记录，修完 `--cost` 的选样后能匹配到 2 条（`002c143b`、`a38d308d`）。实测 **550,918 tok / 缓存读 478,336（命中 86.8%）**，`实测/est4` = **1.13x / 1.14x**——「字符/4」在中文场景下**低估约 13%**，所以上面 0.43% 的 est4 值真实量级约 0.49%（校准样本只有 n=2，别外推）。面板数字仍只能人工从宿主抄（`collect-panel.mjs --init` 生成模板）。命中率分母统一用**输入**（`cacheRead/(cacheRead+uncached)`），不含 output——与 `collect-panel.mjs` 同口径。
 - **取证**：`npm run prefix:drift --strict`——工具表与首条 user 段多版本即 exit 1；系统段默认只报（熔断告知与换会话交接会合法地变一次），要看严加 `--fail-on-system`。它是探针不是闸门：输入是本机会话落盘，CI 上无从复现。
 
 ## 测试与质量闸
@@ -401,6 +418,7 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](../.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵。**CI 不是发布闸**——它只跑这个快速子集，整条 `npm run check`（eval:dsh / selftest / privacy / manifest / docs:lint / lint / smells / schema:verify）只在 `publish.yml` 跑；两边不是同一条命令，别拿 CI 绿当发布依据（2026-11-08 定）；
 - **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；
+- **生成物自动刷新（pre-commit 钩子）**：`.githooks/pre-commit` 在提交前重生成 `docs/STATUS.md` 与 `docs/MODULES.md` 并 `git add`。这两个文件含「距今天数 / 其后全仓提交」这类会随「现在」变的量，靠人记得跑必然落后；而落后的台账比没有台账更坏——它看着像真话。同一原因，`docs:lint` 对它们只比**结构指纹**（不逐字比），否则等于每天必须重生成、一天不生成就红；
 - **覆盖范围**（用例数随版本增长，以 `npm run check` 实际输出为准）：动态预算与三池分池、进度检测与信用延期、触发①②③④⑤（含审计豁免）、梯度处罚与熔断只读放行、卷宗体系（环境检测 / 环境声明落卷 / 免重读含会话内限定 / SHA 防伪 / TTL 三级覆盖 / 台账落卷 / caseCache 裁剪）、跨平台命令拦截、盲写与抽查A、上下文污染与污染核实闸（含复合命令不误报）、授权识别（伪造引文 → L3 / 合规声明 → 特赦 / 待确认 → 暂停）、高危命令闸（特征库 / 审批单 / y-n 一次性 / 预授权隔离 / 脚本包装端到端 / 熔断期拒绝 / 超长命令）、子代理委派与委托池、极限场景（80KB 命令行、2MB 响应、损坏状态、奇异会话 ID、中文路径）、DSH 桥接自适应，以及工程自检（七处清单版本一致性 / 版本追赶 / 五处说明互不重复 / 文档-实现口径对齐 / RULES 注入逐字镜像 / hooks.json ↔ 引擎映射 / 部署漂移核验 / 61条陈旧清理）；
 - **对抗评测样本**按"同一危险动作的多种写法"组织（别名、长旗标、传参穿插）并配良性反例，避免用误报换检出。
 

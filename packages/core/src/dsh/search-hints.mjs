@@ -22,6 +22,12 @@ const BACKENDS = {
     label: 'XERJ',
     how: '`xerj search "<关键词>"` / `xerj def "<符号>"`',
     install: 'https://github.com/xerj-org/xerj',
+    // 2026-11-20：XERJ 是**索引式**后端。二进制在 PATH 只证明"装了"，不证明"当前目录被索引过"。
+    // 装了没跑过 `xerj autoindex` 的用户照 `xerj search` 得到空结果——假提示换了个更隐蔽的形态。
+    // 为什么不机械判定：`xerj autoindex status` 要连**运行中的节点**（localhost:9200），
+    // hook 层每次工具调用都查不起（节点没起时会阻塞），且 `--data-dir` 默认值官方文档未给出，
+    // 无法靠"看某个目录是否存在"离线判断。故如实声明前提，并在 retrievalHint 里给 rg 退路。
+    caveat: 'XERJ 需先对当前目录建过索引（`xerj autoindex status` 可查），未建索引时检索为空',
   },
   rg: {
     label: 'ripgrep',
@@ -109,7 +115,15 @@ export function retrievalHint(backends) {
   const b = backends || detectSearchBackends()
   if (b.preferred && BACKENDS[b.preferred]) {
     const meta = BACKENDS[b.preferred]
-    return `改用检索定位：${meta.how}；确实要读全文就带 offset/limit 分段读。`
+    const lines = [`改用检索定位：${meta.how}；确实要读全文就带 offset/limit 分段读。`]
+    // 首选是索引式后端时，必须同时给一条**不依赖索引**的退路：
+    // "装了但没索引"的 xerj 比 rg 更难用，只留一条路等于把人堵在死胡同里。
+    // 退路只在本机真装了 rg 时给——否则退路本身就成了新的假提示。
+    if (meta.caveat) {
+      lines.push(`${meta.caveat}。`)
+      if (b.found && b.found.rg) lines.push('若当前目录未建索引，改用 `rg -n "<关键词>" <目录>`。')
+    }
+    return lines.join('')
   }
   return (
     '改用检索定位：先 `glob` 找到目标文件，再带 offset/limit 分段读；' +

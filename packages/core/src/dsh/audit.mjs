@@ -49,6 +49,24 @@ function sessionOf(exec) {
 }
 
 /**
+ * ask（需审批）写入一条审计（2026-11-21，ARCH-MAP #11）。
+ *
+ * 病根：此前只有 deny 落审计；riskStage 返回 `{kind:'ask'}` 时不落任何行——
+ * 宿主审批策略为 never 时 ask 被自动拒绝，模型看到 `user rejected tool`，
+ * FG 侧却没有任何"我提过审批"的证据（手机端 92 步被拒后 AUDIT.log 只有 startup 一行）。
+ */
+export function auditAsk(exec, cmd, detail = {}) {
+  return appendAudit(
+    buildAuditRow(sessionOf(exec), 'needApproval', {
+      trigger: detail.trigger || 'risk',
+      level: detail.level ?? 2,
+      evidence: cmd,
+      evidenceLimit: 120,
+    }),
+  )
+}
+
+/**
  * 拦截写入一条审计记录（JSONL 追加，字段与 hooks/guard.mjs 口径一致）。
  * 2026-10-18 修（REPORT-2026-10-12 P2）：trigger/level 原为常量 'high-risk-rm'/3，
  * 与真实拦截规则无关 —— `ls -la` 也被记成 "high-risk-rm"，审计无法回答"为什么被拦"。

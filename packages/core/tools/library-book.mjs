@@ -22,6 +22,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { BOOK_CSS } from './lib/book-style.mjs'
+import { mdToHtml } from './lib/markdown.mjs'
 
 const argv = process.argv.slice(2)
 const arg = (k, d) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : d)
@@ -30,98 +31,12 @@ const OUT = arg('--out', join(SRC, 'book.html'))
 const LABEL = arg('--label', '资料书')
 const UNIT = arg('--unit', '块')
 
-// ── markdown：只覆盖积木实际用到的语法 ────────────────────────────────────
-// 实测（28 块 5.7 万字）：无序列表 728、有序列表 60、### 小标题 23、粗体 164；
-// 表格 0、代码块 0。所以不引依赖，写这几种就够。
-// 2026-10-30 补 `>` 引用与 `---` 分隔线：按文件切（章节版）会保留每份资料开头的
-// 来源说明，那几行正是 `>` 引用；卡片版按 `##` 切时整段被丢掉，所以以前没暴露。
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-function inline(s) {
-  return esc(s)
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-}
-
-export function mdToHtml(md) {
-  const out = []
-  let list = null
-  let quote = null
-  const flush = () => {
-    if (list) {
-      out.push(`<${list.tag}>${list.items.map((i) => `<li>${i}</li>`).join('')}</${list.tag}>`)
-      list = null
-    }
-    if (quote) {
-      out.push(`<blockquote>${quote.map((i) => `<p>${i}</p>`).join('')}</blockquote>`)
-      quote = null
-    }
-  }
-  for (const raw of String(md).split('\n')) {
-    const line = raw.trimEnd()
-    if (!line.trim()) {
-      flush()
-      continue
-    }
-    const h = /^(#{1,6})\s+(.*)$/.exec(line)
-    if (h) {
-      flush()
-      const lv = Math.min(6, h[1].length + 1)
-      out.push(`<h${lv}>${inline(h[2])}</h${lv}>`)
-      continue
-    }
-    // 分隔线：必须在列表之前判，否则 `---` 会被当成空的列表项
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-      flush()
-      out.push('<hr>')
-      continue
-    }
-    const bq = /^>\s?(.*)$/.exec(line)
-    if (bq) {
-      if (list) {
-        out.push(`<${list.tag}>${list.items.map((i) => `<li>${i}</li>`).join('')}</${list.tag}>`)
-        list = null
-      }
-      if (!quote) quote = []
-      quote.push(inline(bq[1]))
-      continue
-    }
-    const ul = /^[-*]\s+(.*)$/.exec(line)
-    if (ul) {
-      if (!list || list.tag !== 'ul') {
-        flush()
-        list = { tag: 'ul', items: [] }
-      }
-      list.items.push(inline(ul[1]))
-      continue
-    }
-    const ol = /^\d+\.\s+(.*)$/.exec(line)
-    if (ol) {
-      if (!list || list.tag !== 'ol') {
-        flush()
-        list = { tag: 'ol', items: [] }
-      }
-      list.items.push(inline(ol[1]))
-      continue
-    }
-    flush()
-    // 认笔记自己的体例（三层）：整行只有一句粗体的 → 小标题；`→ 接入…` → 动作行；
-    // `出处：…` → 出处行。不认这三层的话，每条都摊成四段同样大小的字，读起来一片平。
-    const html = inline(line)
-    const strongOnly =
-      /^<strong>[\s\S]*<\/strong>$/.test(html) && (html.match(/<strong>/g) || []).length === 1
-    const cls = strongOnly
-      ? ' class="h"'
-      : line.startsWith('→')
-        ? ' class="act"'
-        : /^出处[：:]/.test(line)
-          ? ' class="ref"'
-          : ''
-    out.push(`<p${cls}>${html}</p>`)
-  }
-  flush()
-  return out.join('\n')
-}
+// ── markdown ──────────────────────────────────────────────────────────────
+// 2026-11-19：渲染器移到 `lib/markdown.mjs`，与「全仓文档书」（`docs-book.mjs`）共用。
+// 原先这里有一份只认卡片语法的实现；做第二本书时如果再抄一份，两份迟早对同一段
+// markdown 给出不同结果，而且没有任何判据会发现。卡片体例靠 `cardClasses` 选项保留。
+// 顺带补上表格与代码围栏——积木里没有，但共用件必须有。
+export { mdToHtml }
 
 /** frontmatter + 正文；没有 frontmatter 就整体当正文。 */
 export function parseBlock(text) {

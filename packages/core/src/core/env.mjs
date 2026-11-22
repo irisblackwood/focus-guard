@@ -196,6 +196,24 @@ export function detectEnv(projDir, opts = {}) {
 const PS_CMDLET =
   /\b(?:Add|Set|Get|Remove|Copy|Move|New|Test|Select|Where|ForEach|Measure|Out|Write|Start|Stop|Restart|Invoke|Clear|Rename|Sort|Group|Compare|Tee|Export|Import|ConvertTo|ConvertFrom)-(?:Content|Item|ItemProperty|ChildItem|Path|Location|Service|Process|Object|String|Command|Variable|Host|Output|Error|Warning|Member|Module|Alias|Job|Event|Counter|Help|History|File)\b/i;
 
+/**
+ * 按**工具名**判执行体（2026-11-22，修「pwsh 被认成 bash」）。
+ *
+ * 病根：`expectedShellId()` 只要 PATH 里能解析到 bash 就认 bash（`session-start.mjs:126`），
+ * 完全不管这次调用实际走的是哪个工具。本机装了 Git Bash → 恒判 bash；
+ * 而 DSH NEXT 的命令走 `pwsh` 工具（Windows PowerShell 5.1）→ 合法的 `Select-Object`
+ * 被 1.5 层按 bash 规则拒绝，工具返回 exit 1，模型以为是环境故障又重试。
+ *
+ * 执行体是**按工具**决定的，不是按会话决定的：同一会话里 bash 与 pwsh 可以并存。
+ */
+export function shellIdForTool(tool) {
+  const t = String(tool || "").trim().toLowerCase();
+  if (!t) return null;
+  if (/^(?:pwsh|pwsh7|powershell)$/.test(t)) return "powershell";
+  if (/^(?:bash|sh|shell|terminal|runcommand|run_command|cmd)$/.test(t)) return "bash";
+  return null;
+}
+
 export function platformBashViolation(env, cmd) {
   if (!env) return null;
   const c = String(cmd);

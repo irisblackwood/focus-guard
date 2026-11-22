@@ -164,7 +164,10 @@ export function buildAuditRow(session, action, opts = {}) {
     ts: pick('ts') || new Date().toISOString(),
     // 身份两个字段（session / action）由位置参数定，extra 只能在位置参数缺失时兜底——
     // 否则一条 `deny` 记录能被附加字段改成别的动作，日志就没法当证据用了。
-    session: String(session || extra.session || 'dsh-native'),
+    // 2026-11-20：缺省值原先是 `'dsh-native'`——母版替 DSH 代言。改成中性值 `'unknown'`：
+    // 两者在 `approvals.mjs::identityKnown` 眼里同属"身份不可判定"，行为等价，
+    // 但母版从此不认识任何宿主名。真实 session 由各适配层在调用点传入。
+    session: String(session || extra.session || 'unknown'),
     seq: pick('seq') || nextSeq(),
     chain: pick('chain') !== undefined ? pick('chain') : null,
     ref: pick('ref') || null,
@@ -200,7 +203,7 @@ function normalizeRow(row) {
   if (!row || typeof row !== 'object') return row
   const out = { ...row }
   if (!out.ts) out.ts = new Date().toISOString()
-  if (out.session === undefined) out.session = 'dsh-native'
+  if (out.session === undefined) out.session = 'unknown'
   if (!out.action) out.action = 'unspecified'
   if (out.trigger === undefined) out.trigger = out.action
   if (out.level === undefined) out.level = null

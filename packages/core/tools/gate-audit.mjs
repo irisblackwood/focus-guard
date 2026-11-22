@@ -15,8 +15,8 @@
  * 用法：node packages/core/tools/gate-audit.mjs [--limit 20] [--json]
  */
 
-import { decodeSession as decode } from './lib/sessionDump.mjs'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { decodeSession as decode, walkSessionFiles } from './lib/sessionDump.mjs'
+import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,32 +28,11 @@ const argv = process.argv.slice(2)
 const LIMIT = Number(argv.includes('--limit') ? argv[argv.indexOf('--limit') + 1] : 20) || 20
 const AS_JSON = argv.includes('--json')
 
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    let st
-    try {
-      st = statSync(p)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walk(p, out)
-    else if (e === 'session.v4.jsonl.zstd') out.push({ file: p, mtime: st.mtimeMs })
-  }
-  return out
-}
-
 /** 多帧 zstd：按魔数 0x28B52FFD 分帧解压（单帧 API 只解第一帧）。 */
 
 /** 从会话里取真实工具表：{ 工具名: Set(参数键) }。 */
 function realToolSchema(limit) {
-  const files = walk(SESSIONS).sort((a, b) => b.mtime - a.mtime).slice(0, limit)
+  const files = walkSessionFiles(SESSIONS).slice(0, limit).map((x) => ({ file: x.f, mtime: x.m }))
   const schema = new Map()
   let usedSessions = 0
   for (const f of files) {

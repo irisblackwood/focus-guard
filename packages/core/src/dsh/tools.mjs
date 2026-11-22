@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { applyEligibility, grantFromAppeal, FG_APPLY_TOOL_SPEC, FG_APPEAL_TOOL_SPEC } from '../adapters/dsh/eligibility-gate.mjs'
 import { ABSOLUTE_REDLINES } from '../core/redlines.mjs'
 import { livenessBadge } from './heartbeat.mjs'
+import { readWorkspace, renderWorkspaceSection } from '../memory/workspace.mjs'
 
 /** 简化参数表（{type,required,description,enum}）→ JSON Schema。 */
 function specToJsonSchema(spec = {}) {
@@ -170,6 +171,35 @@ function buildAppealTool() {
 }
 
 /**
+ * 构造 fg_workspace 工具定义（2026-11-21）。
+ *
+ * 为什么把卷宗从 system 前缀改成 pull：卷宗段（`[FG-WORKSPACE]`）每会话首步冻结后虽然稳定，
+ * 但仍是**每步都付**的固定字节。改成按需拉取后系统前缀更短、缓存更容易命中；
+ * 写入与冻结（`recordWorkspaceTurn` / `renderWorkspaceSectionOnce`）逻辑都不动。
+ */
+export function buildWorkspaceTool() {
+  return {
+    name: 'fg_workspace',
+    description:
+      '读取本工作区的跨会话卷宗（上次会话快照 / 本轮人类指令 / 被否命令 / 其他约束）。' +
+      '系统提示里不再自动带这段，需要交接信息时调用本工具。',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+    output: TEXT_OUTPUT,
+    execute(_args, exec) {
+      const header = exec && exec.agent && exec.agent.session ? exec.agent.session.header : null
+      const cwd = (header && header.cwd) || process.env.FG_PROJECT_DIR || process.cwd()
+      try {
+        // 传 sid：保留"仅换会话时出现交接快照"的原语义（同会话不重复自己的快照）。
+        const text = renderWorkspaceSection(readWorkspace(cwd), { sid: header ? header.id : undefined })
+        return { text: text || `[FG-WORKSPACE] 本工作区暂无卷宗（${cwd}）。` }
+      } catch (error) {
+        return { text: `[FG-WORKSPACE] 读取失败（不阻塞）：${(error && error.message) || error}` }
+      }
+    },
+  }
+}
+
+/**
  * 注册两个通道工具。任一失败只降级该工具，不影响执法缝。
  * @returns {string[]} 实际注册成功的工具名
  */
@@ -179,6 +209,7 @@ export function registerGateTools(ctx, { warn } = {}) {
     ['fg_apply', buildApplyTool],
     ['fg_appeal', buildAppealTool],
     ['fg_env', buildEnvTool],
+    ['fg_workspace', buildWorkspaceTool],
   ]) {
     try {
       ctx.tools.register(build())

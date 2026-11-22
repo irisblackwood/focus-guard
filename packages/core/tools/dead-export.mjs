@@ -3,29 +3,14 @@
  * 死导出检查（2026-10-25）：找出"导出了但没人调用"的符号——模块活着、功能没接上的典型形态。
  * 只读。排除：tests/ 内的引用不算使用者；同名不同文件的第二个实现会单独列出。
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { walk } from './lib/import-graph.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CORE = join(HERE, '..')
 const ROOTS = ['src', 'hooks', 'tools']
-
-function walk(dir, out = []) {
-  let entries = []
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const p = join(dir, e)
-    const st = statSync(p)
-    if (st.isDirectory()) walk(p, out)
-    else if (/\.(mjs|js)$/.test(e)) out.push(p)
-  }
-  return out
-}
 
 const files = ROOTS.flatMap((r) => walk(join(CORE, r)))
 const sources = new Map()

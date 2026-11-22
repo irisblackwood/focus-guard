@@ -35,7 +35,13 @@ const HOST_MARKS = {
 const TOOL_NAMES = /\b(?:Bash|Write|Edit|MultiEdit|Read|Grep|Glob|run_code)(?![\w-])/
 // 白名单：规则文本（SESSION_RULES）里提到 Grep/head_limit 属面向模型的表述。
 const ALLOW = {
-  toolNames: ['src/core/constants.mjs'],
+  toolNames: [
+    'src/core/constants.mjs',
+    // 2026-11-20：`PS_CMDLET` 的动词表里含 `Write`（`Write-Content` 这类 cmdlet 的动词），
+    // 命中 TOOL_NAMES 属误报——那里检测的是**命令文本方言**，与宿主工具名无关。
+    // 判据本身没错（PowerShell 动词确实不该出现在 bash 里），只是它长得像工具名。
+    'src/core/env.mjs',
+  ],
 }
 
 function walk(dir, out = []) {

@@ -23,16 +23,22 @@
  *                       postinstall / prepare / prepublish）——**这条就是根因的回归防线**
  *   B `patch-exists`    `dsh.bundle.patch` 指向的文件必须在包内
  *   C `entry-shape`     入口必须导出 `name` 与 `apply`（cordis 插件形态）
+ *   D `engines-dsh`     兼容声明必须写在 `engines.dsh`（dsh 只认这个位置，见下）
  *
  * 安装（`--install`，需要 dsh）：
- *   D `bundles-registered`  把**本地 tarball**装进一次性 profile，断言
+ *   E `bundles-registered`  把**本地 tarball**装进一次性 profile，断言
  *                           `dsh.profile.bundles` 里出现本包，然后拆掉现场
+ *
+ * D 的由来（2026-11-19）：dsh 0.2 的 `unmetRequirements` 是「有 `engines.dsh` 就只看它，
+ * `peerDependencies` 全部忽略；没有才退回去扫 `@deepseek-ai/dsh*` 的 peer」。我们一直只写了
+ * peer（3.0.6 起），判定其实一直在生效——但**外部验证平台只认 `engines.dsh`**，于是页面显示
+ * 「作者未声明 dsh 版本要求」。约束存在而不可见，等于半个没有。
  *
  * 缺 `dsh` 时 D 记 **skip 并明说**，不静默通过——「没查」与「查过没问题」
  * 必须能分开（本仓为此栽过：判据缺失静默返回空）。
  *
  * 用法：
- *   node tools/install-check.mjs              # 静态三项
+ *   node tools/install-check.mjs              # 静态四项
  *   node tools/install-check.mjs --install    # 再加一次真装
  *   node tools/install-check.mjs --strict     # 有任何 finding 即 exit 1
  */
@@ -45,6 +51,60 @@ import { fileURLToPath } from 'node:url'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const STRICT = process.argv.includes('--strict')
 const WITH_INSTALL = process.argv.includes('--install')
+if (process.env.FG_TRACE) {
+  process.stderr.write(
+    `[trace] pid=${process.pid} ppid=${process.ppid} lifecycle=${process.env.npm_lifecycle_event || '-'} argv=${process.argv.slice(1).join(' ')}\n`,
+  )
+}
+/**
+ * 防重入（2026-11-19）：跑 `--install` 时会**再起一个本脚本**（pid 不同、profile 名不同），
+ * 两个进程各建一套现场；内层那套装成功了却没被拆掉，于是每次自检在 `~/.dsh/profiles`
+ * 里留一个 `fg-selfcheck-<pid>`。
+ *
+ * 先试过环境变量，**不生效**——内层进程看不到外层设的 `FG_INSTALL_CHECK`（那条链中间
+ * 有人重置了环境）。改成系统临时目录里的锁文件：不依赖环境继承，只看「有没有人在跑」。
+ * 持有者 pid 已死则接管，避免崩溃留下死锁。
+ */
+const LOCK = join(tmpdir(), 'fg-install-check.lock')
+
+function acquireLock() {
+  const me = JSON.stringify({ pid: process.pid, ppid: process.ppid, at: Date.now(), argv: process.argv.slice(1) })
+  try {
+    writeFileSync(LOCK, me, { flag: 'wx' })
+    return true
+  } catch {
+    let holder = null
+    try {
+      holder = JSON.parse(readFileSync(LOCK, 'utf8'))
+    } catch {
+      holder = null
+    }
+    if (holder && typeof holder.pid === 'number') {
+      try {
+        process.kill(holder.pid, 0)
+        // 持有者还活着：把双方身份都记下来，冲突才有据可查。
+        notes.push(`锁被 pid ${holder.pid}（父 ${holder.ppid}）持有，本人 pid ${process.pid}（父 ${process.ppid}）`)
+        return false
+      } catch {
+        /* 持有者已死，接管 */
+      }
+    }
+    try {
+      writeFileSync(LOCK, me)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+function releaseLock() {
+  try {
+    rmSync(LOCK, { force: true })
+  } catch {
+    /* 释放失败不影响判定 */
+  }
+}
 /** Windows 上 `dsh` / `npm` 是 .cmd 垫片，不经 shell 调用就得补后缀（走 shell 会被静态扫描判为注入面）。 */
 const BIN = (n) => (process.platform === 'win32' ? `${n}.cmd` : n)
 
@@ -104,6 +164,25 @@ function checkEntry(pkg) {
   }
 }
 
+/** D：兼容范围得写在 `engines.dsh`——那是 dsh 唯一「说了算」的位置。 */
+function checkEnginesDsh(pkg) {
+  const range = pkg.engines && pkg.engines.dsh
+  if (typeof range !== 'string' || !range.trim()) {
+    findings.push({
+      rule: 'engines-dsh',
+      detail: 'package.json 没有 engines.dsh——版本约束只写在 peerDependencies 里时，dsh 仍会校验（退路），但外部平台与读者都看不见，等于半个声明',
+    })
+    return
+  }
+  // dsh 的 `workspace:` 特例只对 peer 生效；写进 engines 会被当成普通范围，永不满足。
+  if (range.includes('workspace:')) {
+    findings.push({
+      rule: 'engines-dsh',
+      detail: `engines.dsh 写成了 ${range}——workspace: 只在 peerDependencies 里被解析，放进 engines 等于永不满足`,
+    })
+  }
+}
+
 /** profile 目录可能落在 DSH_HOME（指向 .dsh 本身或它的父目录）或默认 ~/.dsh。 */
 function findProfile(name) {
   const homes = [process.env.DSH_HOME, join(homedir(), '.dsh')].filter(Boolean)
@@ -122,7 +201,7 @@ function checkInstall(pkg) {
   const WIN = process.platform === 'win32'
   const dsh = spawnSync(BIN('dsh'), ['--version'], { encoding: 'utf8', shell: WIN })
   if (dsh.status !== 0) {
-    notes.push('skip 安装档：本机没有可用的 dsh 命令（静态三项已覆盖根因）')
+    notes.push('skip 安装档：本机没有可用的 dsh 命令（静态四项已覆盖根因）')
     return
   }
   // 现场放系统临时目录，不放包内 node_modules：pnpm 对「另一个包 node_modules 下的 tarball」
@@ -130,6 +209,8 @@ function checkInstall(pkg) {
   const tmp = join(tmpdir(), `fg-install-check-${process.pid}`)
   const name = `fg-selfcheck-${process.pid}`
   let packed = ''
+  /** 现场目录在 finally 里拆——**任何提前 return 都不能留下 profile**。 */
+  let profileDir = ''
   try {
     rmSync(tmp, { recursive: true, force: true })
     mkdirSync(tmp, { recursive: true })
@@ -156,15 +237,15 @@ function checkInstall(pkg) {
       encoding: 'utf8',
       shell: WIN,
     })
-    const dir = findProfile(name)
-    if (!dir) {
+    profileDir = findProfile(name) || ''
+    if (!profileDir) {
       findings.push({
         rule: 'install-profile',
         detail: `装完找不到 profile 目录（dsh exit ${add.status}）：${(add.stdout || add.stderr || '').trim().slice(0, 200)}`,
       })
       return
     }
-    const installed = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    const installed = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
     const bundles = (installed.dsh && installed.dsh.profile && installed.dsh.profile.bundles) || []
     if (!bundles.includes(pkg.name)) {
       findings.push({
@@ -172,8 +253,15 @@ function checkInstall(pkg) {
         detail: `装完 dsh.profile.bundles 里没有 ${pkg.name}（现有：${bundles.join(' / ') || '空'}）——装上了但不会加载`,
       })
     }
-    rmSync(dir, { recursive: true, force: true })
   } finally {
+    // 清理失败不改变判定，但也不能吞得无声无息：留一行 note，下次才知道地上有垃圾。
+    if (profileDir) {
+      try {
+        rmSync(profileDir, { recursive: true, force: true })
+      } catch (e) {
+        notes.push(`profile 现场未拆净（${profileDir}）：${e.code || e.message}`)
+      }
+    }
     rmSync(tmp, { recursive: true, force: true })
     if (packed && existsSync(join(ROOT, packed))) rmSync(join(ROOT, packed), { force: true })
   }
@@ -183,9 +271,19 @@ const pkg = readPkg()
 checkLifecycle(pkg)
 checkPatch(pkg)
 checkEntry(pkg)
-if (WITH_INSTALL) checkInstall(pkg)
+checkEnginesDsh(pkg)
+if (WITH_INSTALL) {
+  // 拿不到锁时 acquireLock 已把冲突双方写进 notes，这里不重复记。
+  if (acquireLock()) {
+    try {
+      checkInstall(pkg)
+    } finally {
+      releaseLock()
+    }
+  }
+}
 
-const head = `安装自检：${WITH_INSTALL ? '静态 3 项 + 安装档' : '静态 3 项'}`
+const head = `安装自检：${WITH_INSTALL ? '静态 4 项 + 安装档' : '静态 4 项'}`
 if (!findings.length) {
   process.stdout.write(`[install-check] ${head}，问题 0 条${notes.length ? `；${notes.join('；')}` : ''}\n`)
 } else {

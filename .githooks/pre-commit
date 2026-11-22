@@ -1,0 +1,31 @@
+#!/bin/sh
+# FocusGuard 生成物自动刷新（pre-commit）
+#
+# 为什么要有这个钩子：
+# `docs/STATUS.md` 与 `docs/MODULES.md` 是「真值的渲染结果」，里面含「距今天数」
+# 「其后全仓提交」这类**会随「现在」变**的量。靠人记得跑 docs:status / modules:sync
+# 是不现实的——忘一次就落后一天，而落后的台账比没有台账更坏（它看着像真话）。
+# 所以交给钩子：提交前重生成，变了就顺手暂存。
+#
+# 为什么不让 docs:lint 去卡它：那两条判据（status-table-stale / modules-doc-stale）
+# 只比**结构指纹**。逐字比对等于每天都必须重生成，一天不生成就红——
+# 「永久红的闸门等于没有闸门」。数字的时效由这里保证，正确性由指纹保证。
+#
+# 启用：git config core.hooksPath .githooks（本仓已设）
+set -u
+cd "$(git rev-parse --show-toplevel)" 2>/dev/null || exit 0
+
+# 没有 node 就静默跳过：钩子不该在别人的环境里把提交卡死
+command -v node >/dev/null 2>&1 || exit 0
+
+for s in docs:status modules:sync; do
+  npm run --silent "$s" >/dev/null 2>&1 || echo "[pre-commit] $s 未跑通，生成物可能落后（不阻止提交）" >&2
+done
+
+for f in docs/STATUS.md docs/MODULES.md; do
+  [ -f "$f" ] || continue
+  if ! git diff --quiet -- "$f" 2>/dev/null; then
+    git add -- "$f" && echo "[pre-commit] 已刷新 $f"
+  fi
+done
+exit 0
