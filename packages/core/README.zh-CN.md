@@ -38,6 +38,11 @@ GitHub 那条必须带 `#path:/packages/core`：本仓是 monorepo，根 `packag
 单独用（只装命令行工具，不挂宿主）：`npm install focus-guard`，带 `focus-guard-brain` 可执行入口。
 
 > 与官方桥 `@deepseek-ai/dsh-hooks-claude-code` **互斥**：两条路挂的是同一批缝，同时挂载会双跑（同一条缝双监听），**二选一**。
+>
+> **桥由官方仓库维护，本包只是适配层**。走桥时先装/确认桥，再挂本包的 `hooks/hooks.json`。
+> 支持区间：桥 `>=0.2.1-rc.1 <0.3.0`（实测 `0.2.1-rc.1` / `0.2.2-rc.5`）；区间外启动会告警
+> `bridge-incompatible` 并打印升级/回退命令。桥层面的缺陷或功能缺失请到官方仓库反馈；
+> 本包只处理适配层自身的缺陷与兼容问题。
 
 ### ZCode（并存，非首选）
 

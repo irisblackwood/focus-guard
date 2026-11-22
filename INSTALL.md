@@ -13,12 +13,46 @@ node -v
 | 平台 | 插件结构 | 拦截语义 | 安装方式 |
 |---|---|---|---|
 | **ZCode** | `.zcode-plugin/plugin.json` + `packages/core/hooks/hooks.json` | PreToolUse 退出码 2 / `decision:block` **硬拦截** | 插件市场（市场源刷新 + UI 更新） |
-| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的 8 个宿主事件 | **8 事件 / 12 监听**：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add focus-guard`（三种写法见 §2A） |
+| **DSH·原生插件**（推荐，3.0.5 起） | `packages/core/` 的 `dsh` 字段 + `src/dsh/` 的宿主事件 | **8 个宿主事件 / 十余条监听**（以 `src/dsh/index.js` 的 register 调用为准）：`tools/pre-execute` 拦截判定（资格审核 + `fg_apply`/`fg_appeal` + 模型画像 + 命令硬校验 + 红线豁免）、`system-prompt/assemble` 注入、`tools/post-execute` 成本与进度、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察 | `dsh plugin --profile <name> add focus-guard`（三种写法见 §2A） |
 | **DSH·官方桥** | 桥 `@deepseek-ai/dsh-hooks-claude-code` 挂载 `packages/core/hooks/hooks.json`（Claude 方言） | **同等硬拦截**：exit 2 阻断工具/提示、`ask` 原生审批、stderr 原文透传给模型、Stop 打回强制续步。但**不含**原生插件独有的资格审核与申辩 | profile 的 `cordis.patch.yml` 挂桥（见下文逐行步骤） |
 
 注意 **DSH 的两条路互斥**——原生插件与官方桥监听同一条 pre-execute 缝，**同时挂载即双跑**。二选一。
 
-版本必须全链一致（**8 处版本面**）：根 `package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`packages/core/package.json`、`packages/extended/package.json` 的 `version`，与 `packages/core/src/core/constants.mjs` 的 `ENGINE_VERSION`——由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`packages/core/hooks/guard.mjs` **已封存**、版本号独立，断言只锁"封存标注存在"。不一致时 SessionStart 会注入"部署版本核验 deploy-mismatch"警告；本地验收有专门用例锁定该一致性（`node --test packages/core/tests/acceptance.test.mjs`）。
+### 官方桥的前置、版本对应与责任边界
+
+**官方桥 `@deepseek-ai/dsh-hooks-claude-code` 由官方仓库维护**；本仓库只提供**适配层**
+（`packages/core/hooks/hooks.json` 与 `packages/core/src/dsh/` 的事件映射），不包含桥本体。
+
+**安装顺序（走官方桥时）**：先装/确认官方桥，再装本包——
+
+```bat
+:: 1) 先确认桥在（版本号要能打印出来）
+npm ls -g @deepseek-ai/dsh-hooks-claude-code
+::    部分 DSH 发行版把桥打在应用内，无需单独安装；以官方仓库说明为准
+:: 2) 桥就位后再挂本仓库的 hooks.json（步骤见 §2B）
+```
+
+**版本对应关系**（适配层只支持已验证区间，区间外会在会话启动时报警）：
+
+| 适配层 | 官方桥已验证区间 | 说明 |
+|---|---|---|
+| 3.5.x | `>=0.2.1-rc.1 <0.3.0` | 实测通过：`0.2.1-rc.1`、`0.2.2-rc.5` |
+
+桥升级后事件契约/载荷可能变化，**适配层可能必须跟着更新**；反之，把适配层降级到旧桥也可能不匹配。
+不匹配时启动日志会出现 `bridge-incompatible` 告警，内含两条命令：
+
+```
+升级：npm i -g @deepseek-ai/dsh-hooks-claude-code@latest   （或升级 DSH 到自带匹配桥的版本）
+回退：npm i -g @deepseek-ai/dsh-hooks-claude-code@0.2.2-rc.5（或回退 DSH）
+```
+
+**责任边界（重要）**：
+
+- **桥层面的 issue（功能缺失、崩溃、事件不触发）→ 上报官方仓库**，不计入本仓库。
+- 本仓库 README 只描述**适配层行为与兼容矩阵**；功能残缺请先到官方桥仓库反馈。
+- 本仓库只处理**适配层自身的缺陷**（如事件映射错、载荷解析错）与**兼容问题**（版本区间、升级适配）。
+
+版本必须全链一致（**9 处版本面** = 7 个清单 + `ENGINE_VERSION` + CHANGELOG 最新段）：根 `package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`packages/core/package.json`、`packages/extended/package.json` 的 `version`，`packages/core/src/core/constants.mjs` 的 `ENGINE_VERSION`，以及 `CHANGELOG.md` 最新段标题——由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。一键核对：`node packages/core/tools/version.mjs`（不一致 exit 1）。引擎头注释例外：`packages/core/hooks/guard.mjs` **已封存**、版本号独立，断言只锁"封存标注存在"。
 
 ## 一、ZCode 安装（逐行可复制）
 
@@ -90,7 +124,7 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
 
 ### 2B. 官方桥（Claude 方言）
 
-机制：DSH 官方桥 `@deepseek-ai/dsh-hooks-claude-code`（`dsh` 应用自带，无需安装）直接运行本仓库的 Claude 方言 `packages/core/hooks/hooks.json`——六条钩子在 DSH 上获得与 ZCode 同级的**硬拦截**：PreToolUse deny/ask、退出码 2 阻断、stderr 原文透传给模型、Stop 打回强制续步。
+机制：DSH 官方桥 `@deepseek-ai/dsh-hooks-claude-code`（**由官方仓库维护**；部分发行版打在应用内、部分需单独安装，以官方说明为准）直接运行本仓库的 Claude 方言 `packages/core/hooks/hooks.json`——六条钩子在 DSH 上获得与 ZCode 同级的**硬拦截**：PreToolUse deny/ask、退出码 2 阻断、stderr 原文透传给模型、Stop 打回强制续步。
 
 ```text
 1) 取得仓库到固定目录（示例 E:\focus-guard-main，git clone 或下载解压）
@@ -169,17 +203,17 @@ marketplace 清单：.agents/plugins/ → .claude-plugin/ → .cursor-plugin/ �
 
 ### 3. 环境误判修复
 
-- 现象：Windows Git Bash 里 `grep ... | head -5` 被拦，提示"PowerShell 禁 bash 管道"等平台规则错误。
-- 原因：会话启动时 shell 检测误判。判定链（`quickShellId()`）：先看 `SHELL`（bash/zsh/sh 分别识别），再看 `PSModulePath` 是否含**带版本号的 pwsh7 路径**（`…\PowerShell\<版本>\…`）或 Store 包路径（`…\WindowsApps\microsoft.powershell…`），最后看 `ComSpec`。2.0.1 修掉"机器级 PSModulePath 恒存即判 PowerShell"，2.5.2 进一步收窄为只认带版本/包路径（此前只写 `C:\Program Files\PowerShell\Modules` 也会误判）。
-- 修复：①重开会话——环境检测为会话级一次复用，仅 shell 变化时重检，新会话必然重检；②应急：删除 `%TEMP%\focus-guard-<会话ID>.json` 强制重检（会话 ID 经消毒，异常字符会带短哈希后缀）；③仍误判：在 `.ai/CASE_FILE.md` 留痕后报 issue，判定逻辑集中在引擎 `quickShellId()`，可按机器特征调整。
-- 反向误判（真 PowerShell 会话没被管）：属"宁宽勿严"设计，不堵工作流优先；可用 `Select-String` / `Measure-Object` / `-TotalCount` 的平台友好写法。
+- 现象：Windows 上 PowerShell 专用的 `Select-Object` / `Get-ChildItem` 被误判成「bash 里没有」，或反过来 bash 命令被按 PowerShell 规则拦。
+- 原因（2026-11-22 修）：执行体此前按**会话**猜——`expectedShellId()` 只要 PATH 里能解析到 bash 就认 bash，而本机装了 Git Bash；实际调用可能走 `pwsh` 工具。现在改为**按工具名判**（`env.mjs::shellIdForTool`：`pwsh`→PowerShell 规则、`bash`→bash 规则），会话指纹只影响没有工具名时的兜底。
+- 修复：重启会话即可（旧进程仍加载旧代码）；旧逻辑下产生的误判可删除 `%TEMP%\focus-guard-<会话ID>.json` 强制重检（会话 ID 见 `.focus-guard/AUDIT.log` 的 `session` 字段）。
+- 应急：若确属平台规则误报，按提示改用该 shell 的等价写法；`FG_SHELL` 仍可显式覆盖执行体标识（特殊部署/测试用）。
 
-### 4. 升级后版本没变（部署漂移：源码 2.5.2，运行副本仍是 2.4.0）
+### 4. 升级后版本没变（部署漂移：源码与运行副本不一致）
 
-- 表现：`.focus-guard/AUDIT.log` 的 `rules-registered` 事件仍记 `引擎v2.4.0`；`%USERPROFILE%\.zcode\cli\plugins\installed_plugins.json` 中 `focus-guard` 的 `version` / `installPath` 仍指向旧版；新会话注入带【部署版本核验】警告。
-- 原因：钩子运行的是**插件安装副本**（`...\.zcode\cli\plugins\cache\<市场名>\focus-guard\<版本>\`），改源码不会自动生效。
-- 修复：ZCode → 设置 → 插件 → 插件市场 → 刷新 → 对 FocusGuard 执行更新（必要时先移除市场再重新添加）；确认缓存目录出现新版本号后重开会话。
-- 自检：`node --test packages/core/tests/acceptance.test.mjs` 全绿即源码八处版本面与 CHANGELOG 最新条目一致；注册表 ↔ 市场源 ↔ 运行引擎三方一致性由 SessionStart 持续核验（`deploy-mismatch` 事件）。
+- 表现：`.focus-guard/AUDIT.log` 的 `rules-registered` 事件仍记旧 `引擎vX.Y.Z`；ZCode 的 `installed_plugins.json` 里 `version` / `installPath` 仍指向旧版。
+- 原因：宿主运行的是**插件安装副本**，改源码不会自动生效；DSH 原生插件则看 profile 的 `node_modules` 里装的是不是新版本。
+- 修复：ZCode → 插件市场 → 刷新 → 更新 FocusGuard（必要时移除市场再重新添加）；DSH → `dsh plugin --profile <name> add focus-guard@<版本>` 或在插件面板更新；确认副本目录出现新版本号后重开会话。
+- 自检：`node packages/core/tools/version.mjs` 打印 9 处版本面并校验一致（不一致 exit 1）；`node --test packages/core/tests/acceptance.test.mjs` 全绿即源码各清单与 CHANGELOG 最新条目一致。**不再有 SessionStart「部署版本核验」注入**——该注入已在 2026 年移除，以 `version.mjs` 与实际安装副本为准。
 
 ## 四、卸载
 

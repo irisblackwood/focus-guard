@@ -56,6 +56,16 @@
   - 新模块 `dsh/guard/retryGuard.mjs`；`FG_RETRY_GUARD=0` 关闭，TTL 30 分钟、上限 256 条；
   - 审计 trigger=`retry-same-command`，理由要求先读错误再换法。
 
+### 官方桥边界：兼容矩阵与启动核验（2026-11-22）
+
+- feat(compat): 新增 `dsh/bridgeCheck.mjs`——启动时核验官方桥版本，区间外告警 `bridge-incompatible`
+  - 支持区间 `>=0.2.1-rc.1 <0.3.0`（实测 `0.2.1-rc.1` / `0.2.2-rc.5`）；读不到版本不报警；
+  - 告警内含升级与回退命令；桥层面 issue 指回官方仓库，本仓只处理适配层缺陷与兼容问题。
+- docs(install): INSTALL 新增「官方桥的前置、版本对应与责任边界」
+  - 桥由官方仓库维护，本仓只提供适配层；走桥时先装/确认桥，再挂 `hooks.json`；
+  - 增兼容矩阵表与不匹配时的升级/回退命令；明确桥功能缺失到官方仓库反馈。
+- docs(readme): README / 包 README（中英）补同一套边界与兼容矩阵，不重复实现细节。
+
 ### 兼容声明：约束存在，但平台看不见
 
 - feat(compat): 兼容范围写进 `engines.dsh`，不再只借 `peerDependencies` 表达

@@ -38,6 +38,13 @@ Restart the session to activate. The bundle patch is declared by this package's 
 Standalone (CLI only, no host): `npm install focus-guard` — ships the `focus-guard-brain` binary.
 
 > **Mutually exclusive** with the official bridge (`@deepseek-ai/dsh-hooks-claude-code`). Both mount the same seams; mounting both double-runs every hook — pick one.
+>
+> **The bridge is maintained by the official repository; this package is only the adapter.**
+> Install/confirm the bridge first, then mount this package's `hooks/hooks.json`.
+> Supported bridge range: `>=0.2.1-rc.1 <0.3.0` (verified `0.2.1-rc.1` / `0.2.2-rc.5`).
+> Outside the range the session start warns `bridge-incompatible` with upgrade/rollback
+> commands. Bridge-level bugs or missing features belong to the official repo; this
+> repository only handles adapter defects and compatibility.
 
 ### ZCode
 

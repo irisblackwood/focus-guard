@@ -64,6 +64,14 @@ npm install focus-guard
 
 装插件三种写法，差别只在版本来源：`add focus-guard`（npm 最近发版）／`add github:irisblackwood/focus-guard#path:/packages/core`（`main` 未发布改动，monorepo 必须指到子目录）／`add <路径>/packages/core`（本地开发）。详见 [INSTALL.md](INSTALL.md) §2A。
 
+**官方桥边界与兼容矩阵**：桥 `@deepseek-ai/dsh-hooks-claude-code` **由官方仓库维护**，本仓库只提供适配层（`hooks.json` + `src/dsh/` 事件映射）。走桥时**先装/确认桥，再装本包**。
+
+| 适配层 | 官方桥已验证区间 |
+|---|---|
+| 3.5.x | `>=0.2.1-rc.1 <0.3.0`（实测 `0.2.1-rc.1` / `0.2.2-rc.5`） |
+
+桥升级后适配层可能必须跟着更新；不匹配会在会话启动时告警 `bridge-incompatible`，并打印升级/回退命令。**桥层面的 issue（功能缺失、崩溃、事件不触发）请上报官方仓库**；本 README 只描述适配层行为与兼容矩阵，本仓库只处理适配层自身缺陷与兼容问题。
+
 **装到 ZCode**：仓库根目录 → 插件市场 → 添加市场 → 安装 → 新开会话（并存，非首选）。
 
 验证生效：新会话出现执法模型注入，且工作区生成 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log`。逐行步骤、卸载、FAQ 见 [INSTALL.md](INSTALL.md)。

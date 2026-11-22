@@ -27,6 +27,7 @@ import {
 } from '../../core/state.mjs'
 import { noteFail } from '../../core/audit.mjs'
 import { detectEnv, probeShells, quickShellId } from '../../core/env.mjs'
+import { bridgeNotice } from '../bridgeCheck.mjs'
 import { ENGINE_VERSION } from '../../core/constants.mjs'
 import { sidOf, projDirOf, isSubagent, auditRow, rememberWorkspace } from './shared.mjs'
 
@@ -91,6 +92,14 @@ export function sessionStartListener({ warn } = {}) {
 
       detectEnvInto(state, projDir)
       if (projDir) prepareProject({ sid, projDir, state })
+
+      // 官方桥版本核验（2026-11-22）：桥由官方仓库维护，适配层只支持已验证区间；
+      // 区间外报警并给升级/回退命令，不静默跑（只 warn，不阻断）。
+      const bridgeLine = bridgeNotice()
+      if (bridgeLine) {
+        warn(bridgeLine)
+        auditRow(sid, 'bridge-incompatible', bridgeLine.slice(0, 300))
+      }
 
       state.taskChain = (state.taskChain || 'S') + ''
       if (first) state.taskChain = 'S' + Date.now().toString(36) // 3.0.0 因果链：会话根链

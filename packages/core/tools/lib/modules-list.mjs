@@ -184,7 +184,7 @@ export const MODULES = [
     id: 'seams',
     name: '宿主缝',
     note: '挂到宿主生命周期上的入口：pre-step / pre-execute / session-start 等',
-    paths: ['packages/core/src/dsh/seams'],
+    paths: ['packages/core/src/dsh/seams', 'packages/core/src/dsh/bridgeCheck.mjs'],
   },
   {
     id: 'compaction',
