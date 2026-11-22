@@ -2,7 +2,7 @@
  * 文档口径内核（3.3 D5 / D2）：版本面 + 相对链接 + 状态头 + INDEX 覆盖。纯函数，零依赖。
  *
  * 机械判定的四件事：
- *  1) **版本面**：七处清单 + `ENGINE_VERSION` 必须等于 CHANGELOG 最新版本段；
+ *  1) **版本面**：八处清单 + `ENGINE_VERSION` 必须等于 CHANGELOG 最新版本段；
  *  2) **相对链接**：仓库内 `.md` 的 `[text](path)` 目标文件必须存在（http/mailto/锚点跳过）；
  *  3) **状态头**（D2）：权威文档正文必须带 `> **状态**：权威 · 适用版本 … · 最后核对 …`；
  *  4) **INDEX 覆盖**（D2）：权威文档必须能从 `docs/INDEX.md` 的链接到达。
@@ -12,9 +12,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
-/** 七处清单（与 RELEASE-POLICY 第三节逐字对应）。 */
+/** 八处清单（与 RELEASE-POLICY 第三节逐字对应；2026-11-22 补 package-lock.json）。 */
 export const VERSION_FILES = [
   'package.json',
+  'package-lock.json',
   'marketplace.json',
   '.zcode-plugin/plugin.json',
   '.claude-plugin/plugin.json',

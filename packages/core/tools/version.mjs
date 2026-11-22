@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 版本号单点（tools/version.mjs，2026-11-02）——一处改动，九处跟随。
+ * 版本号单点（tools/version.mjs，2026-11-02）——一处改动，十处跟随。
  *
  * 为什么要这个东西：
- *   版本号散在 9 个地方：7 个清单（`VERSION_FILES`）+ `ENGINE_VERSION` + CHANGELOG 最新段。
+ *   版本号散在 10 个地方：8 个清单（`VERSION_FILES`）+ `ENGINE_VERSION` + CHANGELOG 最新段。
  *   此前每次发版靠手工同步 7 次，`docs-lint` 只负责事后喊「你们不一样」——它是**比对器**，
  *   不是**写入器**。比对器能抓住错误，但抓不住「忘了改」这件事本身，因为它每次都只是红。
  *
@@ -13,7 +13,7 @@
  *   其余 7 个清单是**宿主与发布面的副本**，只能由本工具写，不许手改。
  *
  * 用法：
- *   node tools/version.mjs                 # 打印九处现状（不一致 exit 1）
+ *   node tools/version.mjs                 # 打印十处现状（不一致 exit 1）
  *   node tools/version.mjs --set 3.4.0     # 写 6 个清单 + ENGINE_VERSION + CHANGELOG 新段
  *   node tools/version.mjs --set 3.4.0 --dry   # 只看会改什么，不落盘
  *
@@ -30,10 +30,10 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..', '..', '..')
 
-/** 七个清单。与 `tools/lib/docs-core.mjs` 的 `VERSION_FILES` 同源——改一处必须改两处时，
- *  下面那条自检会红（见 `assertSingleList`）。 */
+/** 八个清单（2026-11-22 补 `package-lock.json`：此前它一直停在 3.0.4 没人管）。 */
 const VERSION_FILES = [
   'package.json',
+  'package-lock.json',
   'marketplace.json',
   '.zcode-plugin/plugin.json',
   '.claude-plugin/plugin.json',
@@ -67,7 +67,7 @@ function readChangelogHead() {
   return m ? m[1] : null
 }
 
-/** 九处现状。每处带 `authority` 标记：真源那处为 true，其余是副本。 */
+/** 十处现状。每处带 `authority` 标记：真源那处为 true，其余是副本。 */
 function survey() {
   const rows = []
   for (const rel of VERSION_FILES) {
@@ -96,7 +96,7 @@ function print(rows) {
     for (const r of bad) console.log(`    ${r.where} = ${r.value}`)
     console.log('\n  修法：node tools/version.mjs --set ' + truth + '   （以真源为准写回副本）')
   } else {
-    console.log(`\n✓ 九处一致：${truth}`)
+    console.log(`\n✓ 十处一致：${truth}`)
   }
   return bad.length
 }
@@ -111,6 +111,10 @@ function writeManifest(rel, version, dry) {
   const { json } = readManifest(rel)
   if (Array.isArray(json.plugins) && json.version === undefined) json.plugins[0].version = version
   else json.version = version
+  // npm v3 lockfile 的根包版本另存一份；只改顶层会让 `packages[""].version` 继续落后。
+  if (json.packages && json.packages[''] && typeof json.packages[''] === 'object') {
+    json.packages[''].version = version
+  }
   const after = (JSON.stringify(json, null, 2) + '\n').replace(/\n/g, eol)
   if (after === raw) return false
   if (!dry) writeFileSync(path, after)
@@ -183,7 +187,7 @@ function main() {
 
   console.log(`${dry ? '（演练，未落盘）' : ''}版本 → ${target}`);
   for (const c of changed) console.log(`  ✎ ${c}`)
-  if (!changed.length) console.log('  （九处本来就是它，无需改动）')
+  if (!changed.length) console.log('  （十处本来就是它，无需改动）')
   console.log('')
   print(survey())
 }

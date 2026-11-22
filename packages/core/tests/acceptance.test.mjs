@@ -1296,7 +1296,7 @@ describe("工程自检（防版本与文档漂移）", () => {
   // 测试位于 packages/core/tests/：ROOT 相对测试文件上溯三级到仓库根，调用方传 "../x" 形式时剥掉前缀
   const ROOT = (p) => fileURLToPath(new URL("../../../" + p.replace(/^\.\.\//, ""), import.meta.url));
 
-  test("版本一致性：七处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
+  test("版本一致性：八处清单 + ENGINE_VERSION 相同；引擎头注释标注封存且版本独立", () => {
     const guard = readFileSync(GUARD, "utf8");
     // 2026-10-27：改用 import 的运行时值（原先是正则抠源码文本，见文件头说明）。
     const engine = ENGINE_VERSION;
@@ -1313,6 +1313,8 @@ describe("工程自检（防版本与文档漂移）", () => {
     );
     const manifests = [
       "../package.json",
+      // 2026-11-22 补：package-lock.json 曾长期停在 3.0.4——npm 的根包版本另存一份，不进断言就会漂。
+      "../package-lock.json",
       "../marketplace.json",
       "../.zcode-plugin/plugin.json",
       "../.claude-plugin/plugin.json",
@@ -1329,7 +1331,7 @@ describe("工程自检（防版本与文档漂移）", () => {
     }
   });
 
-  test("版本追赶：七处版本号 == CHANGELOG 最新条目版本（防「一致地落后」）", () => {
+  test("版本追赶：八处版本号 == CHANGELOG 最新条目版本（防「一致地落后」）", () => {
     // 缺口背景：原「版本一致性」用例只校验清单彼此相等，不校验是否跟上 CHANGELOG，
     // 于是 3.0.5/3.0.6 已落地而清单齐刷刷停在 3.0.4 时测试全绿、漂移藏了整轮。
     // 2026-10-09 二次补漏：清单本身也漏了 monorepo 子包（packages/core 是 DSH 实际挂载的那个）。
@@ -1348,6 +1350,7 @@ describe("工程自检（防版本与文档漂移）", () => {
     assert.equal(engine, latest, `版本落后：ENGINE_VERSION ${engine} ≠ CHANGELOG 最新 ${latest}`);
     const manifests = [
       "../package.json",
+      "../package-lock.json",
       "../marketplace.json",
       "../.zcode-plugin/plugin.json",
       "../.claude-plugin/plugin.json",

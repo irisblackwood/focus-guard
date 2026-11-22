@@ -162,7 +162,7 @@ packages/core/src/dsh/guard/runtime.mjs      PIPELINE_VERSION（格式 x.y.z-mN�
 CHANGELOG.md                                 最新条目（须等于上述版本）
 ```
 
-验收用例（`tests/acceptance.test.mjs`）已锁：七处清单 + `ENGINE_VERSION` 相同、且等于 CHANGELOG 最新条目（防「一致地落后」）。
+验收用例（`tests/acceptance.test.mjs`）已锁：八处清单（含 `package-lock.json`）+ `ENGINE_VERSION` 相同、且等于 CHANGELOG 最新条目（防「一致地落后」）。
 **`PIPELINE_VERSION` 不在断言里**——它是热重载的磁盘/内存比对标记（`runtime.mjs` 用它判断"磁盘代码已更新，请重启"），不是发布版本，锁死它只会让每次改 pipeline 都要连带升版。
 2026-11-19 核对时发现本文原先把它的位置写成 `src/dsh/pipeline.mjs`，而该文件里没有任何版本常量——**路径存在、符号不在**，`docs:lint` 的路径判据抓不到这一类，只能人读。
 `packages/core/hooks/guard.mjs` 是**封存**文件，版本独立，**不参与**升版。

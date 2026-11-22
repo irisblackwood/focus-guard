@@ -169,7 +169,7 @@
 | `CASE_MAX_ROWS` | 200 | 卷宗【三】最大行数（超出淘汰最旧） |
 | `BACKUP_KEEP` | 100 | `.ai/backup/` 最大保留份数 |
 | `TTL_FIRST/RECENT/WEEK/STABLE` | 4h / 2h / 24h / 7天 | 卷宗自适应 TTL 四级 |
-| `ENGINE_VERSION` | 3.5.3 | 42条部署版本核验基准。**版本面 = 七处清单 + `ENGINE_VERSION` + CHANGELOG 最新段**（七处：根 `package.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在"。`PIPELINE_VERSION` **不在断言里**——它是热重载的磁盘/内存比对标记（在 `src/dsh/guard/runtime.mjs`），不是发布版本 |
+| `ENGINE_VERSION` | 3.5.3 | 部署版本核验基准。**版本面 = 八处清单 + `ENGINE_VERSION` + CHANGELOG 最新段**（八处：根 `package.json` / 根 `package-lock.json` / 根 `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json` / `packages/core/package.json` / `packages/extended/package.json`），由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。引擎头注释例外：`guard.mjs` 已封存、版本号独立，断言只锁"封存标注存在"。`PIPELINE_VERSION` **不在断言里**——它是热重载的磁盘/内存比对标记（在 `src/dsh/guard/runtime.mjs`），不是发布版本 |
 
 ### 环境变量（34 个）
 

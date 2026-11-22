@@ -17,7 +17,7 @@
 | [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.3 | 2026-11-22 | 0 | 0 |
-| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
+| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-22 | 0 | 0 |
 | [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.2 | 2026-11-18 | 4 | 0 |
 | [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
@@ -62,7 +62,7 @@ docs/ARCHITECTURE.md|权威|3.5.3|2026-11-19
 docs/DESIGN-CONSTRAINTS.md|权威|3.5.3|2026-11-19
 docs/INDEX.md|权威|3.5.3|2026-11-19
 docs/MODULES.md|权威|3.5.3|2026-11-22
-INSTALL.md|权威|3.5.3|2026-11-19
+INSTALL.md|权威|3.5.3|2026-11-22
 packages/core/docs/ARCH-MAP.md|权威|3.5.2|2026-11-18
 packages/core/docs/BENCH.md|权威|3.5.3|2026-11-19
 packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-19

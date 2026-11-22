@@ -1,6 +1,6 @@
 # 司会 Keepward 安装指南（v3.5.3）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-22
 
 前置要求：Node.js ≥ 18.17（引擎零依赖，仅用内置模块；与 `package.json` 的 `engines` 一致）。逐行验证：
 
@@ -52,7 +52,7 @@ npm ls -g @deepseek-ai/dsh-hooks-claude-code
 - 本仓库 README 只描述**适配层行为与兼容矩阵**；功能残缺请先到官方桥仓库反馈。
 - 本仓库只处理**适配层自身的缺陷**（如事件映射错、载荷解析错）与**兼容问题**（版本区间、升级适配）。
 
-版本必须全链一致（**9 处版本面** = 7 个清单 + `ENGINE_VERSION` + CHANGELOG 最新段）：根 `package.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`packages/core/package.json`、`packages/extended/package.json` 的 `version`，`packages/core/src/core/constants.mjs` 的 `ENGINE_VERSION`，以及 `CHANGELOG.md` 最新段标题——由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。一键核对：`node packages/core/tools/version.mjs`（不一致 exit 1）。引擎头注释例外：`packages/core/hooks/guard.mjs` **已封存**、版本号独立，断言只锁"封存标注存在"。
+版本必须全链一致（**10 处版本面** = 8 个清单 + `ENGINE_VERSION` + CHANGELOG 最新段）：根 `package.json`、根 `package-lock.json`、根 `marketplace.json`、`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`packages/core/package.json`、`packages/extended/package.json` 的 `version`，`packages/core/src/core/constants.mjs` 的 `ENGINE_VERSION`，以及 `CHANGELOG.md` 最新段标题——由断言锁定"彼此相等 **且** 等于 CHANGELOG 最新条目"。一键核对：`node packages/core/tools/version.mjs`（不一致 exit 1）。引擎头注释例外：`packages/core/hooks/guard.mjs` **已封存**、版本号独立，断言只锁"封存标注存在"。
 
 ## 一、ZCode 安装（逐行可复制）
 
@@ -80,7 +80,10 @@ dir /b marketplace.json
 cd /d <仓库目录>
 npm test         :: 全量测试（= npm run test:all；2026-11-08 起不再只跑 acceptance 一个文件）
 npm run eval     :: 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即失败
-npm run check    :: 整条闸：test + eval + eval:dsh + selftest + bridges + privacy + manifest
+npm run check    :: 整条闸（= check:inner，外面再套 audit-isolation）：test:all + eval + eval:dsh
+                 :: + selftest + bridges + privacy:gate + quality:audit + manifest:check
+                 :: + docs:lint:gate + modules:audit + lint:gate + smells:gate + schema:verify
+                 :: + install:gate（发布前跑的就是它）
                  ::        + docs:lint + lint + smells + schema:verify（发布前跑的就是它）
 ```
 
@@ -90,7 +93,7 @@ DSH 有**两条路，二选一、互斥**——两条都监听同一条 pre-exec
 
 | 路径 | 拿到什么 |
 |---|---|
-| **A. 原生插件**（推荐，3.0.5 起） | `src/dsh/` 的 **8 个宿主事件 / 12 条监听**：`tools/pre-execute` 拦截判定（资格审核 `fg_apply` + 误伤申辩 `fg_appeal` + 模型画像 + 环境指纹命令硬校验 + 绝对红线上下文豁免）、`system-prompt/assemble` 规则与成本注入、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断浪费结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察（只读） |
+| **A. 原生插件**（推荐，3.0.5 起） | `src/dsh/` 的 **8 个宿主事件 / 十余条监听**：`tools/pre-execute` 拦截判定（资格审核 `fg_apply` + 误伤申辩 `fg_appeal` + 模型画像 + 环境指纹命令硬校验 + 绝对红线上下文豁免）、`system-prompt/assemble` 规则与成本注入、`tools/post-execute` 成本与进度、`agent/pre-step` turn/step 留痕、`agent/turn-stopping` 熔断浪费结算、`agent/request-error` 撞窗告警、`session/event` 压缩监察（只读） |
 | **B. 官方桥**（2.5.0 起） | Claude 方言六条钩子的**同级硬拦截**（exit 2 / `ask` 审批 / stderr 原文透传 / Stop 打回），但**不含** A 独有的资格审核与申辩 |
 
 ### 2A. 原生插件（推荐）
@@ -151,7 +154,7 @@ dsh: [...\cordis.patch.yml] patch: id is required for non-insert patches
 ```
 
 后果是桥根本没挂上、六条钩子一条都不跑，而启动过程不报错，只在 `dsh --dump-config` 的首行留一行提示。
-自查方法：`dsh --profile <name> --dump-config | grep hooks-claude-code`，**没有输出就是没挂上**。
+自查方法：`dsh --profile <name> --dump-config`，在输出里找 `hooks-claude-code`（Windows 用 `findstr hooks-claude-code`，Git Bash 用 `grep`），**没有就是没挂上**。命令顺序是 `dsh --profile <name> --dump-config`（`--profile` 在前），写成 `dsh <name> --dump-config` 也可，但别把 `--dump-config` 放到名字前面。
 
 要点与已知差异（相对 ZCode，均来自官方桥文档，逐条核实过）：
 
@@ -213,7 +216,7 @@ marketplace 清单：.agents/plugins/ → .claude-plugin/ → .cursor-plugin/ �
 - 表现：`.focus-guard/AUDIT.log` 的 `rules-registered` 事件仍记旧 `引擎vX.Y.Z`；ZCode 的 `installed_plugins.json` 里 `version` / `installPath` 仍指向旧版。
 - 原因：宿主运行的是**插件安装副本**，改源码不会自动生效；DSH 原生插件则看 profile 的 `node_modules` 里装的是不是新版本。
 - 修复：ZCode → 插件市场 → 刷新 → 更新 FocusGuard（必要时移除市场再重新添加）；DSH → `dsh plugin --profile <name> add focus-guard@<版本>` 或在插件面板更新；确认副本目录出现新版本号后重开会话。
-- 自检：`node packages/core/tools/version.mjs` 打印 9 处版本面并校验一致（不一致 exit 1）；`node --test packages/core/tests/acceptance.test.mjs` 全绿即源码各清单与 CHANGELOG 最新条目一致。**不再有 SessionStart「部署版本核验」注入**——该注入已在 2026 年移除，以 `version.mjs` 与实际安装副本为准。
+- 自检：`node packages/core/tools/version.mjs` 打印 10 处版本面并校验一致（不一致 exit 1）；`node --test packages/core/tests/acceptance.test.mjs` 全绿即源码各清单（含 lock）与 CHANGELOG 最新条目一致。**不再有 SessionStart「部署版本核验」注入**——该注入已在 2026 年移除，以 `version.mjs` 与实际安装副本为准。
 
 ## 四、卸载
 

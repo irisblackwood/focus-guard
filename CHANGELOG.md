@@ -65,6 +65,13 @@
   - 桥由官方仓库维护，本仓只提供适配层；走桥时先装/确认桥，再挂 `hooks.json`；
   - 增兼容矩阵表与不匹配时的升级/回退命令；明确桥功能缺失到官方仓库反馈。
 - docs(readme): README / 包 README（中英）补同一套边界与兼容矩阵，不重复实现细节。
+- fix(release): 〔开发期〕`package-lock.json` 纳入版本面（第 8 个清单）——它此前长期停在 `3.0.4`
+  - 两个 `VERSION_FILES` 加 lock，写版本时同步根包版本；
+  - 断言清单同步；`version.mjs` 打印 **10 处**（8 清单+ENGINE+CHANGELOG）。
+- docs(install): 再纠一批过时表述——监听数改为「十余条（按 register 计数）」、
+  版本面 9→10、`npm run check` 链补全（docs/lint/smells/schema/install 等六道）、
+  `--dump-config` 自查命令区分 Windows `findstr` 与 Git Bash `grep`。
+- fix(docs): 〔开发期〕ARCHITECTURE / RELEASE-POLICY 的「七处清单」同步为「八处（含 lock）」。
 
 ### 兼容声明：约束存在，但平台看不见
 

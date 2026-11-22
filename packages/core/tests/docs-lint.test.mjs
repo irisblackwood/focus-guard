@@ -47,11 +47,12 @@ test("相对链接：跨目录 ../ 与带锚点的链接都按目标文件判", 
   rmSync(root, { recursive: true, force: true });
 });
 
-test("版本面：七处清单 + ENGINE_VERSION + CHANGELOG 最新段必须一致", () => {
+test("版本面：八处清单 + ENGINE_VERSION + CHANGELOG 最新段必须一致", () => {
   const { root, put } = fixture();
   const one = JSON.stringify({ version: "1.2.3" });
   for (const rel of [
     "package.json",
+    "package-lock.json",
     ".zcode-plugin/plugin.json",
     ".claude-plugin/plugin.json",
     "packages/core/package.json",
