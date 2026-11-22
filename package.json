@@ -11,7 +11,7 @@
     "eval": "node packages/core/tests/threat-eval.mjs packages/core/hooks/guard.mjs",
     "bench": "node packages/core/tests/token-bench.mjs packages/core/hooks/guard.mjs",
     "check": "node packages/core/tests/audit-isolation.mjs --wrap \"npm run check:inner\"",
-    "check:inner": "npm run test:all && npm run eval && npm run eval:dsh && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run manifest:check && npm run docs:lint:gate && npm run modules:audit && npm run lint:gate && npm run smells:gate && npm run schema:verify && npm run install:gate",
+    "check:inner": "npm run test:all && npm run eval && npm run eval:dsh && npm run selftest && npm run test:bridges && npm run privacy:gate && npm run quality:audit:brief && npm run manifest:check && npm run docs:lint:gate && npm run modules:audit && npm run lint:gate && npm run smells:gate && npm run schema:verify && npm run install:gate && npm run docs:drift:strict",
     "privacy:gate": "node packages/core/tools/privacy-guard.mjs",
     "test:all": "node packages/core/tests/audit-isolation.mjs",
     "selftest": "node packages/core/tools/selftest.mjs",
@@ -69,7 +69,8 @@
     "gate:inputs": "node packages/core/tools/gate-inputs.mjs",
     "brain:distill": "node packages/core/tools/memory-distill.mjs",
     "brain:asset": "node packages/core/tools/make-cortex-asset.mjs",
-    "docs:drift": "node packages/core/tools/docs-drift.mjs"
+    "docs:drift": "node packages/core/tools/docs-drift.mjs",
+    "docs:drift:strict": "node packages/core/tools/docs-drift.mjs --strict"
   },
   "license": "AGPL-3.0-only",
   "engines": {

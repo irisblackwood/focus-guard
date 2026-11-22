@@ -1586,7 +1586,7 @@
 
 - `prompt-prefix-shift` 接线：`prefixStability.mjs` 已写但生产代码零引用，
   `AUDIT.log` 中该 action 恒 0 条。见 `VERSION-PLAN.md` §1.5①。
-- **本机绝对路径仍在发布物里**：`E:/DSH/...` 命中 10 个文件（`docs/HANDOFF-2026-10-27.md`、
+- **本机绝对路径仍在发布物里**：`E:/DSH/...` 命中 10 个文件（`docs/archive/HANDOFF-2026-10-27.md`、
   `tools/bench-ab.mjs`、`tools/prefix-*.mjs` 等的兜底默认值）。这些是**环境指纹**，
   不是数据，但也不该出现在别人下载的包里。收敛它们属于 D 项（309 处 → `paths.mjs`），
   要动测试夹具，单独一轮做，不混在视觉改动里。
@@ -2055,7 +2055,7 @@
 
 ### 代码卫生
 
-- chore(review): **第三方工具三连跑 + 88 个死符号清理**（人类指令「选择合适的都跑一遍」，完整台账见 `docs/HANDOFF-2026-10-27.md`）
+- chore(review): **第三方工具三连跑 + 88 个死符号清理**（完整台账见 `docs/archive/HANDOFF-2026-10-27.md`）
   - **可用 3 个**：`dsh-refactor-insight` / `brooks-lint` / `dsh-code-check`。
   - **不可用 4 个**：`dsh-lens` 依赖 DSH 私有包；`dsh-plugin-review@0.0.1` 全文是 `// Placeholder`。
   - **另两个**：`dsh-code-smell` 与 `dsh-skill-ponytail` npm 404；`dsh-lens-lite` 是 post-edit 钩子不是审计工具。

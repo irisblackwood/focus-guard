@@ -8,7 +8,7 @@
 > 法条（`RULES.md`）的适用版本记的是**最后一次修法**时的产品版本，长期落后是常态、不是欠债。
 > 加粗 = 值得先看：落后 > 0，或最后核对已超 45 天。
 
-合计 43 份：权威 18 / 参考 13 / 台账 4 / 归档 8 / 未标 0。
+合计 42 份：权威 18 / 参考 13 / 台账 3 / 归档 8 / 未标 0。
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
@@ -46,7 +46,6 @@
 | [`packages/core/docs/AB-PROMPTS.md`](../packages/core/docs/AB-PROMPTS.md) | 台账 | — | 2026-10-28 | 25 | — |
 | [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-10-28 | 25 | — |
 | [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-10-28 | 25 | — |
-| [`packages/core/docs/HANDOFF-2026-10-27.md`](../packages/core/docs/HANDOFF-2026-10-27.md) | 台账 | — | 2026-10-28 | 25 | — |
 | [`docs/vault-notes/README.md`](../docs/vault-notes/README.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/TOP-TAKEAWAYS-FG3.md`](../docs/vault-notes/TOP-TAKEAWAYS-FG3.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/vendors/Anthropic.md`](../docs/vault-notes/vendors/Anthropic.md) | 归档 | — | — | — | — |
@@ -91,7 +90,6 @@ packages/core/docs/MCP-4.0-PLAN.md|参考|4.0|2026-10-28
 packages/core/docs/AB-PROMPTS.md|台账|—|2026-10-28
 packages/core/docs/AB-SESSION.md|台账|—|2026-10-28
 packages/core/docs/deepseek-pricing-audit.md|台账|—|2026-10-28
-packages/core/docs/HANDOFF-2026-10-27.md|台账|—|2026-10-28
 docs/vault-notes/README.md|归档|—|—
 docs/vault-notes/TOP-TAKEAWAYS-FG3.md|归档|—|—
 docs/vault-notes/vendors/Anthropic.md|归档|—|—

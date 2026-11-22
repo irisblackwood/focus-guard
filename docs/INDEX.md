@@ -14,7 +14,7 @@
 4. 版本计划 / 里程碑语义 → [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md)
 5. 发版规矩 → [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md)
 6. 基准与数字单点 → [BENCH.md](../packages/core/docs/BENCH.md)
-7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么这么改 / 排到哪 → [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md)；过程记录 → [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md)（3.2.x 时期那一轮，**此后未再写 HANDOFF**）
+7. 变了什么 → [CHANGELOG.md](../CHANGELOG.md)；为什么这么改 / 排到哪 → [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md)；过程记录 → [HANDOFF-2026-10-27.md](archive/HANDOFF-2026-10-27.md)（已归档；3.2.x 时期那一轮，**此后未再写 HANDOFF**）
 8. **发现新缺口怎么记账** → [RULES.md](../packages/core/docs/RULES.md) **第十五章之四（第九十二条）**：适用范围、标记编排版本、两条必写理由、记录不等于动手、验收须可复跑
 9. **记忆改革要抄什么、不抄什么** → [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) **§五·补**：外部参照 `memory-brain` 的**48 条可抄清单**（判据 7 / 参数 8 / 工程 9 / 开机包 10 / 注入 4 / 输出护栏 6 / 幂等 4），**三个最大差距**是「没有降级为倾向这一档」「据是结论不是方法」「没有开机包」；另有**8 件不抄**、**3D 脑 UI 与 CC BY-SA 3.0 红线**、不接运行时的两条硬理由，以及写死的判据「记忆的消费者是闸门，不是模型」
 10. **改判定链之前查什么、这些约束从哪来** → 两份配对读：[DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md)（判据）+ [THEORY-BASIS.md](THEORY-BASIS.md)（来源）。前者十一条约束、失效模式与落点；后者七层理论、50 脑区归类、记忆与神经元机制、8 篇文献。**约束必须能说出「不做会怎么坏」，说不出的不进判据页**
@@ -75,7 +75,7 @@
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| [HANDOFF-2026-10-27.md](../packages/core/docs/HANDOFF-2026-10-27.md) | 审计工具三连跑 → 分层拆分 → 健康分 | 台账（最新，2026-10-27） |
+| [HANDOFF-2026-10-27.md](archive/HANDOFF-2026-10-27.md) | 审计工具三连跑 → 分层拆分 → 健康分 | 台账（已归档，2026-11-22） |
 | [AB-PROMPTS.md](../packages/core/docs/AB-PROMPTS.md) | A/B 采集协议 | 台账（测量协议，可复用） |
 | [AB-SESSION.md](../packages/core/docs/AB-SESSION.md) | 一次 A/B 会话记录 | 台账（一次记录，属证据） |
 | [deepseek-pricing-audit.md](../packages/core/docs/deepseek-pricing-audit.md) | 价目核对 | 台账（外部事实，带日期可追溯） |

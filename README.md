@@ -59,7 +59,7 @@ npm install focus-guard
 
 | 路径 | 命令 / 挂载 | 拿到什么 |
 |---|---|---|
-| 原生插件（推荐） | `dsh plugin --profile <name> add focus-guard` | 8 事件 / 12 监听：拦截判定、规则与成本注入、turn/step 留痕、熔断结算、压缩监察 |
+| 原生插件（推荐） | `dsh plugin --profile <name> add focus-guard` | 8 个宿主事件 / 十余条监听：拦截判定、规则与成本注入、turn/step 留痕、熔断结算、压缩监察 |
 | 官方桥 | `@deepseek-ai/dsh-hooks-claude-code` 挂 `packages/core/hooks/hooks.json` | 与 ZCode 同级六事件硬拦截，不含资格审核与申辩 |
 
 装插件三种写法，差别只在版本来源：`add focus-guard`（npm 最近发版）／`add github:irisblackwood/focus-guard#path:/packages/core`（`main` 未发布改动，monorepo 必须指到子目录）／`add <路径>/packages/core`（本地开发）。详见 [INSTALL.md](INSTALL.md) §2A。
