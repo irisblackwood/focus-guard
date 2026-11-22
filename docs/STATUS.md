@@ -12,7 +12,7 @@
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
-| [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
+| [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.3 | 2026-11-22 | 0 | 0 |
 | [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
 | [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-19 | 3 | 0 |
@@ -57,7 +57,7 @@
 | [`docs/vault-notes/vendors/xAI.md`](../docs/vault-notes/vendors/xAI.md) | 归档 | — | — | — | — |
 
 <!-- status-key（判据用，勿改）
-CHANGELOG.md|权威|3.5.3|2026-11-19
+CHANGELOG.md|权威|3.5.3|2026-11-22
 docs/ARCHITECTURE.md|权威|3.5.3|2026-11-19
 docs/DESIGN-CONSTRAINTS.md|权威|3.5.3|2026-11-19
 docs/INDEX.md|权威|3.5.3|2026-11-19

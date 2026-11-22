@@ -154,28 +154,36 @@ describe("CHANGELOG 受众口径（开发期缺陷不称「修复」）", () => 
     assert.match(text, /docs\/RELEASE-POLICY\.md/, "口径说明须指向定义出处");
   });
 
-  // 这条盯的是「渠道查全」这个动作：常量一旦**落后**于 GitHub main，就会把已发布的段落判成开发期。
-  //
-  // 2026-11-11 修：原判据是「必须相等」。但版本号 bump 之后、push 之前，本地常量必然领先远端
-  // （3.4.0 vs 3.3.3），而 pre-push 钩子跑的就是这条 → 推送窗口内必然红，鸡生蛋，推不上去。
-  // 改为「不得低于」：**领先 = 发布进行中**（合法状态），**落后 = 真错**（对外展示比远端旧，
-  // 影响面会判错）。检出能力不变——常量忘了跟随时它仍然是落后的，仍然红。
-  test("PUBLISHED_MAX 不得低于 GitHub main（origin/main）上的版本", (t) => {
-    const r = spawnSync("git", ["show", "origin/main:package.json"], {
-      cwd: REPO,
-      encoding: "utf8",
-    });
-    if (r.status !== 0) return t.skip("无 origin/main 引用（浅克隆或未配远端），跳过");
-    const onGithub = JSON.parse(r.stdout).version;
+  // 2026-11-22：策略改为「可以只推送、不发版」后，origin/main 领先 npm 是**合法状态**
+  // （攒批提交已推、版本号按规矩不动）。原判据「PUBLISHED_MAX 不得低于 origin/main」会把这种
+  // 合法状态判红。现拆成两条：
+  //   ① 常量不得高于本地版本号（高于 = 记错了发布版本）；
+  //   ② 远端若领先，CHANGELOG 里必须能查到那个版本段，且它标了「未发布」。
+  test("PUBLISHED_MAX 不高于本地版本；远端领先时该段必须标未发布", (t) => {
     const v = (s) => String(s).split(".").map((n) => Number(n) || 0);
     const cmp = (a, b) => {
       const [x, y] = [v(a), v(b)];
       for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
       return 0;
     };
+    const head = JSON.parse(readFileSync(`${REPO}/package.json`, "utf8")).version;
     assert.ok(
-      cmp(PUBLISHED_MAX, onGithub) >= 0,
-      `PUBLISHED_MAX=${PUBLISHED_MAX} 低于 GitHub main 上的 ${onGithub}——常量落后远端，对外展示会比实际旧`,
+      cmp(PUBLISHED_MAX, head) <= 0,
+      `PUBLISHED_MAX=${PUBLISHED_MAX} 高于本地版本 ${head}——发布常量记错了`,
+    );
+    const r = spawnSync("git", ["show", "origin/main:package.json"], {
+      cwd: REPO,
+      encoding: "utf8",
+    });
+    if (r.status !== 0) return t.skip("无 origin/main 引用（浅克隆或未配远端），跳过");
+    const onGithub = JSON.parse(r.stdout).version;
+    if (cmp(onGithub, PUBLISHED_MAX) <= 0) return;
+    const sections = splitSections(readFileSync(CHANGELOG, "utf8"));
+    const sec = sections.find((s) => s.version === onGithub);
+    assert.ok(sec, `远端已有 ${onGithub}，CHANGELOG 里却没有该版本段`);
+    assert.ok(
+      sec.body.some((l) => /未发布/.test(l)),
+      `远端 ${onGithub} 领先 npm（${PUBLISHED_MAX}），该段必须标「未发布」说明还没发版`,
     );
   });
 
