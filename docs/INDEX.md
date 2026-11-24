@@ -52,6 +52,7 @@
 | [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 |
 | [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 |
 | [BENCH.md](../packages/core/docs/BENCH.md) | 基准跑法与数字快照 |
+| [MEMORY-RECALL-EVAL.md](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 记忆检索离线评测：结构化全量注入 vs 向量检索；**向量是 TF-IDF 稀疏向量，非语义**，qrels 为词项启发式 |
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 |
 | [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 |
