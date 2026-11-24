@@ -56,7 +56,7 @@
 | [MEMORY-HYBRID.md](../packages/core/docs/MEMORY-HYBRID.md) | 记忆检索混合接入：三档 × 四档规模的 token/召回/延迟定量对比，分档阈值、钉选硬上限、四阶段迁移；**检索做成工具而非自动注入**（否则毁前缀稳定） |
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 |
-| [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 |
+| [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动；**§八 沉淀与检索三层路线**（先修沉淀再谈检索） |
 | [MEMORY-RECALL-EVAL.md](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 记忆检索离线评测：结构化全量注入 vs 向量 top-k，召回率与 token 对照 |
 | [BRAIN-VIZ.md](../packages/core/docs/BRAIN-VIZ.md) | 脑可视化渲染实现：一个脚本三种跑法 / 星空与黑洞怎么画 / draw call 拆分 |
 | [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 |
