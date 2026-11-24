@@ -1,6 +1,9 @@
 # 司会 Keepward
 
-> **状态**：参考 · 适用版本 3.5.3 · 最后核对 2026-11-19
+> **状态**：参考 · 适用版本 3.5.3 · 最后核对 2026-11-24
+
+> **给接手的 AI**：先读 `docs/RULES.md`（法条）→ `docs/ARCH-MAP.md`（做到哪了）→
+> `docs/VERSION-PLAN.md`（计划，不在本包内，见 [GitHub](https://github.com/irisblackwood/focus-guard/blob/main/packages/core/docs/VERSION-PLAN.md)）。顺序不能反。
 
 > 旧名 **FocusGuard 聚焦护栏**（3.5.0 起更名）。包名 `focus-guard`、插件 id、
 > 状态目录 `.focus-guard/`、环境变量 `FG_*` 一律不变——更名只动展示层，不动技术契约。

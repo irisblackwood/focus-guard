@@ -41,8 +41,8 @@
 | [`docs/THEORY-BASIS.md`](../docs/THEORY-BASIS.md) | 参考 | 3.4.0 | 2026-11-11 | 13 | — |
 | [`packages/core/docs/BRAIN-VIZ.md`](../packages/core/docs/BRAIN-VIZ.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
 | [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
-| [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
-| [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
+| [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
+| [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
 | [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 21 | — |
 | [`packages/core/assets/NOTICE.md`](../packages/core/assets/NOTICE.md) | 参考 | — | — | — | — |
 | [`packages/core/docs/MCP-4.0-PLAN.md`](../packages/core/docs/MCP-4.0-PLAN.md) | 参考 | 4.0 | 2026-10-28 | 27 | — |
@@ -88,8 +88,8 @@ packages/extended/bridges/README.md|参考|3.3.0|2026-10-28
 docs/THEORY-BASIS.md|参考|3.4.0|2026-11-11
 packages/core/docs/BRAIN-VIZ.md|参考|3.5.3|2026-11-19
 packages/core/docs/MEMORY-RECALL-EVAL.md|参考|3.5.3|2026-11-24
-packages/core/README.md|参考|3.5.3|2026-11-19
-packages/core/README.zh-CN.md|参考|3.5.3|2026-11-19
+packages/core/README.md|参考|3.5.3|2026-11-24
+packages/core/README.zh-CN.md|参考|3.5.3|2026-11-24
 docs/GOVERNANCE-LAYERS.md|参考|—|2026-11-03
 packages/core/assets/NOTICE.md|参考|—|—
 packages/core/docs/MCP-4.0-PLAN.md|参考|4.0|2026-10-28

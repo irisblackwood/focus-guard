@@ -1,6 +1,9 @@
 # Keepward
 
-> **状态**：参考 · 适用版本 3.5.3 · 最后核对 2026-11-19
+> **状态**：参考 · 适用版本 3.5.3 · 最后核对 2026-11-24
+
+> **To the AI picking this up**: read `docs/RULES.md` (the law) → `docs/ARCH-MAP.md` (what is built)
+> → `docs/VERSION-PLAN.md` (the plan; repo only, [on GitHub](https://github.com/irisblackwood/focus-guard/blob/main/packages/core/docs/VERSION-PLAN.md)). Order matters.
 
 > Formerly **FocusGuard**. Renamed in 3.5.0 — the package name `focus-guard`, the plugin id,
 > the `.focus-guard/` state directory and the `FG_*` environment variables are **unchanged**.

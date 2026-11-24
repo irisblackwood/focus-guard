@@ -25,10 +25,15 @@
     "hooks",
     "tools",
     "skills",
-    "docs",
     "src",
     "assets",
-    "NOTICE"
+    "NOTICE",
+    "docs/RULES.md",
+    "docs/THREAT-MODEL.md",
+    "docs/ARCH-MAP.md",
+    "docs/RELEASE-POLICY.md",
+    "docs/BENCH.md",
+    "docs/WRITING-STYLE.md"
   ],
   "bin": {
     "focus-guard-brain": "./tools/brain-cosmic.mjs"
