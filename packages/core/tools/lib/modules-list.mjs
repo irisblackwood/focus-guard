@@ -80,7 +80,6 @@ export const MODULES = [
       'packages/core/src/dsh/guard/hardCheck.mjs',
       'packages/core/src/dsh/guard/writing-gate.mjs',
       'packages/core/src/dsh/guard/retryGuard.mjs',
-      'packages/core/src/dsh/guard/toolBudget.mjs',
     ],
   },
   {

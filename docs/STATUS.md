@@ -8,7 +8,7 @@
 > 法条（`RULES.md`）的适用版本记的是**最后一次修法**时的产品版本，长期落后是常态、不是欠债。
 > 加粗 = 值得先看：落后 > 0，或最后核对已超 45 天。
 
-合计 43 份：权威 19 / 参考 13 / 台账 3 / 归档 8 / 未标 0。
+合计 44 份：权威 19 / 参考 14 / 台账 3 / 归档 8 / 未标 0。
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
@@ -39,6 +39,7 @@
 | [`packages/extended/bridges/README.md`](../packages/extended/bridges/README.md) | 参考 | 3.3.0 | 2026-10-28 | 27 | — |
 | [`docs/THEORY-BASIS.md`](../docs/THEORY-BASIS.md) | 参考 | 3.4.0 | 2026-11-11 | 13 | — |
 | [`packages/core/docs/BRAIN-VIZ.md`](../packages/core/docs/BRAIN-VIZ.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
+| [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
 | [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
 | [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
 | [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 21 | — |
@@ -84,6 +85,7 @@ packages/core/tests/fixtures/real-calls/README.md|参考|3.3.0|2026-10-28
 packages/extended/bridges/README.md|参考|3.3.0|2026-10-28
 docs/THEORY-BASIS.md|参考|3.4.0|2026-11-11
 packages/core/docs/BRAIN-VIZ.md|参考|3.5.3|2026-11-19
+packages/core/docs/MEMORY-RECALL-EVAL.md|参考|3.5.3|2026-11-24
 packages/core/README.md|参考|3.5.3|2026-11-19
 packages/core/README.zh-CN.md|参考|3.5.3|2026-11-19
 docs/GOVERNANCE-LAYERS.md|参考|—|2026-11-03

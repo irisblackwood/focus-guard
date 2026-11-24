@@ -96,14 +96,6 @@
 - chore(profile): web profile 装 `dsh-context@0.87.1` 作第二证据源（界面层，不注册 Agent 工具）
   - 重启 web profile 后加载；FG 基线仍以 `panel:baseline` 离线复算为准，不依赖该插件。
 
-### 工具预算闸（2026-11-24）
-
-- feat(guard): 新增 `guard/toolBudget.mjs`——把「少起 shell、别写一堆 node -e」内化成机械判据
-  - 同回合 shell 调用 > 50 或 `node -e` > 4 → 拦一次并要求合并命令/写成脚本；
-  - 只提醒一次、下回合重置，避免把合法重活卡死；`FG_TOOL_BUDGET=0` 关闭，阈值可调；
-  - 依据：实测单会话 `pwsh` 1,250 次 / 参数 ≈145k tokens，大量来自一次性脚本与重试；
-  - 验收 `tests/tool-budget.test.mjs`（第 5 次 node -e 拦、第 51 次 shell 拦、换回合重置）。
-
 ### 兼容声明：约束存在，但平台看不见
 
 - feat(compat): 兼容范围写进 `engines.dsh`，不再只借 `peerDependencies` 表达

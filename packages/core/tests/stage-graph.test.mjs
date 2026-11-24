@@ -71,14 +71,13 @@ describe("阶段拓扑排序", () => {
 });
 
 describe("FG 的 pre-execute 阶段表", () => {
-  test("顺序不变量：10 段 id 与顺序被钉死（改顺序必须同时改这条断言）", async () => {
+  test("顺序不变量：9 段 id 与顺序被钉死（改顺序必须同时改这条断言）", async () => {
     const { PRE_STAGE_ORDER } = await import("../src/dsh/pipeline.mjs");
     assert.deepEqual(PRE_STAGE_ORDER, [
       "redline",
       "writingGate",
       "wholeFile",
       "hardCheck",
-      "toolBudget",
       "eligibility",
       "valueGate",
       "volume",
