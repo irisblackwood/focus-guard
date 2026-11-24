@@ -71,7 +71,8 @@
     "brain:asset": "node packages/core/tools/make-cortex-asset.mjs",
     "docs:drift": "node packages/core/tools/docs-drift.mjs",
     "docs:drift:strict": "node packages/core/tools/docs-drift.mjs --strict",
-    "panel:baseline": "node packages/core/tools/panel-baseline.mjs"
+    "panel:baseline": "node packages/core/tools/panel-baseline.mjs",
+    "memory:recall": "node packages/core/tools/memory-recall-eval.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

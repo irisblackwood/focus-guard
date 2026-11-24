@@ -55,6 +55,7 @@
 | [PROFILE-TUNING.md](../packages/core/docs/PROFILE-TUNING.md) | 画像回流台账（人工批准制） |
 | [MCP-4.0-PLAN.md](../packages/core/docs/MCP-4.0-PLAN.md) | 4.0 Hook 完全态调研 |
 | [MEMORY-4.5-PLAN.md](../packages/core/docs/MEMORY-4.5-PLAN.md) | 4.5 记忆系统独立 / 静态知识库 / 伪 RLHF 联动 |
+| [MEMORY-RECALL-EVAL.md](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 记忆检索离线评测：结构化全量注入 vs 向量 top-k，召回率与 token 对照 |
 | [BRAIN-VIZ.md](../packages/core/docs/BRAIN-VIZ.md) | 脑可视化渲染实现：一个脚本三种跑法 / 星空与黑洞怎么画 / draw call 拆分 |
 | [LEGISLATION-LAW.md](../packages/core/docs/LEGISLATION-LAW.md) | 立法程序 |
 | [HOOK-ORDERING.md](../packages/core/docs/HOOK-ORDERING.md) | 钩子定序核查（四条路与各自代价） |
@@ -90,6 +91,7 @@
 
 | 文档 | 原因 |
 |---|---|
+| [HANDOFF.md](../HANDOFF.md) | 3.0.5 阶段一交接，正文已过期（**勿读作现状**）。**物理留在仓根、不可搬**：`seams/session-start.mjs` 按此路径做交叉巡视（存在性检查），源码另有 15 处注释以「HANDOFF §八/§九/§十」为锚点——搬走或删节会把它们变成断链。2026-11-24 补登（此前本页 0 次提及） |
 | [archive/HANDOFF-TO-EXTERNAL.md](archive/HANDOFF-TO-EXTERNAL.md) | 2026-10-09 对外说明，已过期 |
 | [archive/HANDOFF-2026-10-18.md](archive/HANDOFF-2026-10-18.md) | 2026-10-18 交接，已过期（现行台账是 10-27） |
 | [archive/HANDOFF-2026-10-19.md](archive/HANDOFF-2026-10-19.md) | 2026-10-19 交接，已过期 |

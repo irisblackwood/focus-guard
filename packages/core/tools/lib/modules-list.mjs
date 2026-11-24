@@ -154,6 +154,7 @@ export const MODULES = [
       'packages/core/src/dsh/workspace.mjs',
       'packages/core/tools/memory-audit.mjs',
       'packages/core/tools/memory-distill.mjs',
+      'packages/core/tools/memory-recall-eval.mjs',
     ],
   },
   {
