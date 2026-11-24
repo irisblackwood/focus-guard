@@ -1,6 +1,6 @@
 # 画像参数调优台账（PROFILE-TUNING）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-24
 
 > 用途：P2「伪 RLHF 最小闭环」的**人工批准制**台账。主图 L6 的缺口不是"没有 A/B"，是"测量结论不回写参数"。
 > 纪律（三条，别绕）：
@@ -75,11 +75,26 @@
 
 ---
 
+### 2026-11-24 复核快照
+
+| 指标 | 当前值 | 来源 / 口径 |
+|---|---|---|
+| 判定准确率 / 误伤率 | 100.00% / 0.00% | `npm run bench:decision`（15 用例 × 10 轮） |
+| 判定延迟 | p50 1.11ms / p95 3.38ms / max 4.01ms | 同上；基线 p50 0.45ms 容差 ×2 未达（见 §三 T1） |
+| 审计规模 | 1,608 行 / 13 会话 | `.focus-guard/AUDIT.log`（本工作区） |
+| deny | 16 行 / 1 会话；trigger：evidence-gate 12、env-substitute 1、value-gate 1、mutation:unmapped 1、volume:grep 1 | 口径同 §二 |
+| 申辩 / 人工闸门 | `appealsGranted` 0、`approval-requested` 0 | 同 §二 |
+| 预算延期 / 熔断 / 抽查 | budget-extend 1、stall-fuse 0、random-audit 0 | 本工作区日志内无对应行 |
+
+**结论**：参数仍无可批改动（`evasionRisk` 保持 high；没有「放松后 0 误伤」的会话证据）。
+延迟 p50 从基线 0.45ms 升到 1.11ms：`FG_RETRY_GUARD=0` 只回收约 0.12ms，
+剩余来自 whole-file / grep 类证据闸（byCase p50 2.4–3.0ms），属新增检查成本。
+
 ## 三、建议条目（本轮 7 条）
 
 | # | 参数（文件） | 当前值 | 证据 | 建议 | 状态 |
 |---|---|---|---|---|---|
-| T1 | `evasionRisk`（五画像，`src/profiles/*.mjs`） | `high` ×5（`gpt-astra` 另带显式 `scope:'irreversible'`） | 任务基准应拦 15/15 ✓、误伤 2（T40/T41，**与 `evasionRisk` 无关**，是 `value-gate` 触发）；`appealsGranted` 0/360；无面板基线 | **保持 `high`**。调低属**放松**，在没有"放松后仍 0 误伤"的会话证据前不批 | 不改（无收益证据） |
+| T1 | `evasionRisk`（五画像，`src/profiles/*.mjs`） | `high` ×5（`gpt-astra` 另带显式 `scope:'irreversible'`） | 任务基准应拦 15/15 ✓、误伤 2（T40/T41，**与 `evasionRisk` 无关**，是 `value-gate` 触发）；`appealsGranted` 0/360；无面板基线。**2026-11-24 复核：本工作区 deny 16 行 / 申诉 0，仍无「放松后 0 误伤」证据** | **保持 `high`**。调低属**放松**，在没有"放松后仍 0 误伤"的会话证据前不批 | 不改（无收益证据） |
 | T2 | `budgetGate.ceiling`（flash/glm/default 200，pro 300） | 200 / 300 | `budget-extend` 65 行 / 9 会话，分母 129 → **7.0%**（10-19 为 3/53 ≈ 5.7%）；`inv-pool-exceeded` 12 行 / 10 会话 | **不改数值**。两轮比率都在 5–7%，没有恶化趋势；仍缺"续杯率到多少算偏紧"的经验阈值 | 数据已更新（判据仍缺） |
 | T3 | `stalledFuse.threshold`（flash/glm/default 3，pro 4） | 3 / 4 | **样本已到**：`fuseWaste.bySession` 4 会话 / 11 行，浪费 38 / 17 / 3 / 1 步；38 仍集中在 10-18 的旧长会话 `7bd3f3fb…`（4 回合、单回合最多 18） | **保持 3/4**。判读：熔断后每回合仍浪费 1–9.5 步（38÷4、17÷5、3÷1、1÷1），指向"模型不知道已熔断"而非"阈值过紧"；10-27 已加 `focus-guard-fuse` 系统提示段，等新会话验证该段是否压低浪费 | 已有判读（待新样本验证） |
 | T4 | `approvalGate.scope`（派生链） | 显式 scope 优先，否则 `evasionRisk` 派生 | `gate:fg_apply` 16 行（10-19 为 4）；人工闸门动作 `approval-requested` / `ptc-irreversible-blocked` 仍 **0 行** = 真实会话尚未走到该通道（rm-rf 多被红线先拦） | **保持派生逻辑**；`gpt-astra` 的显式 `irreversible` 只服务验收差异化，不迁移到生产画像 | 不改 |

@@ -82,6 +82,15 @@
   删掉不存在的 `FG_JUDGE`、`knowledge:index` 标计划、蓝图路径与归档 HANDOFF 路径改指现行位置。
 - fix(docs): 〔开发期〕计数口径对齐代码：判定基准 14→15 用例、acceptance 86/90→102 用例。
 
+### 画像复核与重复命令闸快路径（2026-11-24）
+
+- perf(guard): 重复命令闸加「本会话无失败」快路径——不再每次工具调用都算参数哈希
+  - 实测 p50 1.11 → 1.11ms（`FG_RETRY_GUARD=0` 对照约 1.0ms，该项只占 ≈0.12ms）；
+  - 剩余延迟来自 whole-file / grep 证据闸，按 byCase 归因，不是死循环。
+- docs(profile): `PROFILE-TUNING.md` 增 2026-11-24 复核快照，参数仍无可批改动
+  - `evasionRisk` 保持 `high`：本工作区 deny 16 行、申诉 0，缺「放松后 0 误伤」证据；
+  - 冻结口径不变：改参数须人工批准 + 改动前后各一组 bench。
+
 ### 兼容声明：约束存在，但平台看不见
 
 - feat(compat): 兼容范围写进 `engines.dsh`，不再只借 `peerDependencies` 表达

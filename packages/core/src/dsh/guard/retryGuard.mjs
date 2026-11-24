@@ -16,14 +16,20 @@ const TTL_MS = 30 * 60 * 1000
 const BLOCK_AT = 2
 
 const seen = new Map()
+/** 出现过失败的会话。命中它才值得算参数哈希——否则每次工具调用白付一次序列化+sha256。 */
+const failureSessions = new Set()
 
-function keyOf(exec) {
-  const sid =
+function sidOf(exec) {
+  return (
     (exec && ((exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.id) || exec.sessionId)) ||
     'unknown'
+  )
+}
+
+function keyOf(exec) {
   const tool = String((exec && exec.name) || '')
   const args = stable(exec && exec.arguments)
-  return `${sid}|${tool}|${hash(args)}`
+  return `${sidOf(exec)}|${tool}|${hash(args)}`
 }
 
 function stable(value) {
@@ -66,11 +72,14 @@ export function recordToolResult(exec, result) {
   next.fails += 1
   if (!seen.has(key) && seen.size >= MAX_ENTRIES) seen.delete(seen.keys().next().value)
   seen.set(key, next)
+  failureSessions.add(sidOf(exec))
 }
 
 /** 该调用是否已连续失败到阈值。 */
 export function sameCommandFailed(exec) {
   if (RETRY_OFF) return 0
+  // 快路径：本会话没出现过失败 → 不必算 key（p50 回归就是这里省回来的）。
+  if (!failureSessions.has(sidOf(exec))) return 0
   const entry = seen.get(keyOf(exec))
   if (!entry) return 0
   if (Date.now() - entry.lastAt > TTL_MS) {
@@ -83,4 +92,5 @@ export function sameCommandFailed(exec) {
 /** 测试钩子。 */
 export function resetRetryGuard() {
   seen.clear()
+  failureSessions.clear()
 }
