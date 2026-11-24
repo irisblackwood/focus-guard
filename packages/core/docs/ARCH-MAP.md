@@ -92,6 +92,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L5** | 反规避 · 状态一致性 | 已 | `STATE_GATE` + 熔断/降权单向读 guard 状态 |
 | **L5** | 压缩监察 | 已 | 同 P0 |
 | **L5** | 重复命令闸（失败重试） | 已 **默认开** | `guard/retryGuard.mjs`：同会话 `tool+参数哈希` 连续失败 ≥2 次后，第 3 次原样重试直接拒绝（审计 `retry-same-command`）；TTL 30 分钟 / 上限 256 条；`FG_RETRY_GUARD=0` 关闭。验收 `tests/shell-and-retry.test.mjs` |
+| **L5** | 工具预算闸（shell / node -e 过密） | 已 **默认开** | `guard/toolBudget.mjs`：同回合 `shell` 调用 > 50 或 `node -e` > 4 时**拦一次**（只提醒一次，下回合重置）；`FG_SHELL_BUDGET` / `FG_NODE_E_BUDGET` 调阈值，`FG_TOOL_BUDGET=0` 关闭；审计 `tool-budget:shell|node-e`。验收 `tests/tool-budget.test.mjs` |
 | **L6** | 处置结果 allow / deny / ask / 注入记忆 | 已 | pipeline 决策 + `fg_appeal`（ask）+ workspace 注入 |
 | **L6** | 伪 RLHF 闭环（反馈落盘 → A/B 验证） | 部分 | **半**：`bench:ab` / `bench:tasks` / `task-control` 能测 A/B 与成本；**回流台账已建** `docs/PROFILE-TUNING.md`（人工批准制：建议 → 人类批 → 改画像 → 再测；本轮实测可批改动 **0 条**，因 T2/T3 的校准指标采不到）。仍**不做**自动调参 |
 | **L7** | 工作流：提方向 → 验可行 → 下需求 | 部分 | 指令级（`$DSH_HOME/AGENTS.md`），非代码强制 |

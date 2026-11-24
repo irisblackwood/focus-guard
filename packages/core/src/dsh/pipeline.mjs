@@ -26,6 +26,7 @@ import { redlineStage } from './guard/redline.mjs'
 import { writingGateStage } from './guard/writing-gate.mjs'
 import { wholeFileStage } from './guard/wholeFile.mjs'
 import { hardCheckStage } from './guard/hardCheck.mjs'
+import { toolBudgetCheck } from './guard/toolBudget.mjs'
 import { eligibilityStage, valueGateStage } from './guard/authz.mjs'
 import { volumeStage, pollutionStage } from './guard/volume.mjs'
 import { OBSERVATION, riskOfSentinel, riskStage } from './guard/risk.mjs'
@@ -76,6 +77,8 @@ const PRE_STAGES = orderStages([
   { id: 'writingGate', run: writingGateStage },
   { id: 'wholeFile', run: wholeFileStage },
   { id: 'hardCheck', run: hardCheckStage },
+  // 2026-11-24 工具预算闸：本回合 shell / node -e 过密时拦一次，要求合并命令或写成脚本。
+  { id: 'toolBudget', run: (ctx) => toolBudgetCheck(ctx.exec, ctx.cmd) },
   { id: 'eligibility', run: eligibilityStage },
   { id: 'valueGate', run: valueGateStage },
   { id: 'volume', run: volumeStage },
