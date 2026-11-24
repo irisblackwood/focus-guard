@@ -8,7 +8,7 @@
 > 法条（`RULES.md`）的适用版本记的是**最后一次修法**时的产品版本，长期落后是常态、不是欠债。
 > 加粗 = 值得先看：落后 > 0，或最后核对已超 45 天。
 
-合计 44 份：权威 19 / 参考 14 / 台账 3 / 归档 8 / 未标 0。
+合计 45 份：权威 20 / 参考 14 / 台账 3 / 归档 8 / 未标 0。
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
@@ -21,6 +21,7 @@
 | [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-22 | 2 | 0 |
 | [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.2 | 2026-11-18 | 6 | 0 |
 | [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
+| [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
 | [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
 | [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
 | [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-20 | 4 | 0 |
@@ -67,6 +68,7 @@ docs/README.md|权威|3.5.3|2026-11-24
 INSTALL.md|权威|3.5.3|2026-11-22
 packages/core/docs/ARCH-MAP.md|权威|3.5.2|2026-11-18
 packages/core/docs/BENCH.md|权威|3.5.3|2026-11-19
+packages/core/docs/MEMORY-HYBRID.md|权威|3.5.3|2026-11-24
 packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-24
 packages/core/docs/RELEASE-POLICY.md|权威|3.5.3|2026-11-19
 packages/core/docs/RULES.md|权威|3.5.3|2026-11-20
