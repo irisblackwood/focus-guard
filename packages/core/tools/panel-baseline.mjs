@@ -39,6 +39,8 @@ const last = Number(pick('--last') || 10)
 const only = pick('--session')
 const asJson = args.includes('--json')
 const shouldWrite = args.includes('--write')
+const byTool = args.includes('--by-tool')
+const bySchema = args.includes('--schema')
 const inPeak = isPeakAt(new Date()).inPeak
 
 function sidOf(file) {
@@ -47,8 +49,12 @@ function sidOf(file) {
 }
 
 const rows = []
-for (const { f, m } of walkSessionFiles(SESSIONS)) {
-  if (only && !f.includes(only)) continue
+const toolUse = new Map()
+const schemaUse = new Map()
+// `--session` 只看**最新**那一个匹配（walkSessionFiles 已按 mtime 倒序）：
+// 同名会话在多个项目目录下可能有历史副本，遍历全部会让旧的工具面覆盖当前值。
+const scanFiles = only ? walkSessionFiles(SESSIONS).filter((x) => x.f.includes(only)).slice(0, 1) : walkSessionFiles(SESSIONS)
+for (const { f, m } of scanFiles) {
   let lines
   try {
     lines = decodeSession(f)
@@ -66,6 +72,16 @@ for (const { f, m } of walkSessionFiles(SESSIONS)) {
     if (header && Array.isArray(header.tools)) {
       tools = header.tools.length
       model = model || header.model || ''
+      if (bySchema) {
+        // 每个 header 重建一份：工具面以**最后一个装配**为准，历史里出现过的工具不保留。
+        const next = new Map()
+        for (const t of header.tools) {
+          const name = String(t && t.name ? t.name : '?')
+          next.set(name, { bytes: Buffer.byteLength(JSON.stringify(t), 'utf8') })
+        }
+        schemaUse.clear()
+        for (const [k, v] of next) schemaUse.set(k, v)
+      }
     }
     const u = (j.usage && j.usage.inputTokens !== undefined ? j.usage : null) || (j.data && j.data.usage) || null
     if (!u || u.inputTokens === undefined) continue
@@ -75,6 +91,18 @@ for (const { f, m } of walkSessionFiles(SESSIONS)) {
     cacheRead += Number(u.cacheReadTokens) || 0
   }
   if (!calls) continue
+  if (byTool) {
+    for (const j of lines) {
+      if (j.type !== 'tool/call') continue
+      const d = j.data || {}
+      const name = String(d.name || '?')
+      const a = typeof d.arguments === 'string' ? d.arguments : JSON.stringify(d.arguments || {})
+      const cur = toolUse.get(name) || { calls: 0, argBytes: 0 }
+      cur.calls += 1
+      cur.argBytes += Buffer.byteLength(a, 'utf8')
+      toolUse.set(name, cur)
+    }
+  }
   const promptTotal = input + cacheRead
   const usage = { input, output, cacheRead }
   rows.push({
@@ -103,7 +131,8 @@ const report = {
       calls: a.calls + r.calls,
       promptTotal: a.promptTotal + r.promptTotal,
       cacheRead: a.cacheRead + r.cacheRead,
-      uncached: a.uncached + r.input,      output: a.output + r.output,
+      uncached: a.uncached + r.input,
+      output: a.output + r.output,
       usd: Number(((a.usd || 0) + (r.usd || 0)).toFixed(6)),
     }),
     { calls: 0, promptTotal: 0, cacheRead: 0, uncached: 0, output: 0, usd: 0 },
@@ -125,6 +154,18 @@ if (asJson) {
         `tools=${String(r.tools).padStart(3)}  prompt=${r.promptTotal}  cache=${r.cacheRead}  ` +
         `uncached=${r.input}  out=${r.output}  hit=${r.hitRate}  usd=${r.usd}`,
     )
+  }
+  if (byTool && toolUse.size) {
+    console.log('  工具调用（按次数）：')
+    for (const [name, v] of [...toolUse].sort((a, b) => b[1].calls - a[1].calls).slice(0, 12)) {
+      console.log(`    ${name.padEnd(18)} calls=${String(v.calls).padStart(5)}  args≈tok=${Math.round(v.argBytes / 3)}`)
+    }
+  }
+  if (bySchema && schemaUse.size) {
+    console.log('  工具 schema（每步都要付，按字节）：')
+    for (const [name, v] of [...schemaUse].sort((a, b) => b[1].bytes - a[1].bytes).slice(0, 12)) {
+      console.log(`    ${name.padEnd(18)} schema=${String(v.bytes).padStart(5)}B  ≈tok=${Math.round(v.bytes / 3)}`)
+    }
   }
   const t = report.totals
   console.log(`  合计：calls=${t.calls} prompt=${t.promptTotal} cache=${t.cacheRead} uncached=${t.uncached} out=${t.output} usd=${t.usd}`)
