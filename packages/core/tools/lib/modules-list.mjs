@@ -331,7 +331,7 @@ export const MODULES = [
     id: 'bench',
     name: '基准评测',
     note: 'A/B 与成本基准：证明改动真的更好，而不是感觉更好',
-    paths: ['packages/core/tools/bench-ab.mjs'],
+    paths: ['packages/core/tools/bench-ab.mjs', 'packages/core/tools/panel-baseline.mjs'],
   },
   {
     id: 'privacy',

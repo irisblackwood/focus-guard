@@ -90,6 +90,11 @@
 - docs(profile): `PROFILE-TUNING.md` 增 2026-11-24 复核快照，参数仍无可批改动
   - `evasionRisk` 保持 `high`：本工作区 deny 16 行、申诉 0，缺「放松后 0 误伤」证据；
   - 冻结口径不变：改参数须人工批准 + 改动前后各一组 bench。
+- feat(measure): `npm run panel:baseline` 读会话日志补面板基线（ARCH-MAP 缺口 #5 部分收口）
+  - 每请求取 `usage`，输出 calls/prompt/cacheRead/uncached/output/hitRate/usd + 公式；
+  - 复用 `lib/sessionDump.mjs` 的会话解码，不另抄一份；口径写进 `--json` 输出的 formula 字段。
+- chore(profile): web profile 装 `dsh-context@0.87.1` 作第二证据源（界面层，不注册 Agent 工具）
+  - 重启 web profile 后加载；FG 基线仍以 `panel:baseline` 离线复算为准，不依赖该插件。
 
 ### 兼容声明：约束存在，但平台看不见
 
