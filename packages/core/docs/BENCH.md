@@ -313,7 +313,7 @@ FG 当前注入 440 字符（`focus-guard-rules` 425 + `focus-guard-cost` 15）�
 | **545** | `npm run bench` 读数 = guard.mjs 动态 ctx（425 + HANDOFF 巡视 45 + 版本核验告警约 89） | `token-bench.mjs` |
 | **3425** | 场景加权合计（另一维度，别与上面三个直接比） | `README.md` 表 |
 
-> **2026-11-19 核对**：本表原先写的是行号（`constants.mjs:61` / `seams.mjs:269` / `pipeline.mjs:1068`），
+> **2026-11-19 核对**：本表原先写的是行号（`constants.mjs:61` / `seams.mjs:269` / `pipeline.mjs:1068`）， <!-- legacy:ok -->
 > 四处**全部失效**——`pipeline.mjs` 已从千行缩到 131 行，`seams.mjs` 从 269 行缩到 141 行，
 > `SESSION_RULES` 在 `constants.mjs` 的 104 行而非 61 行。行号是**代码位置的快照**，
 > 重构一次就全错，且没有任何判据能发现（`docs:lint` 只查路径存不存在，不查第 N 行是不是那个符号）。

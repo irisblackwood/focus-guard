@@ -1,0 +1,53 @@
+{
+  "_说明": "退役台账：每个条目记录一个「已经不存在的名字」。扫描器按 patterns 在全仓找残留；allow 里的是合法提及（历史记录与解释性说明）。",
+  "_规则": "① 除 allow 之外，任何 .mjs/.js/.json/.md/.yml/.yaml 出现 patterns 即报 retired-name；② 新条目必须写 from（退役版本）与 why（一句话）；③ 改历史不算修复——CHANGELOG.md 与 docs/archive/ 自动豁免；④ 条目只增不改：名字若再次启用，删条目而不是改 patterns。",
+  "_为什么需要这张表": "改名是本仓最高频的操作，也是最高频的漏改。3.5.3 一轮里同一个错误出现三次：superpowers 改名后 4 处标识符漏改、description 四份副本漏一份、dsh-native 缺省值只改了两个文件。原因不是不小心——是没有任何地方记着「旧名是什么」，改的人只能靠搜索猜，接手的人不知道要搜什么。",
+  "_怎么用": "改名前先往 entries 加一条；改完后跑 npm run legacy:audit，红了就是漏改。跑绿了才算改完。",
+  "entries": [
+    {
+      "id": "superpowers-stage",
+      "from": "3.5.3",
+      "date": "2026-11-21",
+      "why": "动笔闸不再依赖外部技能，改名 writing-gate",
+      "patterns": ["superpowersStage", "superpowersEnabled"],
+      "allow": ["CHANGELOG.md"]
+    },
+    {
+      "id": "superpowers-env",
+      "from": "3.5.3",
+      "date": "2026-11-21",
+      "why": "环境变量随闸门改名：FG_SUPERPOWERS → FG_WRITING_GATE",
+      "patterns": ["FG_SUPERPOWERS"],
+      "allow": ["CHANGELOG.md", "packages/core/docs/PROFILE-TUNING.md"]
+    },
+    {
+      "id": "superpowers-audit-key",
+      "from": "3.5.3",
+      "date": "2026-11-21",
+      "why": "审计触发键随闸门改名：superpowers:writing-gate → writing-gate:deny",
+      "patterns": ["superpowers:writing-gate"],
+      "allow": ["CHANGELOG.md", "packages/core/docs/PROFILE-TUNING.md"]
+    },
+    {
+      "id": "superpowers-module-path",
+      "from": "3.5.3",
+      "date": "2026-11-21",
+      "why": "文件改名 guard/superpowers.mjs → guard/writing-gate.mjs",
+      "patterns": ["guard/superpowers.mjs"],
+      "allow": ["CHANGELOG.md"]
+    },
+    {
+      "id": "focus-thinking-rules-section",
+      "from": "3.5.3",
+      "date": "2026-11-21",
+      "why": "法典镜像 §7-17 拆到独立技能 focus-rules，focus-thinking 只剩 §0-6",
+      "patterns": ["focus-thinking/SKILL.md §7", "focus-thinking 的 §7"],
+      "allow": ["CHANGELOG.md"]
+    }
+  ],
+  "anchorAllow": [
+    { "path": "CHANGELOG.md", "why": "历史流水账，改历史等于篡改" },
+    { "path": "docs/archive/*", "why": "归档材料，当时为真" },
+    { "path": "packages/core/docs/AB-SESSION.md", "why": "台账，数据截止 2026-10-28，锚点是当时快照" }
+  ]
+}

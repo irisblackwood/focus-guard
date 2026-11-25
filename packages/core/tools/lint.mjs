@@ -49,6 +49,7 @@ import { fileURLToPath } from 'node:url'
 import { stripLiterals } from './lib/source-text.mjs'
 // 目录遍历复用 lib 里那一份：带 SKIP_DIRS 的版本曾在 lint / smells 各抄一遍（2026-11-17 收成参数）。
 import { walk } from './lib/import-graph.mjs'
+import { scanIdioms, IDIOMS } from './lib/idioms.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：测试要造夹具目录跑真扫描，否则这个工具自己没被测量。
@@ -137,6 +138,9 @@ const RULES = {
   var: '使用 var（应 let/const）',
   'loose-equal': '使用 == / !=（两侧均非 null/undefined）',
   'console-in-src': 'console.log 留在 src/（污染输出）',
+  ...Object.fromEntries(IDIOMS.map((r) => [r.id, r.why])),
+  'filter-first': 'filter(...)[0] 应换 find(...)（少一次全表扫描 + 少一个数组）',
+  'filter-length': 'filter(...).length 应换 some/every（命中即停）',
 }
 
 const findings = []
@@ -233,6 +237,7 @@ for (const file of files) {
   checkVar(file, plain)
   checkLooseEqual(file, plain)
   checkConsole(file, plain)
+  for (const hit of scanIdioms(plain, src)) report(file, hit.line, hit.rule, hit.detail)
 }
 
 const byRule = {}

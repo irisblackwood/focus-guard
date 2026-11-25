@@ -59,7 +59,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | 图块 | 条目 | 状态 | 代码锚点 / 缺口 |
 |---|---|---|---|
 | **P0** | 存活心跳（`status.json`） | 已 | `src/dsh/heartbeat.mjs:85`、`status.mjs:73` |
-| **P0** | L4 隔离路由（workspace 哈希） | 已 | `src/dsh/workspace.mjs:38`（sha256(realpath) 前 16 位）|
+| **P0** | L4 隔离路由（workspace 哈希） | 已 | `src/memory/workspace.mjs`（`workspaceHash`：sha256(realpath) 前 16 位）|
 | **P0** | 压缩监察留痕 | 已 | `src/dsh/compactionWatch.mjs:239` |
 | **P0** | 审计沙箱（自证写入 / 隔离污染） | 已 | `tests/audit-isolation.mjs`、`src/core/audit-writer.mjs` |
 | **L1** | 模型底座（DeepSeek Flash，MoE/字面执行） | 已 | 画像文件 `src/profiles/deepseek-flash.mjs` |

@@ -267,9 +267,10 @@ export const MODULES = [
   {
     id: 'selfcheck',
     name: '自检与变异',
-    note: '尺子本身：lint / smells / selftest / mutate / 指纹 / 结构图',
+    note: '尺子本身：lint / 退役惯用法 / smells / selftest / mutate / 指纹 / 结构图',
     paths: [
       'packages/core/tools/lint.mjs',
+      'packages/core/tools/lib/idioms.mjs',
       'packages/core/tools/smells.mjs',
       'packages/core/tools/selftest.mjs',
       'packages/core/tools/mutate.mjs',
@@ -311,10 +312,12 @@ export const MODULES = [
   {
     id: 'tools-docs',
     name: '文档与书',
-    note: '文档判据、状态总表、资料书与全仓成书——管的是文字产物',
+    note: '文档判据、状态总表、退役台账、资料书与全仓成书——管的是文字产物',
     paths: [
       'packages/core/tools/docs-lint.mjs',
       'packages/core/tools/docs-drift.mjs',
+      'packages/core/tools/legacy-audit.mjs',
+      'packages/core/tools/lib/legacy-core.mjs',
       'packages/core/tools/docs-book.mjs',
       'packages/core/tools/lib/docs-core.mjs',
       'packages/core/tools/lib/docs-status.mjs',

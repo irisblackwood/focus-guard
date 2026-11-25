@@ -44,6 +44,7 @@
 | [DESIGN-CONSTRAINTS.md](DESIGN-CONSTRAINTS.md) | 十一条设计约束 + 失效模式 + 落点；零件→约束转换规则 |
 | [THEORY-BASIS.md](THEORY-BASIS.md) | 约束的来源：七层理论 / 脑区归类 / 记忆与神经元机制 / 文献清单 |
 | [THREAT-MODEL.md](../packages/core/docs/THREAT-MODEL.md) | 四类损害 + 已修清单 + 三条明确不做 |
+| [RETIRED.json](../packages/core/docs/RETIRED.json) | 退役台账：旧名字与替换式；`legacy:audit` 按它扫全仓 |
 | [INSTALL.md](../INSTALL.md) | 唯一安装源 |
 | [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） |
 | [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 |

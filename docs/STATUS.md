@@ -1,6 +1,6 @@
 # 文档状态总表（自动生成）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-24
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-25
 
 > 由 `npm run docs:status` 从各文档自己的状态头生成，**不要手改**——手改会被 `docs:lint` 判 `status-table-stale`。
 > 真值只有一个：每份文档开头那行 `> **状态**：…`。本表只是把它们拼成一页。
@@ -12,43 +12,43 @@
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
-| [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.3 | 2026-11-22 | 2 | 0 |
-| [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
-| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
-| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-22 | 2 | 0 |
-| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.2 | 2026-11-18 | 6 | 0 |
-| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
-| [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 0 | 0 |
-| [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-20 | 4 | 0 |
-| [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-22 | 2 | 0 |
-| [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`packages/core/skills/focus-plan/SKILL.md`](../packages/core/skills/focus-plan/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 4 | 0 |
-| [`packages/core/skills/focus-rules/SKILL.md`](../packages/core/skills/focus-rules/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 4 | 0 |
-| [`packages/core/skills/focus-thinking/SKILL.md`](../packages/core/skills/focus-thinking/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 4 | 0 |
-| [`README.md`](../README.md) | 权威 | 3.5.3 | 2026-11-19 | 5 | 0 |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | 参考 | 3.3.0 | 2026-10-28 | 27 | — |
-| [`packages/core/docs/HOOK-ORDERING.md`](../packages/core/docs/HOOK-ORDERING.md) | 参考 | 3.3.0 | 2026-10-29 | 26 | — |
-| [`packages/core/docs/LEGISLATION-LAW.md`](../packages/core/docs/LEGISLATION-LAW.md) | 参考 | 3.3.0 | 2026-10-28 | 27 | — |
-| [`packages/core/docs/MEMORY-4.5-PLAN.md`](../packages/core/docs/MEMORY-4.5-PLAN.md) | 参考 | 3.3.0 | 2026-11-01 | 23 | — |
-| [`packages/core/tests/fixtures/real-calls/README.md`](../packages/core/tests/fixtures/real-calls/README.md) | 参考 | 3.3.0 | 2026-10-28 | 27 | — |
-| [`packages/extended/bridges/README.md`](../packages/extended/bridges/README.md) | 参考 | 3.3.0 | 2026-10-28 | 27 | — |
-| [`docs/THEORY-BASIS.md`](../docs/THEORY-BASIS.md) | 参考 | 3.4.0 | 2026-11-11 | 13 | — |
-| [`packages/core/docs/BRAIN-VIZ.md`](../packages/core/docs/BRAIN-VIZ.md) | 参考 | 3.5.3 | 2026-11-19 | 5 | — |
-| [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
-| [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
-| [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-24 | 0 | — |
-| [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 21 | — |
+| [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.3 | 2026-11-22 | 3 | 0 |
+| [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.3 | 2026-11-24 | 1 | 0 |
+| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.3 | 2026-11-24 | 1 | 0 |
+| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-22 | 3 | 0 |
+| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.2 | 2026-11-18 | 7 | 0 |
+| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 1 | 0 |
+| [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 1 | 0 |
+| [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-20 | 5 | 0 |
+| [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-22 | 3 | 0 |
+| [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`packages/core/skills/focus-plan/SKILL.md`](../packages/core/skills/focus-plan/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 5 | 0 |
+| [`packages/core/skills/focus-rules/SKILL.md`](../packages/core/skills/focus-rules/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 5 | 0 |
+| [`packages/core/skills/focus-thinking/SKILL.md`](../packages/core/skills/focus-thinking/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 5 | 0 |
+| [`README.md`](../README.md) | 权威 | 3.5.3 | 2026-11-19 | 6 | 0 |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | 参考 | 3.3.0 | 2026-10-28 | 28 | — |
+| [`packages/core/docs/HOOK-ORDERING.md`](../packages/core/docs/HOOK-ORDERING.md) | 参考 | 3.3.0 | 2026-10-29 | 27 | — |
+| [`packages/core/docs/LEGISLATION-LAW.md`](../packages/core/docs/LEGISLATION-LAW.md) | 参考 | 3.3.0 | 2026-10-28 | 28 | — |
+| [`packages/core/docs/MEMORY-4.5-PLAN.md`](../packages/core/docs/MEMORY-4.5-PLAN.md) | 参考 | 3.3.0 | 2026-11-01 | 24 | — |
+| [`packages/core/tests/fixtures/real-calls/README.md`](../packages/core/tests/fixtures/real-calls/README.md) | 参考 | 3.3.0 | 2026-10-28 | 28 | — |
+| [`packages/extended/bridges/README.md`](../packages/extended/bridges/README.md) | 参考 | 3.3.0 | 2026-10-28 | 28 | — |
+| [`docs/THEORY-BASIS.md`](../docs/THEORY-BASIS.md) | 参考 | 3.4.0 | 2026-11-11 | 14 | — |
+| [`packages/core/docs/BRAIN-VIZ.md`](../packages/core/docs/BRAIN-VIZ.md) | 参考 | 3.5.3 | 2026-11-19 | 6 | — |
+| [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-24 | 1 | — |
+| [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-24 | 1 | — |
+| [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-24 | 1 | — |
+| [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 22 | — |
 | [`packages/core/assets/NOTICE.md`](../packages/core/assets/NOTICE.md) | 参考 | — | — | — | — |
-| [`packages/core/docs/MCP-4.0-PLAN.md`](../packages/core/docs/MCP-4.0-PLAN.md) | 参考 | 4.0 | 2026-10-28 | 27 | — |
-| [`packages/core/docs/AB-PROMPTS.md`](../packages/core/docs/AB-PROMPTS.md) | 台账 | — | 2026-11-22 | 2 | — |
-| [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-11-22 | 2 | — |
-| [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-11-22 | 2 | — |
+| [`packages/core/docs/MCP-4.0-PLAN.md`](../packages/core/docs/MCP-4.0-PLAN.md) | 参考 | 4.0 | 2026-10-28 | 28 | — |
+| [`packages/core/docs/AB-PROMPTS.md`](../packages/core/docs/AB-PROMPTS.md) | 台账 | — | 2026-11-22 | 3 | — |
+| [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-11-22 | 3 | — |
+| [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-11-22 | 3 | — |
 | [`docs/vault-notes/README.md`](../docs/vault-notes/README.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/TOP-TAKEAWAYS-FG3.md`](../docs/vault-notes/TOP-TAKEAWAYS-FG3.md) | 归档 | — | — | — | — |
 | [`docs/vault-notes/vendors/Anthropic.md`](../docs/vault-notes/vendors/Anthropic.md) | 归档 | — | — | — | — |
