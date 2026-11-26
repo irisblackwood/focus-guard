@@ -126,7 +126,10 @@ function checkPath(file, line, token, lineText = '') {
     }
   }
   // 计划/设计类段落里的路径是「将来要建」，不是当前事实；只报告已建成文档里的死路径。
-  if (/计划|待做|未做|目标|将|拟|设计/.test(lineText)) return
+  // `待建` 于 2026-11-26 加入：`VERSION-PLAN` 的落点表要写「这条任务要新建哪个文件」，
+  // 那类路径按定义还不存在。只收这一个词，不收「新增」——后者在既成事实的叙述里太常见
+  // （「新增 X 工具」），加进去等于把闸门关掉一半。
+  if (/计划|待做|未做|目标|将|拟|设计|待建/.test(lineText)) return
   report(file, line, 'repo-path', bare, '文件或目录不存在')
 }
 
