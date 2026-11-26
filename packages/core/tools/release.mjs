@@ -45,7 +45,9 @@ const NOTE = (() => {
   return i >= 0 ? argv[i + 1] : null
 })()
 
-const git = (args, opts = {}) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts }).trim()
+// `stdio: 'inherit'` 时 execFileSync 返回 null（不捕 stdout），别对 null 调 trim——
+// 2026-11-26 首次 `--go` 就栽在这里：tag 推成功了，脚本在下一步崩掉，Release 没建。
+const git = (args, opts = {}) => (execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts }) || '').trim()
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8')
 
 /** 版本面：三份清单 + 引擎常量。少一处就会「装上去的号」与「跑起来的号」不一致。 */
@@ -117,7 +119,11 @@ const tagExists = (() => {
     return false
   }
 })()
-if (tagExists) bad.push(`tag ${tag} 已存在——同一版本不重打；确要重打先 \`git tag -d ${tag}\``)
+// 续跑而不是重打：tag 已在且指向当前 HEAD 时，只剩 Release 没建（或建失败）。
+// 政策原文就写了「漏了 Release 也能补建」，脚本没理由逼人先删标签。
+const tagAtHead = tagExists && git(['rev-list', '-n', '1', tag]) === git(['rev-parse', 'HEAD'])
+if (tagExists && tagAtHead) ok.push(`tag ${tag} 已存在且指向 HEAD——本次只补 Release，不重打标签`)
+else if (tagExists) bad.push(`tag ${tag} 已存在但不在 HEAD——同一版本不重打；确要重打先 \`git tag -d ${tag}\` 并删远端`)
 else ok.push(`tag ${tag} 不存在（可以打）`)
 
 const dirty = git(['status', '--porcelain'])
@@ -199,18 +205,37 @@ if (!GO) {
   process.exit(0)
 }
 
-git(['tag', '-a', tag, '-m', note])
-console.log(`[release] 已建标签 ${tag}`)
-git(['push', 'origin', tag], { stdio: 'inherit' })
-console.log(`[release] 已推送 ${tag}`)
+if (tagAtHead) {
+  console.log(`[release] 跳过打标签：${tag} 已在 HEAD`)
+} else {
+  git(['tag', '-a', tag, '-m', note])
+  console.log(`[release] 已建标签 ${tag}`)
+  git(['push', 'origin', tag], { stdio: 'inherit' })
+  console.log(`[release] 已推送 ${tag}`)
+}
 
 const notesFile = join(tmpdir(), `fg-release-${version}.md`)
 writeFileSync(notesFile, `${section.body}\n`)
-execFileSync('gh', ['release', 'create', tag, '--title', `${tag} · ${new Date().toISOString().slice(0, 10)}`, '--notes-file', notesFile], {
-  cwd: ROOT,
-  stdio: 'inherit',
-})
+// Release 也可能已经存在（上次 `create` 失败、或补建历史版本）：那就只更新正文，不重建。
+const releaseExists = (() => {
+  try {
+    execFileSync('gh', ['release', 'view', tag], { cwd: ROOT, stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
+if (releaseExists) {
+  execFileSync('gh', ['release', 'edit', tag, '--notes-file', notesFile], { cwd: ROOT, stdio: 'inherit' })
+  console.log(`[release] Release ${tag} 已存在，正文已刷新`)
+} else {
+  execFileSync('gh', ['release', 'create', tag, '--title', `${tag} · ${new Date().toISOString().slice(0, 10)}`, '--notes-file', notesFile], {
+    cwd: ROOT,
+    stdio: 'inherit',
+  })
+  console.log(`[release] 已建 Release ${tag}`)
+}
 // 补建历史版本时，`gh release create` 会把最后创建的那个标成 Latest——所以每次显式钉一次。
 execFileSync('gh', ['release', 'edit', tag, '--latest'], { cwd: ROOT, stdio: 'inherit' })
-console.log(`[release] 已建 Release ${tag}（已钉 Latest）；publish.yml 应已在跑：gh run list --workflow=publish.yml --limit 3`)
+console.log(`[release] 已钉 Latest；publish.yml 应已在跑：gh run list --workflow=publish.yml --limit 3`)
 console.log('[release] 发完记得回写：npm run release:sync')
