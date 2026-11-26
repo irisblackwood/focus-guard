@@ -17,6 +17,22 @@
 > 日期口径：本段在 2026-11-19 起草，此后持续追加条目；标题日期随最近一次推送
 > 更新。**真正发 npm 时再按发版日重钉一次**，条目本身不按日期搬段。
 
+### 发版一套化：tag / Release / npm 不再靠人记（2026-11-26）
+
+- feat(tools): 新增 `tools/release.mjs`——发版单一入口，三步各有判据
+  - `npm run release` 只读检查 7 项：版本面 / CHANGELOG 段 / `PUBLISHED_MAX` 停上一发 /
+    tag 不存在 / 工作区干净且与上游齐 / 状态头新鲜 / registry 上还没有该版本
+  - `--go`：附注标签 + 推 tag + `gh release create`（正文取该段）+ 钉 Latest
+  - `release:sync`：回写 `PUBLISHED_MAX`（只改那一行），并列出仍需人判断的旧号
+  - 默认 dry-run：发版不可撤销，检查只读、执行要显式打 `--go`
+- feat(docs): `docs:lint` 新增 `stale-ack` / `missing-ack`——权威文档的「最后核对」不得早于最后提交
+  - 起因：3.5.3 推到 GitHub 两天，tag 仍停 `v3.5.2`、Release 没有、npm 停 3.5.2、
+    `PUBLISHED_MAX` 也是 3.5.2——三面齐平地错，每面都自洽，于是没有一处报红
+  - 首日抓出 16 份：`README` 写 11-19 而正文 11-26 改过、`ARCH-MAP` 写 11-18 且版本停在 3.5.2
+  - 浅克隆（`actions/checkout` 默认 depth 1）/ 非 git 目录跳过并说明，不假红
+- fix(docs): 〔开发期〕16 份权威文档状态头对齐 2026-11-26，`ARCH-MAP` 适用版本 3.5.2 → 3.5.3
+- docs(policy): `RELEASE-POLICY` 第 7/8 步改为指向单一入口，新增「四·补」说明三个口子各由什么堵
+
 ### 记忆：工具不再替半成品背书（2026-11-26）
 
 - fix(tools): 〔开发期〕`memory:recall` 语料只收**带标签结论**（`[goal]`/`[done]`/`[note]`，复用 `tags.mjs`）

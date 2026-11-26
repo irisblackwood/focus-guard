@@ -27,6 +27,7 @@ import {
   checkCitationStyle,
 } from './lib/docs-core.mjs'
 import { checkVersionClaims, checkReadmeVersionFace } from './lib/docs-version.mjs'
+import { checkAckFreshness } from './lib/docs-ack.mjs'
 import { STATUS_DOC, collectDocStatus, renderStatusTable, checkStatusTable } from './lib/docs-status.mjs'
 import { checkModulePaths, checkModuleIds, checkModuleOverlap, checkModuleCoverage } from './lib/modules.mjs'
 
@@ -73,6 +74,7 @@ const findings = [
   ...checkCitationStyle(ROOT),
   ...checkVersionClaims(ROOT),
   ...checkReadmeVersionFace(ROOT),
+  ...checkAckFreshness(ROOT, files),
 ]
 const byRule = {}
 for (const f of findings) byRule[f.rule] = (byRule[f.rule] || 0) + 1

@@ -76,7 +76,9 @@
     "panel:baseline": "node packages/core/tools/panel-baseline.mjs",
     "memory:recall": "node packages/core/tools/memory-recall-eval.mjs",
     "legacy:audit": "node packages/core/tools/legacy-audit.mjs",
-    "legacy:gate": "node packages/core/tools/legacy-audit.mjs --strict --brief"
+    "legacy:gate": "node packages/core/tools/legacy-audit.mjs --strict --brief",
+    "release": "node packages/core/tools/release.mjs",
+    "release:sync": "node packages/core/tools/release.mjs --sync"
   },
   "license": "AGPL-3.0-only",
   "engines": {

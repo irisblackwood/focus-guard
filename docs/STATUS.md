@@ -13,25 +13,25 @@
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
 | [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
-| [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
-| [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
-| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
+| [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
 | [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
-| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.3 | 2026-11-24 | 2 | 0 |
-| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-22 | 4 | 0 |
-| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.2 | 2026-11-18 | 8 | 0 |
-| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
+| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
 | [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 2 | 0 |
 | [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 2 | 0 |
-| [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
-| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-20 | 6 | 0 |
-| [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
-| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-22 | 4 | 0 |
-| [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
-| [`packages/core/skills/focus-plan/SKILL.md`](../packages/core/skills/focus-plan/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 6 | 0 |
-| [`packages/core/skills/focus-rules/SKILL.md`](../packages/core/skills/focus-rules/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 6 | 0 |
-| [`packages/core/skills/focus-thinking/SKILL.md`](../packages/core/skills/focus-thinking/SKILL.md) | 权威 | 3.5.3 | 2026-11-20 | 6 | 0 |
-| [`README.md`](../README.md) | 权威 | 3.5.3 | 2026-11-19 | 7 | 0 |
+| [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/skills/focus-plan/SKILL.md`](../packages/core/skills/focus-plan/SKILL.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/skills/focus-rules/SKILL.md`](../packages/core/skills/focus-rules/SKILL.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`packages/core/skills/focus-thinking/SKILL.md`](../packages/core/skills/focus-thinking/SKILL.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
+| [`README.md`](../README.md) | 权威 | 3.5.3 | 2026-11-26 | 0 | 0 |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
 | [`packages/core/docs/HOOK-ORDERING.md`](../packages/core/docs/HOOK-ORDERING.md) | 参考 | 3.3.0 | 2026-10-29 | 28 | — |
 | [`packages/core/docs/LEGISLATION-LAW.md`](../packages/core/docs/LEGISLATION-LAW.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
@@ -60,25 +60,25 @@
 
 <!-- status-key（判据用，勿改）
 CHANGELOG.md|权威|3.5.3|2026-11-26
-docs/ARCHITECTURE.md|权威|3.5.3|2026-11-19
-docs/DESIGN-CONSTRAINTS.md|权威|3.5.3|2026-11-19
-docs/INDEX.md|权威|3.5.3|2026-11-19
+docs/ARCHITECTURE.md|权威|3.5.3|2026-11-26
+docs/DESIGN-CONSTRAINTS.md|权威|3.5.3|2026-11-26
+docs/INDEX.md|权威|3.5.3|2026-11-26
 docs/MODULES.md|权威|3.5.3|2026-11-26
-docs/README.md|权威|3.5.3|2026-11-24
-INSTALL.md|权威|3.5.3|2026-11-22
-packages/core/docs/ARCH-MAP.md|权威|3.5.2|2026-11-18
-packages/core/docs/BENCH.md|权威|3.5.3|2026-11-19
+docs/README.md|权威|3.5.3|2026-11-26
+INSTALL.md|权威|3.5.3|2026-11-26
+packages/core/docs/ARCH-MAP.md|权威|3.5.3|2026-11-26
+packages/core/docs/BENCH.md|权威|3.5.3|2026-11-26
 packages/core/docs/MEMORY-HYBRID.md|权威|3.5.3|2026-11-24
 packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-24
-packages/core/docs/RELEASE-POLICY.md|权威|3.5.3|2026-11-19
-packages/core/docs/RULES.md|权威|3.5.3|2026-11-20
-packages/core/docs/THREAT-MODEL.md|权威|3.5.3|2026-11-19
-packages/core/docs/VERSION-PLAN.md|权威|3.5.3|2026-11-22
-packages/core/docs/WRITING-STYLE.md|权威|3.5.3|2026-11-19
-packages/core/skills/focus-plan/SKILL.md|权威|3.5.3|2026-11-20
-packages/core/skills/focus-rules/SKILL.md|权威|3.5.3|2026-11-20
-packages/core/skills/focus-thinking/SKILL.md|权威|3.5.3|2026-11-20
-README.md|权威|3.5.3|2026-11-19
+packages/core/docs/RELEASE-POLICY.md|权威|3.5.3|2026-11-26
+packages/core/docs/RULES.md|权威|3.5.3|2026-11-26
+packages/core/docs/THREAT-MODEL.md|权威|3.5.3|2026-11-26
+packages/core/docs/VERSION-PLAN.md|权威|3.5.3|2026-11-26
+packages/core/docs/WRITING-STYLE.md|权威|3.5.3|2026-11-26
+packages/core/skills/focus-plan/SKILL.md|权威|3.5.3|2026-11-26
+packages/core/skills/focus-rules/SKILL.md|权威|3.5.3|2026-11-26
+packages/core/skills/focus-thinking/SKILL.md|权威|3.5.3|2026-11-26
+README.md|权威|3.5.3|2026-11-26
 CONTRIBUTING.md|参考|3.3.0|2026-10-28
 packages/core/docs/HOOK-ORDERING.md|参考|3.3.0|2026-10-29
 packages/core/docs/LEGISLATION-LAW.md|参考|3.3.0|2026-10-28

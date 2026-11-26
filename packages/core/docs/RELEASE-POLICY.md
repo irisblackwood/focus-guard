@@ -1,6 +1,6 @@
 # 版本策略（RELEASE-POLICY）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-19
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-26
 
 > 2026-10-22：**每 10 次修复合为一次变更（x.x.0）；其余按补丁号递增**。
 
@@ -203,11 +203,11 @@ CHANGELOG.md                                 最新条目（须等于上述版�
    一次攒批只留一个提交。**推送随攒批窗口**——按 §一 的「10 条下限 / 30 条上限」一次推，
    不满 10 条只留本地提交；不再按每天 20:00 定点推。推送时 pre-push 钩子会强制跑 `npm run check`。
 7. **打 tag + 建 Release**——这一步本身就是 npm 发布。`publish.yml` 由 `release: published` 触发，
-   建 Release 就等于发 npm：
+   建 Release 就等于发 npm。**2026-11-26 起不再手打三条命令**，用单一入口（见「四·补」）：
    ```bash
-   git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
-   gh release create vX.Y.Z --title "vX.Y.Z · YYYY-MM-DD" --notes-file <说明>
-   gh release edit vX.Y.Z --latest      # 钉住 Latest，见下
+   npm run release            # 只读检查：版本面 / CHANGELOG 段 / PUBLISHED_MAX / tag / 同步状态 / 文档时效
+   npm run release -- --go    # 打附注标签 + 推 tag + gh release create（正文取 CHANGELOG 该段）+ 钉 Latest
+   npm run release:sync       # 发完回写 PUBLISHED_MAX，并列出仍需人工改的旧号
    ```
    **只跑 `workflow_dispatch` 会漏掉 Release 对象**——2026-11-17 的 3.5.0 就是这么漏的：
    npm 上有了、GitHub 上没有。反过来漏了也能补建，`publish.yml` 的守卫会在「registry 已有该版本」时跳过发布。
@@ -216,3 +216,23 @@ CHANGELOG.md                                 最新条目（须等于上述版�
    registry 还要过两三分钟处理流水线；`publish.yml` 的 Verify 现在轮询到出现为止，读不到即红。
 8. **回填 npm 版本声明**（三处，闸门查不到）：根 `README.md` 的版本口径行、两份包 README 的版本表。
    `docs:lint` 不上网，这三处只能人工同步——2026-11-17 实测漏了一整轮，文档写 `3.3.3` 时 npm 已经是 `3.4.1`。
+   `npm run release:sync` 会把它们列出来（含 `INSTALL.md` / `ARCH-MAP` / 本文件的事实基线），但不自动改写：
+   同一句里「3.5.2」可能是「已发」也可能是历史记录，机器判断不了该不该动。
+
+### 四·补 为什么要一条命令（2026-11-26）
+
+上面第 7、8 步写得很清楚，**但从来没有一条闸门问过「做了没」**。结果：3.5.3 推到 GitHub 两天后，
+tag 仍停在 `v3.5.2`、Release 没有、npm 也停在 3.5.2，而 `PUBLISHED_MAX` 还是 3.5.2 —— **三面齐平地错**，
+每一面都自洽，所以没有任何一处报红。判据错在哪里：`docs:lint` 把 `PUBLISHED_MAX` 当**真值**去比对文档，
+它自己没人核对；tag 与 Release 则完全在闸门视野之外。
+
+三条修法，各自堵一个口子：
+
+| 口子 | 修法 | 判据 |
+|---|---|---|
+| 「发版三步靠人记」 | `tools/release.mjs` | `npm run release` 只读检查 7 项，全绿才允许 `--go`；默认 dry-run，因为发版不可撤销 |
+| 「`PUBLISHED_MAX` 发完不更新」 | `npm run release:sync` | 机械回写常量（只改那一行），其余旧号列成清单交给人 |
+| 「文档日期不诚实」 | `docs:lint` 新增 `stale-ack` | 权威文档的「最后核对」**不得早于该文件最后一次提交**；浅克隆 / 非 git 目录跳过并说明，不假红 |
+
+`stale-ack` 的第一天就抓出 16 份（`README` 写 11-19 而正文 11-26 改过、`ARCH-MAP` 写 11-18 且版本停在 3.5.2）。
+这类漂移的共同形态是：**状态头是自我声明，而没有任何东西去核对声明本身**。总表越整齐越像真的。
