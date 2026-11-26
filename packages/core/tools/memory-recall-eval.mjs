@@ -188,6 +188,44 @@ const vector = {
   latencyMs: Number((elapsed / Math.max(1, vectorHits.length)).toFixed(3)),
 }
 
+// ── 5.5) 混合：常驻「必须保证」的条目 + 其余走向量 top-k ──
+const PIN_RE = /红线|禁止|不得|必须|不要|不能|约束|goal|目标/i
+const decisionUnits = units.filter((u) => u.kind === 'decision')
+// 钉选策略（可调）：约束/下一步 + **最近 3 条决策**。理由是近期决定比远期更可能被引用。
+const recentDecisions = new Set(decisionUnits.slice(-3).map((u) => u.id))
+const pinned = units.filter(
+  (u) => u.kind === 'constraint' || u.kind === 'next_action' || recentDecisions.has(u.id) || PIN_RE.test(u.text),
+)
+const pinnedIds = new Set(pinned.map((u) => u.id))
+const retrievable = units.filter((u) => !pinnedIds.has(u.id))
+const pinnedTokens = Math.round(pinned.reduce((a, u) => a + u.text.length, 0) / 3)
+const rVec = new Map(retrievable.map((u) => [u.id, embed(u.terms)]))
+const hybridHits = []
+const th0 = process.hrtime.bigint()
+for (const q of labelled) {
+  const qv = embed(q.terms)
+  const ranked = retrievable
+    .map((u) => ({ id: u.id, score: cosine(qv, rVec.get(u.id)), len: u.text.length }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, K)
+  const relSet = new Set(q.rel)
+  const pinnedHit = q.rel.some((id) => pinnedIds.has(id))
+  const vectorHit = ranked.some((r) => relSet.has(r.id))
+  hybridHits.push({
+    hit: pinnedHit || vectorHit ? 1 : 0,
+    tokens: pinnedTokens + Math.round(ranked.reduce((a, r) => a + r.len, 0) / 3),
+  })
+}
+const hybridElapsed = Number(process.hrtime.bigint() - th0) / 1e6
+const hybrid = {
+  name: `H 混合（钉 ${pinned.length} 条 + top-${K}）`,
+  recallAtK: hybridHits.length ? hybridHits.reduce((a, r) => a + r.hit, 0) / hybridHits.length : null,
+  mrr: null,
+  tokensPerQuery: hybridHits.length ? Math.round(hybridHits.reduce((a, r) => a + r.tokens, 0) / hybridHits.length) : null,
+  latencyMs: Number((hybridElapsed / Math.max(1, hybridHits.length)).toFixed(3)),
+  pinned: pinned.map((u) => u.kind),
+}
+
 const report = {
   generatedAt: new Date().toISOString(),
   units: units.length,
@@ -196,7 +234,7 @@ const report = {
   k: K,
   jaccardThreshold: JACCARD,
   note: '向量=TF-IDF 稀疏向量（离线），不是神经语义向量；qrels 为词项 Jaccard 启发式，结论只看相对差',
-  methods: [structured, vector],
+  methods: [structured, vector, hybrid],
 }
 
 // ── 6) 可选：会话级语料（更大、更像真实跨会话召回）──
@@ -260,6 +298,8 @@ if (args.includes('--sessions')) {
   const hits = []
   let tokens = 0
   let structHits = 0
+  const hybHits = []
+  let hybTokens = 0
   const t1 = process.hrtime.bigint()
   for (const q of relabel) {
     // 结构化基线在同一任务上的"召回归属"：qrel 命中的会话片段，其词项是否被 FG 记忆覆盖
@@ -278,8 +318,12 @@ if (args.includes('--sessions')) {
       .slice(0, K)
     const relSet = new Set(q.rel)
     const idx = ranked.findIndex((r) => relSet.has(r.id))
-    hits.push(idx >= 0 ? 1 : 0)
-    tokens += ranked.reduce((a, r) => a + r.len, 0) / 3
+    const vhit = idx >= 0 ? 1 : 0
+    hits.push(vhit)
+    const chunkTokens = ranked.reduce((a, r) => a + r.len, 0) / 3
+    tokens += chunkTokens
+    hybHits.push(covered || vhit ? 1 : 0)
+    hybTokens += pinnedTokens + chunkTokens
   }
   const el = Number(process.hrtime.bigint() - t1) / 1e6
   report.sessionCorpus = {
@@ -287,6 +331,8 @@ if (args.includes('--sessions')) {
     labelled: relabel.length,
     recallAtK: relabel.length ? hits.reduce((a, b) => a + b, 0) / relabel.length : null,
     structuredCoverage: relabel.length ? structHits / relabel.length : null,
+    hybridRecall: relabel.length ? hybHits.reduce((a, b) => a + b, 0) / relabel.length : null,
+    hybridTokensPerQuery: relabel.length ? Math.round(hybTokens / relabel.length) : null,
     tokensPerQuery: relabel.length ? Math.round(tokens / relabel.length) : null,
     latencyMs: Number((el / Math.max(1, relabel.length)).toFixed(3)),
   }
@@ -307,8 +353,9 @@ else {
     console.log(
       `  [会话语料] chunks=${s.chunks} labelled=${s.labelled}  ` +
         `V Recall@${K}=${s.recallAtK == null ? '-' : (s.recallAtK * 100).toFixed(1) + '%'}  ` +
+        `H Recall=${s.hybridRecall == null ? '-' : (s.hybridRecall * 100).toFixed(1) + '%'}  ` +
         `S 覆盖=${s.structuredCoverage == null ? '-' : (s.structuredCoverage * 100).toFixed(1) + '%'}  ` +
-        `tokens/query=${s.tokensPerQuery}  latency=${s.latencyMs}ms`,
+        `V tokens=${s.tokensPerQuery}  H tokens=${s.hybridTokensPerQuery}  latency=${s.latencyMs}ms`,
     )
   }
 }
