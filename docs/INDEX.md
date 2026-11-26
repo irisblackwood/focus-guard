@@ -94,7 +94,7 @@
 
 | 文档 | 原因 |
 |---|---|
-| [HANDOFF.md](../HANDOFF.md) | 3.0.5 阶段一交接，正文已过期（**勿读作现状**）。**物理留在仓根、不可搬**：`seams/session-start.mjs` 按此路径做交叉巡视（存在性检查），源码另有 15 处注释以「HANDOFF §八/§九/§十」为锚点——搬走或删节会把它们变成断链。2026-11-24 补登（此前本页 0 次提及） |
+| `HANDOFF.md`（**不入库**） | 3.0.5 阶段一交接，正文已过期（**勿读作现状**）。它是**本机私有文件**：在 `.git/info/exclude` 里，clone 不带、别人那里没有——原写「物理留在仓根、不可搬」是错的，2026-11-26 用 `git ls-files` 核实过。`session-start.mjs` 的交叉巡视读不到就跳过（注释写明「无 HANDOFF 属正常」），故不给链接 |
 | [archive/HANDOFF-TO-EXTERNAL.md](archive/HANDOFF-TO-EXTERNAL.md) | 2026-10-09 对外说明，已过期 |
 | [archive/HANDOFF-2026-10-18.md](archive/HANDOFF-2026-10-18.md) | 2026-10-18 交接，已过期（现行台账是 10-27） |
 | [archive/HANDOFF-2026-10-19.md](archive/HANDOFF-2026-10-19.md) | 2026-10-19 交接，已过期 |

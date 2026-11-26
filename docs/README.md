@@ -124,7 +124,7 @@
 |---|---|---|
 | [STATUS.md](STATUS.md) | `npm run docs:status` | `docs:lint` 判 `status-table-stale` |
 | [MODULES.md](MODULES.md) | `npm run modules:sync` | pre-commit 重生成时覆盖 |
-| [book.html](book.html) | `npm run docs:book` | 生成物不入库（已进 `.gitignore`） |
+| `book.html` | `npm run docs:book` | 生成物不入库（已进 `.gitignore`），所以这里只写文件名、不给链接 |
 
 这三份的共同点：**真值不在它们身上**。状态的真值是每份文档开头那行 `> **状态**：…`；模块的真值是 `modules-list.mjs` 里的路径清单。改真值，再重生成。
 
