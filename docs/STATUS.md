@@ -8,7 +8,7 @@
 > 法条（`RULES.md`）的适用版本记的是**最后一次修法**时的产品版本，长期落后是常态、不是欠债。
 > 加粗 = 值得先看：落后 > 0，或最后核对已超 45 天。
 
-合计 45 份：权威 20 / 参考 14 / 台账 3 / 归档 8 / 未标 0。
+合计 38 份：权威 20 / 参考 14 / 台账 3 / 归档 1 / 未标 0。
 
 | 文档 | 状态 | 适用版本 | 最后核对 | 距今天数 | 落后 |
 |---|---|---|---|---|---|
@@ -50,13 +50,6 @@
 | [`packages/core/docs/AB-SESSION.md`](../packages/core/docs/AB-SESSION.md) | 台账 | — | 2026-11-22 | 4 | — |
 | [`packages/core/docs/deepseek-pricing-audit.md`](../packages/core/docs/deepseek-pricing-audit.md) | 台账 | — | 2026-11-22 | 4 | — |
 | [`docs/vault-notes/README.md`](../docs/vault-notes/README.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/TOP-TAKEAWAYS-FG3.md`](../docs/vault-notes/TOP-TAKEAWAYS-FG3.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/Anthropic.md`](../docs/vault-notes/vendors/Anthropic.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/Google.md`](../docs/vault-notes/vendors/Google.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/Misc.md`](../docs/vault-notes/vendors/Misc.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/OpenAI.md`](../docs/vault-notes/vendors/OpenAI.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/Others.md`](../docs/vault-notes/vendors/Others.md) | 归档 | — | — | — | — |
-| [`docs/vault-notes/vendors/xAI.md`](../docs/vault-notes/vendors/xAI.md) | 归档 | — | — | — | — |
 
 <!-- status-key（判据用，勿改）
 CHANGELOG.md|权威|3.5.3|2026-11-26
@@ -97,11 +90,4 @@ packages/core/docs/AB-PROMPTS.md|台账|—|2026-11-22
 packages/core/docs/AB-SESSION.md|台账|—|2026-11-22
 packages/core/docs/deepseek-pricing-audit.md|台账|—|2026-11-22
 docs/vault-notes/README.md|归档|—|—
-docs/vault-notes/TOP-TAKEAWAYS-FG3.md|归档|—|—
-docs/vault-notes/vendors/Anthropic.md|归档|—|—
-docs/vault-notes/vendors/Google.md|归档|—|—
-docs/vault-notes/vendors/Misc.md|归档|—|—
-docs/vault-notes/vendors/OpenAI.md|归档|—|—
-docs/vault-notes/vendors/Others.md|归档|—|—
-docs/vault-notes/vendors/xAI.md|归档|—|—
 -->

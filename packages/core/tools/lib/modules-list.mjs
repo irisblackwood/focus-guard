@@ -321,6 +321,7 @@ export const MODULES = [
       'packages/core/tools/lib/legacy-core.mjs',
       'packages/core/tools/docs-book.mjs',
       'packages/core/tools/lib/docs-core.mjs',
+      'packages/core/tools/lib/docs-files.mjs',
       'packages/core/tools/lib/docs-status.mjs',
       'packages/core/tools/lib/docs-version.mjs',
       'packages/core/tools/lib/docs-ack.mjs',

@@ -11,6 +11,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
+import { listMarkdownFiles } from './docs-files.mjs'
 
 /** 八处清单（与 RELEASE-POLICY 第三节逐字对应；2026-11-22 补 package-lock.json）。 */
 export const VERSION_FILES = [
@@ -43,28 +44,9 @@ export const AUTHORITATIVE_DOCS = [
   'packages/core/docs/THREAT-MODEL.md',
 ]
 
-// `HANDOFF.md` 是本机私有备忘（在 .git/info/exclude 里），不属于公开文档面，
-// 混进来会让"文档口径"这个数字同时反映私有文件——口径不纯。
-// 2026-11-26：`.workbuddy/` 同理——它是会话记忆目录（未跟踪），里面的 `memory/*.md`
-// 一度被扫进 `docs/STATUS.md`（46 份里多出 1 份本机私货），换台机器就少一份。
-const SKIP_SEGMENTS = new Set(['node_modules', '.git', '.focus-guard', '.ai', '.workbuddy', 'self-improvement', 'archived', 'archive', 'backup', 'HANDOFF.md'])
-// 2026-10-31（3.4 D3）：`docs/archive/` 是历史证据，链接按旧路径原样保留才不失真，
-// 因此归档文档整体不进 lint（不查链接/状态头）；INDEX 仍负责列出它们。
-
-/** 遍历仓库内 Markdown（排除运行产物与归档）。 */
-export function listMarkdownFiles(root) {
-  const out = []
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name)
-      if (SKIP_SEGMENTS.has(entry.name)) continue
-      if (entry.isDirectory()) walk(full)
-      else if (entry.name.toLowerCase().endsWith('.md')) out.push(full)
-    }
-  }
-  walk(root)
-  return out
-}
+// 文档清单的真值只有一个（`docs-files.mjs`）：`docs-lint` / `docs-status` / `docs-version` /
+// `docs-ack` / `docs-book` 全从这里拿文件。输入少几个文件，判据再对也等于没看。
+export { listMarkdownFiles } from './docs-files.mjs'
 
 /** CHANGELOG 最新版本段（`## x.y.z`）。 */
 export function changelogLatest(root) {
