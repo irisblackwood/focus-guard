@@ -13,7 +13,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518.17-339933)
 
-> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX` = `3.5.2`）；npm registry 已发 `3.5.2`（2026-11-18，OIDC 受信发布 + provenance）；本树 `3.5.3` 未推。
+> **版本口径**：对外展示一律以 **GitHub `main`** 为准（`PUBLISHED_MAX` = `3.5.3`）；npm registry 已发 `3.5.3`（2026-11-26，OIDC 受信发布 + provenance）；三面齐平。
 > 本地开发版本可以领先已发布版本，**领先不等于已发布**。此页显示的版本号由 `docs:lint` 对着 `PUBLISHED_MAX` 校验。
 
 **AGPL-3.0-only + 商业双授权**：按 AGPLv3 使用，商业使用同样允许；不愿承担 AGPL 义务（尤其第 13 条网络开源）的，可另购商业许可——那是**替代**路径，不是对商用的限制。商标 `司会` / `Keepward` 保留，衍生版本不得沿用；旧名 `FocusGuard` / `聚焦护栏` 作为历史别名同样保留。细节见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
@@ -141,7 +141,7 @@ npx focus-guard-brain        # 装了包：读**当前目录**的 .focus-guard/A
 
 ## 版本
 
-当前已发布 **v3.5.2**（本树 3.5.3 未推），完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
+当前已发布 **v3.5.3**（2026-11-26，tag / Release / npm 三面齐平），完整历史见 [CHANGELOG.md](CHANGELOG.md)。下一版规划见 [VERSION-PLAN.md](packages/core/docs/VERSION-PLAN.md)。
 
 ## License
 

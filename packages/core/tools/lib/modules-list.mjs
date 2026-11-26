@@ -357,6 +357,8 @@ export const MODULES = [
       'packages/core/tools/release.mjs',
       // 发布确认：与 release.mjs 同一件事的两端（发出去 / 发成功没），放一起才会一起变。
       'packages/core/tools/registry-check.mjs',
+      // 产物面四真值（tag / Release / registry / workflow）：从 release.mjs 拆出，同一件事。
+      'packages/core/tools/lib/release-faces.mjs',
       'packages/core/tools/focusguard.mjs',
       'packages/core/src/dsh/cordis.patch.yml',
     ],

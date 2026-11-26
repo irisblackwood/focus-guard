@@ -76,16 +76,17 @@
 **判据取各渠道最高者。** 只看其中一个会得出相反的结论——本仓就栽过：npm 只到 `3.0.7`，
 而 GitHub `main` 已到 `3.1.0`，只查 npm 会把三个已发布的段落误判成开发期。
 
-### 事实基线（2026-11-17 核）
+### 事实基线（2026-11-26 核）
 
 | 渠道 | 当前最高 | 备注 |
 |---|---|---|
-| npm | `3.5.2`（2026-11-18，OIDC + provenance） | 走 GitHub Actions `publish.yml`；本地 `npm publish` 无 token 必 401，那是设计 |
-| **GitHub `main`** | **`3.5.2`**（`854d700`） | 公开源码，clone 即得 |
-| GitHub Releases / tags | `v3.5.2` | 2026-11-17 补齐 v3.3.1 / v3.4.1 / v3.5.0；此后逐版打 tag |
+| npm | `3.5.3`（2026-11-26，OIDC + provenance） | 走 GitHub Actions `publish.yml`；本地 `npm publish` 无 token 必 401，那是设计 |
+| **GitHub `main`** | **`3.5.3`**（`fae7a68` 打 tag，其后仅回填文档） | 公开源码，clone 即得 |
+| GitHub Releases / tags | `v3.5.3`（Latest） | 2026-11-17 补齐 v3.3.1 / v3.4.1 / v3.5.0；此后逐版打 tag |
 
-→ **对外已分发的最高版本 = `3.5.2`**，三个渠道齐平。齐平是常态，「取最高者」这一步不产生分歧，
+→ **对外已分发的最高版本 = `3.5.3`**，三个渠道齐平。齐平是常态，「取最高者」这一步不产生分歧，
 但判据不能因此省掉：2026-10-27 那次 npm 落后 GitHub 两个次版本，只查 npm 会把三个已发布段落误判成开发期。
+随时可核：`npm run release:status`（tag / Release / registry / 工作流四面一次打印，约 8 秒）。
 
 判据已机械校验：`tests/changelog-audience.test.mjs` 的 `PUBLISHED_MAX` 常量。
 **发布新版本时改这一个常量**，各段的声明与措辞约束会自动跟着换。

@@ -43,9 +43,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { checkAckFreshness } from './lib/docs-ack.mjs'
-// 发完之后「到底发出去没」的判据与 publish.yml 的 Verify 是同一段代码——
-// 两处各写一份，迟早一个说发了一个说没发（本仓在审计日志上踩过同类）。
-import { probeVersion, registryBase } from './registry-check.mjs'
+// 产物面的四个真值在 `lib/release-faces.mjs`（注释比代码长，留在这里会把本文件顶过行数阈值）。
+import { productStatus, publishRun } from './lib/release-faces.mjs'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const argv = process.argv.slice(2)
@@ -103,104 +102,6 @@ const cmp = (a, b) => {
   return 0
 }
 
-// ── `--status`：发完之后的四个真值 ──
-// 为什么要有它：`--go` 建完 Release 就把人晾在 Actions 页面上等两三分钟，而「发了没」
-// 本来是一秒钟能答的问题（见 registry-check.mjs 的文件头：3.5.2 那次 Verify 占 3m04s/4m36s）。
-// 四面各自一个独立真值，缺哪面就点名哪面——而不是让人从四张页面里自己拼。
-
-/** 包名：探 registry 用，与版本同源（`packages/core/package.json`）。 */
-function packageName() {
-  return JSON.parse(read('packages/core/package.json')).name
-}
-
-/** 最近一次针对该 tag 的 publish 运行；没装 gh / 未登录 / 从没跑过都返回 null。 */
-function publishRun(tag, sinceMs = 0) {
-  try {
-    const out = execFileSync('gh', ['run', 'list', '--workflow=publish.yml', '--limit', '20', '--json', 'displayTitle,headBranch,status,conclusion,url,createdAt'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    })
-    // gh 按时间倒序；`sinceMs` 用来排除同一 tag 的历史运行（失败重跑时最容易被误当成「刚触发的」）。
-    const fresh = (r) => !sinceMs || Date.now() - new Date(r.createdAt).getTime() <= sinceMs
-    return JSON.parse(out).find((r) => ((r.displayTitle || '').includes(tag) || r.headBranch === tag) && fresh(r)) || null
-  } catch {
-    return null
-  }
-}
-
-/** GitHub 面：tag 在不在、本地与远端是否同一个、是否指向 HEAD；Release 是否已建。 */
-function githubFace(tag) {
-  const tryGit = (args) => {
-    try {
-      return git(args)
-    } catch {
-      return null
-    }
-  }
-  const head = tryGit(['rev-parse', 'HEAD'])
-  const local = tryGit(['rev-parse', `refs/tags/${tag}`])
-  const commit = tryGit(['rev-parse', `refs/tags/${tag}^{commit}`])
-  const remote = (() => {
-    const all = tryGit(['ls-remote', '--tags', 'origin'])
-    if (!all) return null
-    const line = all.split('\n').find((l) => l.endsWith(`refs/tags/${tag}`))
-    return line ? line.split(/\s+/)[0] : null
-  })()
-  let release = null
-  try {
-    // 不用 `--json isLatest`：gh 的字段随版本增减，2.6x 上根本没有它（实测报 Unknown JSON field）。
-    // 「是不是 Latest」另走一个权威口：`releases/latest`，那是 GitHub 自己认的那一个。
-    release = JSON.parse(execFileSync('gh', ['release', 'view', tag, '--json', 'tagName,createdAt,isDraft,isPrerelease'], { cwd: ROOT, encoding: 'utf8' }))
-    // `gh api` 返回的是**原始** API 字段（snake_case），与 `gh release view --json` 的驼峰不同；
-    // 且本机 gh 的 `--jq` 输出为空（实测只有换行），所以自己解析、认 `tag_name`。
-    const latest = JSON.parse(execFileSync('gh', ['api', 'repos/{owner}/{repo}/releases/latest'], { cwd: ROOT, encoding: 'utf8' }))
-    release.isLatest = latest?.tag_name === tag
-  } catch {
-    release = null
-  }
-  return { head, local, commit, remote, atHead: Boolean(commit && head && commit === head), release }
-}
-
-const mark = (ok) => (ok ? '✅' : '❌')
-
-async function productStatus(version, tag) {
-  // 先把 registry 探测发出去（异步），再跑几个 execFileSync 的活——它们的等待正好被 fetch 用掉。
-  const registryProbe = probeVersion(registryBase(), packageName(), version).catch((err) => ({ state: 'error', detail: err.message }))
-  const gh = githubFace(tag)
-  const run = publishRun(tag)
-  const registry = await registryProbe
-  const published = registry.state === 'present'
-  // 「tag 合格」只要求**本地与远端是同一个对象**。是否指向 HEAD 单独说：
-  // 发完之后必然还要回填 README / `PUBLISHED_MAX` 那几处（政策 §四 第 8 步），
-  // 于是 tag 正常会落后 HEAD 一两个提交——把它算成 ❌，等于每发一版就留一条假红。
-  const tagOk = Boolean(gh.local && gh.remote && gh.local === gh.remote)
-  const lines = []
-  lines.push(`  tag      ${mark(tagOk)} ${tag}${tagOk ? '（本地＝远端）' : ''}`)
-  if (!tagOk) {
-    if (!gh.local) lines.push('           本地没有这个 tag')
-    else if (!gh.remote) lines.push(`           远端没有这个 tag——\`git push origin ${tag}\``)
-    else lines.push('           远端与本地不是同一个对象——同版本不重打，先确认该保留哪个')
-  } else if (gh.commit && !gh.atHead) {
-    lines.push(`           ℹ tag 指向 ${String(gh.commit).slice(0, 7)}，HEAD 是 ${String(gh.head).slice(0, 7)}（发布后回填文档属正常）`)
-  }
-  lines.push(`  Release  ${mark(Boolean(gh.release))} ${gh.release ? `${gh.release.tagName}${gh.release.isLatest ? '（Latest）' : ''}` : '没有'}`)
-  lines.push(
-    `  registry ${mark(published)} ${
-      published ? `${version} 已发布（${(registry.elapsed / 1000).toFixed(1)}s 读到版本文档）` : registry.state === 'error' ? `查不了（${registry.detail}）` : `未见 ${version}`
-    }`,
-  )
-  lines.push(
-    `  workflow ${run ? `${mark(run.conclusion === 'success')} ${run.status === 'completed' ? run.conclusion : run.status} · ${run.url}` : '（没有 gh 或没跑过——跳过）'}`,
-  )
-  let verdict
-  if (published && gh.release && tagOk) verdict = '已发布：tag / Release / npm 三面齐平'
-  else if (published) verdict = 'npm 上有了，但 GitHub 面不齐——按上面 ❌ 补'
-  else if (run && run.status !== 'completed') verdict = `发布中（${run.status}），不用守着：稍后重跑本命令`
-  else if (run && run.conclusion === 'failure') verdict = '未发布：工作流失败，先看日志再重跑'
-  else verdict = '未发布：还没有 publish 运行'
-  return { lines, verdict, published, tagOk }
-}
-
 // ── 检查 ──
 const faces = versionFaces()
 const version = faces['packages/core/package.json']
@@ -213,7 +114,7 @@ const bad = []
 // `--status` 只读产物面，不跑那 7 项前置检查：它是发完之后回头核对的命令，
 // 那时工作区多半已经不干净（`release:sync` 刚改过常量），用检查项挡人等于逼人去开浏览器。
 if (STATUS) {
-  const status = await productStatus(version, tag)
+  const status = await productStatus({ root: ROOT, version, tag })
   console.log(`[release] 产物面 ${version}（真源 packages/core/package.json）`)
   for (const line of status.lines) console.log(line)
   console.log(`  结论     ${status.verdict}`)
@@ -366,7 +267,7 @@ console.log(`[release] 已钉 Latest`)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 let run = null
 for (let i = 0; i < 10 && !run; i += 1) {
-  run = publishRun(tag, 5 * 60 * 1000)
+  run = publishRun(ROOT, tag, 5 * 60 * 1000)
   if (!run) await sleep(2000)
 }
 if (run) console.log(`[release] publish.yml 已触发：${run.url}\n          结论：npm run release:status（不用守页面）`)

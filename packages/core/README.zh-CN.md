@@ -30,7 +30,7 @@ dsh plugin --profile <你的 profile> add focus-guard
 
 | 写法 | 拿到什么 |
 |---|---|
-| `add focus-guard` | 最近一次 npm 发版（当前 `3.5.2`），带 provenance 签名 |
+| `add focus-guard` | 最近一次 npm 发版（当前 `3.5.3`），带 provenance 签名 |
 | `add github:irisblackwood/focus-guard#path:/packages/core` | `main` 上此刻的代码，可能领先已发布版本 |
 | `add <路径>/packages/core` | 你本地这份（开发态） |
 
