@@ -102,17 +102,31 @@ jobs:
       - name: Publish
         if: steps.guard.outputs.skip != 'true'
         working-directory: packages/core
-        run: npm publish --access public --provenance
+        shell: pwsh
+        run: |
+          # 判绿看的是**registry 的 201 回执**，不是「命令没报错」。npm 在收到写入后才打印
+          # `+ focus-guard@<v>`；没有这一行就说明只是退出了 0，不能当发成功。
+          $v = node -p "require('./package.json').version"
+          $out = (npm publish --access public --provenance 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) { Write-Error "npm publish 失败（exit $code）"; exit 1 }
+          if ($out -notmatch "\+\s+focus-guard@$([regex]::Escape($v))") {
+            Write-Error "npm 没有确认收到 $v：输出里找不到 `+ focus-guard@$v`"
+            exit 1
+          }
+          Write-Output "registry 已接收 focus-guard@$v（201 回执）"
 
-      # Verify：判据是**版本文档**在不在，不再轮询 `npm view`。
+      # Verify：**观察，不判红**。
       #
-      # 2026-11-26 实测（run 44238525074，v3.5.2 成功那次）：整个发布 4m36s，其中这一步 3m04s，
-      # 占 67%。原因不是 registry 慢，是判据选错了——`npm view` 读整份 packument（所有历史版本，
-      # 走 CDN 缓存），新版本要等缓存刷新才「看得见」；每轮还固定 sleep 20 秒，粗粒度到
-      # 3.5.1 那次「差一秒放弃」。
-      # 现在：版本文档 `/{name}/{version}` 秒级可读，前几圈按 1/2/3/5/8s 贴紧，到点即走。
-      # packument 视图只作观察项打印（`--strict` 才判红）：它的滞后是 CDN 的事，
-      # 把别人的缓存延迟记成自己的失败，就是一条永恒红的闸门。
-      - name: Verify（版本文档，秒级）
-        run: node packages/core/tools/registry-check.mjs --wait 120
+      # 2026-11-26 实测推翻了「版本文档秒级可读」这个假设：run 45842083164 里 14:46:14 收到
+      # 201，14:48:13 查 `/focus-guard/3.5.3` 仍是 404（连加 `?bust=` 穿透缓存也是 404）——
+      # 是 npm 官方复制管线的延迟，与本仓无关，也和 2026-11-17 记的「还要过两三分钟」一致。
+      # 所以这里判红只会得到一条**每发一版必红**的闸门，训练人忽略告警（本仓在 schema:verify
+      # 与 lint 上都踩过同一个坑）。判据改成：Publish 步自己认 201 回执；可读性交给
+      # `npm run release:status` 事后复核（它同时看 tag / Release / registry / 工作流四面）。
+      - name: Verify（可读性观察，不判红）
+        continue-on-error: true
+        run: node packages/core/tools/registry-check.mjs --wait 45
+
 
