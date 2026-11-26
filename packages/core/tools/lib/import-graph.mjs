@@ -25,8 +25,13 @@ const IMPORT_RE =
  * 递归收集源文件。`skip` 是**可选**的目录名黑名单：`lint` 与 `smells` 原先各自抄了一份
  * 「同样 17 行 + SKIP_DIRS」的遍历，重复块里最粗的一条就是它（2026-11-17 收成参数）。
  * 不给 skip 时行为与抽取前完全一致——`health` / `mutate` 只走 `src`，不需要黑名单。
+ *
+ * `ext` 同理可选：默认只收 JS 系，因为 import 图的节点只能是模块。`legacy` 扫的是文字
+ * （md/json 里也有旧名与锚点），必须能换面——**复用它而锁死扩展名，等于扫了个空**。
  */
-export function walk(dir, out = [], skip = null) {
+const CODE_EXT = /\.(mjs|cjs|js)$/
+
+export function walk(dir, out = [], skip = null, ext = CODE_EXT) {
   let entries
   try {
     entries = readdirSync(dir)
@@ -42,8 +47,8 @@ export function walk(dir, out = [], skip = null) {
     } catch {
       continue
     }
-    if (st.isDirectory()) walk(p, out, skip)
-    else if (/\.(mjs|cjs|js)$/.test(e)) out.push(p)
+    if (st.isDirectory()) walk(p, out, skip, ext)
+    else if (ext.test(e)) out.push(p)
   }
   return out
 }

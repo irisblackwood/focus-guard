@@ -57,7 +57,25 @@ export function diffFingerprints(prev, next) {
   }
   for (const name of before.keys()) if (!after.has(name)) removed.push(name)
   const bytes = ((next && next.bytes) || 0) - ((prev && prev.bytes) || 0)
-  return { changed, added, removed, bytes, stable: !changed.length && !added.length && !removed.length }
+  // 顺序也进判据（2026-11-26 修）：段集合相同、顺序不同，前缀同样不是同一段字节；
+  // 但逐段哈希全同，`changed/added/removed` 三组都是空的，证据会写成
+  // 「same-sections | 总 +0B」——**那是在骗审计**：它读起来像"什么都没变"。
+  // 这类只在总哈希上显形的差异单独记 `reordered`（值为新顺序），且必须让 `stable` 为 false。
+  const beforeOrder = ((prev && prev.parts) || []).map((p) => p.name)
+  const afterOrder = ((next && next.parts) || []).map((p) => p.name)
+  const reordered =
+    !changed.length &&
+    !added.length &&
+    !removed.length &&
+    beforeOrder.join('\u0000') !== afterOrder.join('\u0000')
+  return {
+    changed,
+    added,
+    removed,
+    reordered: reordered ? afterOrder : [],
+    bytes,
+    stable: !changed.length && !added.length && !removed.length && !reordered,
+  }
 }
 
 /** 一行证据文本（写审计用；别让它长到把审计行撑爆）。 */
@@ -66,6 +84,7 @@ export function describeShift(diff) {
   for (const c of diff.changed) bits.push(`${c.name}(${c.delta >= 0 ? '+' : ''}${c.delta}B)`)
   if (diff.added.length) bits.push(`+${diff.added.join(',+')}`)
   if (diff.removed.length) bits.push(`-${diff.removed.join(',-')}`)
+  if (diff.reordered.length) bits.push(`reorder(${diff.reordered.join('→')})`)
   const head = bits.join(' ') || 'same-sections'
   return `${head} | 总 ${diff.bytes >= 0 ? '+' : ''}${diff.bytes}B`.slice(0, 180)
 }
@@ -98,7 +117,9 @@ export function createPrefixTracker({
     const all = [...diff.changed.map((c) => c.name), ...diff.added, ...diff.removed]
     if (!all.length || !all.every((name) => expectedSections.has(name))) return 'real'
     const n = (churn.get(sid) || 0) + 1
-    if (!churn.has(sid) && churn.size >= max) churn.delete(churn.keys().next().value)
+    // 同 memo：先删再插才刷新插入序（真 LRU），否则淘汰的是最早进来的那个。
+    if (churn.has(sid)) churn.delete(sid)
+    if (churn.size >= max) churn.delete(churn.keys().next().value)
     if (n > churnLimit) {
       // 报一次就归零：连续抖动会每 churnLimit+1 次报一条，可观测但不刷屏。
       churn.set(sid, 0)
@@ -119,7 +140,10 @@ export function createPrefixTracker({
       const prev = memo.get(sid)
       const diff = prev && prev.hash !== fp.hash ? diffFingerprints(prev, fp) : null
       // 有界：长跑进程里会话数无上限，最老的先丢（丢掉的会话下次装配重算基线，不报）。
-      if (!memo.has(sid) && memo.size >= max) memo.delete(memo.keys().next().value)
+      // 2026-11-26 修：`set` 对已存在的键**不刷新插入序**，原先淘汰的是「最早进来的」而非
+      // 「最久没动的」——长跑进程里最活跃的长会话反被先踢掉，恰好丢掉最该盯的那条基线。
+      if (memo.has(sid)) memo.delete(sid)
+      if (memo.size >= max) memo.delete(memo.keys().next().value)
       // **先更新基线再回调**：回调（写审计）万一抛错，基线也已经是新的，
       // 否则下一步会拿旧基线再报一次，把一次抖动变成每步都报。
       memo.set(sid, fp)

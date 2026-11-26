@@ -60,13 +60,40 @@ test("差异：删除也能报（段没了等于前缀短了）", () => {
   assert.equal(d.bytes, -Buffer.byteLength("熔断"), "删除段后总字节减少");
 });
 
+test("差异：只换顺序也判变了，证据写 reorder 而不是 same-sections（2026-11-26）", () => {
+  // 总哈希顺序敏感 → 一定不命中；但逐段哈希全同，旧实现会输出「same-sections | 总 +0B」，
+  // 读起来像"什么都没变"。这条锁住：顺序变化必须自己说出来。
+  const prev = fingerprintSections([sec("focus-guard-rules", "甲"), sec("focus-guard-cost", "乙")]);
+  const next = fingerprintSections([sec("focus-guard-cost", "乙"), sec("focus-guard-rules", "甲")]);
+  const d = diffFingerprints(prev, next);
+  assert.equal(d.bytes, 0, "顺序变化不改总字节");
+  assert.equal(d.stable, false, "字节数没变，但前缀已不是同一段字节");
+  assert.deepEqual(d.reordered, ["focus-guard-cost", "focus-guard-rules"], "要记下新顺序");
+  assert.match(describeShift(d), /reorder\(focus-guard-cost→focus-guard-rules\)/, describeShift(d));
+  assert.ok(!describeShift(d).includes("same-sections"), "证据不能再说『same-sections』");
+});
+
+test("容量：淘汰最久没动的会话，不是最早进来的（2026-11-26）", () => {
+  const t = createPrefixTracker({ max: 2 });
+  const s = [sec("focus-guard-rules", "同一份")];
+  t.note("a", s);
+  t.note("b", s);
+  t.note("a", s); // a 刷新活跃度
+  t.note("c", s); // 名额满了，该淘汰 b
+  assert.ok(t.get("a"), "活跃会话 a 不该被淘汰");
+  assert.equal(t.get("b"), null, "最久没动的 b 才该被淘汰");
+  assert.ok(t.get("c"));
+});
+
 // 黄金指纹（2026-10-29）：固定输入 → FG 段指纹。**CI 可复现**，不依赖本机会话落盘。
 // 改注入内容（规则 / 卷宗渲染 / 熔断告知）会让它红：确认是有意改，再同步更新这三个数字，
 // 而不是直接删断言——它替代不了 prefix-drift（那是真机探针），但能把"注入内容漂移"挡在 CI。
 const GOLDEN = {
-  hash: "e2c278768158",
-  bytes: 979,
-  parts: { "focus-guard-rules": 520, "focus-guard-workspace": 242, "focus-guard-fuse": 217 },
+  // 2026-11-26：workspace 段 242 → 224 B，少的是「决策：「d1」」整行 18 字节——
+  // 决策下架后该行不再渲染。这是**有意变更**，不是漂移。
+  hash: "8ae63c2a2d0b",
+  bytes: 961,
+  parts: { "focus-guard-rules": 520, "focus-guard-workspace": 224, "focus-guard-fuse": 217 },
 };
 
 test("黄金指纹：固定输入下 FG 段指纹不得漂移", async () => {
@@ -74,6 +101,8 @@ test("黄金指纹：固定输入下 FG 段指纹不得漂移", async () => {
   const { renderWorkspaceSection } = await import("../src/dsh/workspace.mjs");
   const record = {
     workspace_hash: "h".repeat(16),
+    // 存量脏数据（决策自动落账已下架 2026-11-26）：留着是为了顺手证明
+    // 「旧 decisions 不再进指纹」——它若还被渲染，下面 GOLDEN 必红。
     decisions: ["d1"],
     constraints: ["cmd-A"],
     next_action: [],
@@ -255,6 +284,12 @@ test("接线：观测器看最终装配（含 cost 段），fuse 单独翻转不
       1,
       "宿主段变化不得写进 FG 的 prompt-prefix-shift",
     );
+
+    // 顺序变化（2026-11-26）：字节没变也必须响，且证据要写 reorder
+    await call([...base("cost-B")].reverse());
+    const shiftRows = rows().filter((r) => r.action === "prompt-prefix-shift");
+    assert.equal(shiftRows.length, 2, "顺序变化也要写审计");
+    assert.match(shiftRows[1].evidence, /reorder\(/, shiftRows[1].evidence);
   } finally {
     if (saved.audit === undefined) delete process.env.FG_AUDIT_FILE;
     else process.env.FG_AUDIT_FILE = saved.audit;
@@ -281,7 +316,9 @@ test("注册顺序：apply 后观测器在最外层，基线含 rules 追加的 
     const cwd = join(TMP, "proj");
     mkdirSync(cwd, { recursive: true });
     ws.resetWorkspaceSectionCache();
-    ws.mergeWorkspace(cwd, { decisions: ["order-d1"], constraints: ["order-c1"] });
+    // 卷宗段 2026-11-21 已改 pull，装配结果里不出现它，所以这里的卷宗数据对断言无影响。
+    // 2026-11-26 顺手去掉 decisions（自动落账已下架），只留 constraints 表示"卷宗存在"。
+    ws.mergeWorkspace(cwd, { constraints: ["order-c1"] });
 
     // 假 ctx：**push 不覆盖**。fuse-lifecycle 那份用 Map.set，同事件只留最后一个，测不了顺序。
     const hooks = new Map();

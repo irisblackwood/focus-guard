@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 // 3.5.3：legacy:audit 是「旧写法」的唯一判据，它自己必须先被证明会红。
 // 活仓库零残留不等于检查有效——这是本仓反复吃亏的那一条（docs-lint.test.mjs 同款理由）。
-const { scanRetired, scanAnchors, matchesAllow } = await import('../tools/lib/legacy-core.mjs')
+const { scanRetired, scanAnchors, matchesAllow, walkScope } = await import('../tools/lib/legacy-core.mjs')
 
 function fixture(files) {
   const root = mkdtempSync(join(tmpdir(), 'fg-legacy-'))
@@ -65,4 +65,21 @@ test('allow 模式：精确、目录前缀、通配后缀', () => {
   assert.ok(matchesAllow('CHANGELOG.md', 'CHANGELOG.md'))
   assert.ok(!matchesAllow('docs/CHANGELOG.md', 'CHANGELOG.md'), '精确模式不得命中同名的其它路径')
   assert.ok(matchesAllow('a/b/c.md', '*.md'))
+})
+
+// 2026-11-26：walkScope 改成复用 import-graph 的 walk 后，默认扩展名是 JS 系，
+// 文档整个退出扫描面，闸门却报「0 处」——扫了个空也是绿。下面这条钉住扫描面本身。
+test('扫描面：md 与 json 必须在内，否则等于没扫', () => {
+  const { root, cleanup } = fixture({
+    'src/a.mjs': 'x\n',
+    'docs/b.md': '# 标题\n',
+    'conf/c.json': '{}\n',
+    'docs/archive/skip.md': '旧材料\n',
+  })
+  try {
+    const found = walkScope(root).sort()
+    assert.deepEqual(found, ['conf/c.json', 'docs/b.md', 'src/a.mjs'])
+  } finally {
+    cleanup()
+  }
 })

@@ -74,6 +74,19 @@ dir /b marketplace.json
 
 验证生效：新会话开头出现 `<focus-guard v3.0：日常零打扰，只看行为>【硬线】①未取证不改进` 的注入即为生效（该字符串逐字取自引擎 `SESSION_RULES` 开头，完整镜像见 `packages/core/docs/RULES.md` 第四部分；2026-10-24 起常驻文本已按"按需注入"压缩到 222 字，完整条文见同文件第一部分法条正文）；工作区出现 `.ai/CASE_FILE.md` 与 `.focus-guard/AUDIT.log` 即为卷宗与留痕就绪。
 
+> **`.focus-guard/` 请加进你自己仓库的忽略规则**（2026-11-26）
+>
+> 这个目录会落本机的会话留痕、卷宗与审批记录——其中 `workspace.json` 含历史 prompt 片段
+> （决策自动落账已于 2026-11-26 下架，但存量原文仍在文件里）。它属于私有面，不该入库。
+>
+> ```bash
+> echo ".focus-guard/" >> .git/info/exclude   # 本地私有，不进版本库
+> ```
+>
+> **不建议写进 `.gitignore`**：那等于向外界宣告"这里有私有数据"（分类暴露，内容虽看不到）。
+> 本仓自己的 `privacy:gate` 断言 C 会因此直接判红。代价是 exclude 不随 clone 走——换机器要重装。
+> 存量清理：`fg case rm <序号>` 逐条删，或直接删 `.focus-guard/workspace.json`（会自动重建）。
+
 源码目录内跑质量闸（用例数随版本增长，以实际输出为准；仓库已带 CI，推送即自动跑）：
 
 ```bat
@@ -81,10 +94,9 @@ cd /d <仓库目录>
 npm test         :: 全量测试（= npm run test:all；2026-11-08 起不再只跑 acceptance 一个文件）
 npm run eval     :: 对抗评测：61 条高危写法 + 34 条良性命令，有漏检或误报即失败
 npm run check    :: 整条闸（= check:inner，外面再套 audit-isolation）：test:all + eval + eval:dsh
-                 :: + selftest + bridges + privacy:gate + quality:audit + manifest:check
-                 :: + docs:lint:gate + modules:audit + lint:gate + smells:gate + schema:verify
-                 :: + install:gate（发布前跑的就是它）
-                 ::        + docs:lint + lint + smells + schema:verify（发布前跑的就是它）
+                 :: + selftest + bridges + gate:fast（十一条静态闸）+ gate:slow（真装一遍）
+npm run gate:fast :: 只跑静态闸（约 5s，pre-commit 跑的就是它；不联网）
+npm run gate:slow :: 真装：npm pack + dsh plugin add（发布前/check 才跑，需 dsh 与网络）
 ```
 
 ## 二、DSH 安装（逐行可复制）

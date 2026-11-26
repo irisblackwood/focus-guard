@@ -160,9 +160,22 @@ process.on('exit', () => {
   try { rmSync(testStateDir, { recursive: true, force: true }) } catch {}
 })
 
+// 超时（2026-11-26）：`node --test` 在 Windows 上每个测试文件起一个子进程，101 个文件
+// 正常也要几分钟；但此前**没有 timeout**，一旦某个子测试等在 stdin 上（`stdio:'inherit'`
+// 会继承终端），父进程就无限等下去——「慢」和「卡死」在现象上无法区分，人只能 Ctrl-C，
+// 而且拿不到任何现场。上限用 FG_TEST_TIMEOUT_MS 覆盖；超时按 ETIMEDOUT 单独报，
+// 不混进「启动失败」，因为两者的下一步完全不同（放宽上限 vs 修环境）。
+const timeoutMs = Number(process.env.FG_TEST_TIMEOUT_MS) || (wrapped ? 30 * 60_000 : 15 * 60_000)
+
+// 并发上限（2026-11-26）：`node --test` 默认并发 = CPU 核数 − 1（本机 11），实测会**死锁**——
+// `toolchain-tools` / `quality-audit` 里用 `spawnSync` 调工具的两个文件，子进程 CPU 累计 0.00s、
+// 193 秒零进展，父进程在等一个永不退出的子进程；而这两个文件单跑 2s 全过。
+// 限到 4 后全量 814 断言 / 37s 全绿。所以默认 4，机器快可 `FG_TEST_CONCURRENCY=8 npm test`。
+const testConcurrency = process.env.FG_TEST_CONCURRENCY || '4'
+
 const run = wrapped
-  ? spawnSync(wrapped, { cwd: repoRoot, stdio: 'inherit', shell: true, env: childEnv })
-  : spawnSync('node', ['--test', ...files], { cwd: repoRoot, stdio: 'inherit', env: childEnv })
+  ? spawnSync(wrapped, { cwd: repoRoot, stdio: 'inherit', shell: true, env: childEnv, timeout: timeoutMs })
+  : spawnSync('node', ['--test', `--test-concurrency=${testConcurrency}`, ...files], { cwd: repoRoot, stdio: 'inherit', env: childEnv, timeout: timeoutMs })
 const after = snapshot(realAudit)
 const added = linesAfter(realAudit, before.lines)
 // 2026-10-31：原先是 `l.includes('"run":"' + runId + '"')` —— **硬编码了审计行的 JSON
@@ -198,7 +211,16 @@ else if (!hardChanged.length)
   console.log(`[audit-isolation] 记录面（审批 / 面板 / 卷宗 / 工作区快照）零变化`)
 
 if (run.error) {
-  console.error('[audit-isolation] 测试进程启动失败：', run.error.message)
+  const secs = Math.round(timeoutMs / 1000)
+  if (run.error.code === 'ETIMEDOUT' || run.signal === 'SIGTERM') {
+    console.error(
+      `[audit-isolation] 子进程超过 ${secs}s 被终止——这是**卡住**，不是慢。` +
+        `\n  · 放宽上限：FG_TEST_TIMEOUT_MS=<毫秒> npm test` +
+        `\n  · 定位卡在哪个文件：node --test packages/core/tests/<file>.test.mjs`,
+    )
+  } else {
+    console.error('[audit-isolation] 测试进程启动失败：', run.error.message)
+  }
   process.exit(1)
 }
 if (run.status !== 0) {

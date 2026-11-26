@@ -18,10 +18,21 @@ function workspaceFor(dir, record) {
   return file
 }
 
+// 2026-11-26：记忆未竣工这件事必须让模型看见（它不读 MEMORY-4.5-PLAN）。
+// 这条锁住描述里的三句边界，防止下次改文案时被顺手删掉。
+test('fg_workspace 描述声明「未竣工 / 只作线索 / 需重新取证」', () => {
+  const { description } = buildWorkspaceTool()
+  assert.match(description, /未竣工/, description)
+  assert.match(description, /只作线索/, description)
+  assert.match(description, /重新取证/, description)
+})
+
 test('fg_workspace 工具返回本工作区卷宗文本', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fg-ws-pull-'))
   try {
     const file = workspaceFor(dir, {
+      // decisions 留在夹具里当**存量脏数据**：用它验证「下架后不再注入」，
+      // 比删掉它更有价值（旧 workspace.json 就是这样带着一堆问句的）。
       decisions: ['本轮：把卷宗移出 system'],
       constraints: ['不要改判定'],
     })
@@ -30,7 +41,8 @@ test('fg_workspace 工具返回本工作区卷宗文本', () => {
     const tool = buildWorkspaceTool()
     const out = tool.execute({}, { agent: { session: { header: { cwd: dir } } } })
     assert.match(out.text, /\[FG-WORKSPACE\]/)
-    assert.match(out.text, /把卷宗移出 system/)
+    assert.match(out.text, /不要改判定/)
+    assert.doesNotMatch(out.text, /把卷宗移出 system/, '决策已下架（2026-11-26），存量不得注入')
     if (prev === undefined) delete process.env.FG_WORKSPACE_FILE
     else process.env.FG_WORKSPACE_FILE = prev
   } finally {

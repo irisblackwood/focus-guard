@@ -13,8 +13,9 @@
  *     可能是删掉的文件——两者机器分不清，靠人判。判不了的不要假装判得了。
  *   - 历史材料（CHANGELOG / archive / 台账）不改写：改历史等于篡改流水账。
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { walk } from './import-graph.mjs'
 
 /** 扫描面：这些目录外的文件不参与（生成物、临时件、外部依赖）。 */
 const SKIP_DIRS = new Set([
@@ -36,33 +37,21 @@ const LEDGER_REL = 'packages/core/docs/RETIRED.json'
 const MAX_BYTES = 2 * 1024 * 1024
 
 export function walkScope(root) {
-  const out = []
-  const walk = (dir) => {
-    let entries
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const e of entries) {
-      const full = join(dir, e.name)
-      if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name)) continue
-        walk(full)
-        continue
-      }
-      if (!TEXT_EXT.test(e.name)) continue
-      if (e.name.startsWith('.tmp')) continue
+  // 遍历器复用 `lib/import-graph.mjs` 的 walk——同一段递归本仓写过四遍，
+  // 每遍差一点过滤条件，重复块检测每次都要报一次。过滤放在这里，遍历不重复实现。
+  // 扩展名必须显式换成 TEXT_EXT：walk 默认只收 JS 系，照默认走会把 md/json 全漏掉。
+  return walk(root, [], SKIP_DIRS, TEXT_EXT)
+    .map((f) => relative(root, f).split(sep).join('/'))
+    .filter((rel) => {
+      const name = rel.slice(rel.lastIndexOf('/') + 1)
+      if (!TEXT_EXT.test(name)) return false
+      if (name.startsWith('.tmp')) return false
       try {
-        if (statSync(full).size > MAX_BYTES) continue
+        return statSync(join(root, rel)).size <= MAX_BYTES
       } catch {
-        continue
+        return false
       }
-      out.push(relative(root, full).split(sep).join('/'))
-    }
-  }
-  walk(root)
-  return out
+    })
 }
 
 /** `*` 通配、目录前缀（`a/b` 命中 `a/b/c`）、后缀（`*.md` 命中任意层级）。 */
@@ -105,20 +94,18 @@ export function scanRetired(root, files, entries) {
       } catch {
         continue
       }
-      const lines = text.split('\n')
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(SUPPRESS)) continue
+      eachLine(text, (line, i) => {
         for (const pattern of entry.patterns || []) {
-          if (!lines[i].includes(pattern)) continue
+          if (!line.includes(pattern)) continue
           findings.push({
             id: entry.id,
             pattern,
             file,
             line: i + 1,
-            text: lines[i].trim().slice(0, 120),
+            text: line.trim().slice(0, 120),
           })
         }
-      }
+      })
     }
   }
   return findings
@@ -127,6 +114,15 @@ export function scanRetired(root, files, entries) {
 const ANCHOR_RE = /[\w./-]+\.(?:mjs|js|cjs|json|md):(\d+)/g
 /** 就地豁免：行内含此标记即跳过。写「这里以前是行号」的段落必须自证，否则它自己就成了旧写法。 */
 const SUPPRESS = 'legacy:ok'
+
+/** 逐行遍历并跳过 `legacy:ok`。两处扫描共用——各写一份 for 会被重复块检测抓。 */
+function eachLine(text, fn) {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(SUPPRESS)) continue
+    fn(lines[i], i)
+  }
+}
 
 /**
  * 文档锚点失效。
@@ -156,20 +152,18 @@ export function scanAnchors(root, files, anchorAllow = []) {
     } catch {
       continue
     }
-    const lines = text.split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(SUPPRESS)) continue
-      for (const m of lines[i].matchAll(ANCHOR_RE)) {
+    eachLine(text, (line, i) => {
+      for (const m of line.matchAll(ANCHOR_RE)) {
         const anchor = m[0]
         const target = anchor.slice(0, anchor.lastIndexOf(':'))
-        const line = Number(anchor.slice(anchor.lastIndexOf(':') + 1))
+        const want = Number(anchor.slice(anchor.lastIndexOf(':') + 1))
         const cands = codeFiles.filter((f) => f === target || f.endsWith('/' + target))
         if (!cands.length) {
           findings.push({ kind: 'missing-file', file, anchor, detail: '仓内无此文件（可能是外部包路径）' })
           continue
         }
         const max = Math.max(...cands.map(linesOf))
-        if (line > max) {
+        if (want > max) {
           findings.push({
             kind: 'line-overflow',
             file,
@@ -178,7 +172,7 @@ export function scanAnchors(root, files, anchorAllow = []) {
           })
         }
       }
-    }
+    })
   }
   return findings
 }

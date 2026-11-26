@@ -5,17 +5,17 @@
 // 跳过的层由 checkEligibility 写进 trace（decision:"skip"），本层负责提炼成 skipped 清单，
 // 供适配层写进 AUDIT.log 的 trace 字段。
 //
-// ⚠ 接入状态（2026-10-22 层序审查，实测确认）：
-//   生产路径**尚未接入**本模块。
-//     · `dsh/pipeline.mjs` 的资格闸直调 `adapters/dsh/eligibility-gate.mjs:gateToolCall`
-//       （内部同样调 checkEligibility），并自己 `loadProfile(modelId)` 传进去；
-//     · `hooks/guard.mjs` 走自己的判定链。
-//   本模块当前只被 3 个测试使用：integration / profile / acceptance。
+// 接入状态（2026-11-26 接线）：
+//   · `adapters/dsh/eligibility-gate.mjs:applyOneEligibility` 已改走 `decide()`，返回值带
+//     skipped / profileId / profileSource——`fg_apply` 路径因此能说清「哪几层被画像关掉」；
+//   · `gateToolCall`（pre-execute 的 grants 校验）**仍未接入，且不应接入**：它是同步函数，
+//     只查授权表、不进判定链；接进来等于把异步判定塞进 pre-execute 热路径；
+//   · `hooks/guard.mjs` 仍走自己的判定链（已封存，不随主版本演进）。
 //
-// 保留而非删除：它是「画像 → 判定 → skipped/trace 汇总」的完整编排，而 DSH 侧只手工做了
-// 其中一半（有 profile 传递，缺 skipped/trace 汇总）。
-// **接入属行为变更**：会改变 gateToolCall 的返回结构与写进 AUDIT.log 的 trace 字段，
-// 必须单独评估并补测试，不要在重构里顺手接上。
+// 语义约束（接线时踩到的坑）：`profile: null` 必须保持 null，不能退化成「按 modelId 加载」。
+// 「不传画像 = 全层启用（最严）」由 integration b4 锁定，写成 `??` 就会破坏它。
+//
+// 职责边界不变：本层**不做任何判定**，判定权全在 checkEligibility（逻辑层是法官）。
 
 import { checkEligibility } from "./checkEligibility.mjs";
 import { loadProfile } from "./profileLoader.mjs";
@@ -42,15 +42,18 @@ export function activeFromTrace(trace = []) {
  * @returns {Promise<{decision, layer, reason, modelSignal, profileId, profileSource, skipped, trace}>}
  */
 export async function decide({ modelId, profile, ...request } = {}) {
-  const resolved = profile ?? loadProfile(modelId);
+  // `null` 是显式「无画像」，`undefined` 才是「没给，按 modelId 解析」。
+  // 不能用 `??`：那会把 null 当成没给，于是「不传画像 = 全层启用（最严）」这条既有语义
+  // 会被偷换成「加载 default 画像」——integration b4 锁着它。
+  const resolved = profile !== undefined ? profile : loadProfile(modelId);
   const result = await checkEligibility({ ...request, profile: resolved });
   return {
     decision: result.decision,
     layer: result.layer,
     reason: result.reason,
     modelSignal: result.modelSignal,
-    profileId: resolved.id,
-    profileSource: resolved.profileSource,
+    profileId: resolved ? resolved.id : null,
+    profileSource: resolved ? resolved.profileSource : null,
     skipped: skippedFromTrace(result.trace),
     trace: result.trace,
   };

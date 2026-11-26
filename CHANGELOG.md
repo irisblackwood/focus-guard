@@ -1,6 +1,6 @@
 # 变更记录（CHANGELOG）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-22
+> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-26
 
 > **受众口径**（2026-10-27 定，全文见 `docs/RELEASE-POLICY.md` 第一节）
 > - 本文件是**发布记录**。`fix(...)` 前缀只表示「这一条改的是缺陷」，**不表示用户已受影响**。
@@ -8,14 +8,97 @@
 > - 段首标 `影响面：开发期` 的版本段，表示该段全部条目都没有已发布用户。
 > - 内部台账 `docs/HANDOFF-*.md` 不受此限，「修复」照写（那是开发过程记录，抹掉就等于丢失教训）。
 
-## 3.5.3 · 2026-11-22
+## 3.5.3 · 2026-11-26
 
 > 版本号依据：兼容声明挪位 + 自检加固 + 攒批收口，按补丁号递增。
 > 发布状态：**未发布**——按攒批规则留在树上，发版时统一发。
-> 影响面：**无已发布版本的用户受害**——本段 7 条 `fix` 全部标 `〔开发期〕`，
+> 影响面：**无已发布版本的用户受害**——本段 `fix` 条目全部标 `〔开发期〕`，
 > 均为 3.5.2 之后在树上发现并处理掉的，对外是纯增量。
-> 日期口径：本段在 2026-11-19 起草，11-20~11-22 持续追加条目；标题日期随最近一次推送
-> 更新为 11-22。**真正发 npm 时再按发版日重钉一次**，条目本身不按日期搬段。
+> 日期口径：本段在 2026-11-19 起草，此后持续追加条目；标题日期随最近一次推送
+> 更新。**真正发 npm 时再按发版日重钉一次**，条目本身不按日期搬段。
+
+### 记忆：工具不再替半成品背书（2026-11-26）
+
+- fix(tools): 〔开发期〕`memory:recall` 语料只收**带标签结论**（`[goal]`/`[done]`/`[note]`，复用 `tags.mjs`）
+  - 无标签 `decisions` 是下架前的指令原文，排除并计数；`labelled=0` 时报「结论无效」并 `exit 2`，不再打印 100%
+  - 改前那条 100% 是在 `?UI？`、`你刚刚这轮0.4你自己去反思` 这类语料上测的，「用垃圾测垃圾得满分」
+- fix(tools): 〔开发期〕`memory:audit` 的 `OK` 收敛为「文件在」——存量无标签 `decisions` 标 `STALE` 并 `exit 2`
+  - 条目拆成「带标签结论 / 被否命令 / 下一步 / 存量指令原文（待清理）」；顺带修正读错字段 `j.next` → `next_action`
+- docs(bench): `MEMORY-RECALL-EVAL` 标注 §二 为**旧口径历史读数**，并说明 T1 三个 100% 为何不能用来选方案
+- docs(plan): `VERSION-PLAN` §1.8 步 2 前置收紧为「跑出**结论**条目且 `labelled > 0`」，指令原文不算
+
+### 记忆：decisions 自动落账下架（2026-11-26）
+
+- fix(memory): 〔开发期〕`decisions` 自动落账与注入**下架**——它写的是人类指令首行，不是决策
+  - 实测本仓 10 条里 0 条是决策、4 条是提问或质疑，最短一条 `?UI？`；现**不写、也不注入**（含存量）
+  - 为何不就地修：需「谁做决定谁写结论」的显式入口 + 标签 + 证据校验，属 4.5 的 A4/C2
+  - 恢复条件三条写进 `workspace.mjs` 文件头；字段与 `fg case` 读取路径保留，仅供清理与查看
+- fix(tools): 〔开发期〕`handoff` 简报不再打印「决策（人类指令原文）」；`fg case` 该列改称「指令残片」
+- test(memory): 4 条改用 constraints 造夹具（渲染 / 标签 / 不裁剪）；新增「存量决策不得注入」
+  - 黄金指纹 workspace 段 242 → 224 B（少「决策：「d1」」整行 18 B），哈希同步更新
+- docs(plan): `VERSION-PLAN` §1.8 加「下架登记」表：对象 / 缺陷 / 为何不就地修 / 存量处置 / 恢复条件
+- docs(install): 提示把 `.focus-guard/` 加进**自己仓库**的 `git/info/exclude`（不写 `.gitignore`）
+
+### 记忆：显式声明「未竣工」（2026-11-26）
+
+- docs(memory): `MEMORY-4.5-PLAN` 加状态头与 §〇「一句话现状」，把能用/不能用分开写
+  - **能用**：哈希路由 / 回合落账 / `fg_workspace` 按需拉取；**不能用**：沉淀的是问句不是结论
+  - 另三条：`next_action` 恒空、无冲突检测（后写覆盖前写且不留痕）、无引用计数与证据校验
+- feat(tools): `fg_workspace` 描述加「未竣工 / 只作线索 / 需重新取证」——这句话的读者是模型
+  - 记忆没有独立版本号（挂里程碑），等不到「某个版本就好了」，边界只能写在入口上
+- docs(arch): `ARCH-MAP` 新增「记忆质量」行，状态**未竣工**；机制两行（路由 / 交接）仍为「已」
+- docs(readme): 30 秒速览下补一条边界，不让卷宗在能力表里继续「看起来已竣工」
+- test(workspace): 新增 1 条锁住描述里的三句边界，防止改文案时被顺手删掉
+- fix(docs): 〔开发期〕`docs:status` 排除 `.workbuddy/`，本机记忆目录不再混进文档台账（46 → 45）
+
+### 接线：决策编排统一到 decisionEngine（2026-11-26）
+
+- feat(adapter): `applyOneEligibility` 改走 `decide()`，`fg_apply` 结果带 skipped / profileId / profileSource
+  - **行为变更**：返回值**新增**三字段（既有字段不变，解构调用方无感）；此前适配层手写半个编排
+  - **语义坑**：`decide()` 原用 `??`，会把 `profile: null` 当成「没给」去 `loadProfile`
+- fix(core): 〔开发期〕`decide()` 改按 `profile !== undefined` 判断，`null` 保持 null
+  - 由 `integration` b4 锁定的「不传画像 = 全层启用」，接线时才暴露；不修则 b1/b4 必红
+- test(integration): 新增 b5——skipped 与 decide 同源、无画像时 `profileId` 为 null、结论一致
+- refactor(adapter): 三处闸结论改用 `verdictOf()` 统一构造，重复块 12 → 9（`smells:gate` 不再反弹）
+- docs(plan): 清理三题排进 `3.6.0–3.6.2`（影子模块上闸 / 元工作比例 / 价值验证）
+
+### 前缀稳定复查：顺序变化不再写成「什么都没变」（2026-11-26）
+
+- fix(core): 〔开发期〕`diffFingerprints` 补 `reordered`，顺序变化不再落成「same-sections | 总 +0B」
+  - **根因**：总哈希顺序敏感（前缀确实变了），但逐段哈希全同，changed/added/removed 三组皆空
+  - 现在 `stable` 为 false，证据写 `reorder(focus-guard-cost→focus-guard-rules)`
+- fix(core): 〔开发期〕跟踪器容量改真 LRU——`Map.set` 不刷新插入序，原先先踢最早进来的会话
+- test(prefix): 新增 2 条（顺序变化证据 / 淘汰顺序），装配链用例补「顺序变化必写审计」
+- docs(plan): 清理三题改排 `3.6.0–3.6.2`——补丁位只到 `.9`，`3.5.4–3.5.9` 已占满
+
+### 全量测试：并发降到 4，38s 全绿（2026-11-26）
+
+- fix(test): 〔开发期〕`audit-isolation` 默认传 `--test-concurrency=4`，`FG_TEST_CONCURRENCY` 可覆盖
+  - **根因**：默认并发（本机 11）下 `toolchain-tools` / `quality-audit` 的 `spawnSync` 子进程冻在 0.00s CPU
+  - **实测**：两文件单跑 2s 全过；限 4 后 101 文件 / 814 断言 / 37s 全绿，AUDIT.log 零增长
+  - 默认并发不是更快而是更慢：193s 零进展 vs 37s 跑完，卡死期间进程完全静止
+
+### 文档对账：注入体量三个数字回正（2026-11-26）
+
+- docs: 常驻注入 `425` → **222 字**（149 全角 + 73 半角），`ARCHITECTURE` / `BENCH` / `RULES` 三处同步
+  - **依据**：425 是 2026-10-24 按需注入压到 222 之前的历史值，三份权威文档均未跟上，`RULES.md` 自身也自相矛盾
+- docs: `BENCH` 的 DSH 侧注入 `440` → **237**（222 + `focus-guard-cost` 15）
+- docs: `bench` 读数 `545` → **300**，并把口径拆开：222 规则 + 78 JSON 信封（有 `HANDOFF.md` 时 346）
+  - **判断**：原「89 字假警报、ZCode 侧未修」已过期——`guard.mjs` 对「已封存」副本跳过，实测 start 无该条
+- docs: 场景加权 `3425` → **3152**；差值可逐项核：545→300、145→144、278→260，合计 −273
+- docs: `BENCH` 的加权表出处由 `README.md` 改正为 `ARCHITECTURE.md`（README 无此表）
+
+### 闸门分层：真装移出 pre-commit（2026-11-26）
+
+- fix(check): 〔开发期〕`gate:fast` 的 `install:gate` 换回静态 `install:check`（1s、不联网）
+  - 真装会 `npm pack` 并在 `~/.dsh/profiles` 建一个真实 profile 再拆掉——提交闸不该写 $HOME
+  - 它还依赖 dsh / pnpm / 网络：无 dsh 的机器直接跳过，装了的才真跑，同一套提交闸因机而异
+  - 根因（install 系脚本 / `engines.dsh` / bundles 字段）仍由静态四项挡在提交前
+- feat(check): 新增 `gate:slow` 承接真装；`check:inner` = 测试类 + `gate:fast` + `gate:slow`
+  - 静态闸清单仍只有一份，两个入口不各抄
+- fix(test): 〔开发期〕`audit-isolation.mjs` 的 `spawnSync` 补超时（15 min，`--wrap` 30 min）
+  - 此前无上限：子测试等 stdin 时父进程无限等，「卡住」与「慢」在现象上无法区分
+  - 超时按 `ETIMEDOUT` 单独报，附放宽上限与单文件定位两条下一步
 
 ### 前缀缓存：卷宗段改 pull，前缀审计补验收（2026-11-22）
 
@@ -295,6 +378,33 @@
   - filter 两规则靠括号配对而非正则：`l.trim().length` 曾被误判成 filter 结果。
 - fix(docs): 〔开发期〕ARCH-MAP 的 `workspace.mjs:38` 改指 `src/memory/workspace.mjs`
   - 原路径已是 5 行兼容转发壳，哈希实现在 memory 层；行号锚点一并撤掉。
+
+### 会话标识：一个 id，一处解析（2026-11-26）
+
+- fix(adapter): 〔开发期〕会话 id 的解析链收成一处——`adapters/dsh/session.mjs` 的 `sidOf`
+  - **病根**：真实 id 在 `agent.session.header.id`，而 8 处代码各读 `sessionId` / `agent.sessionId`
+    / `agent.id`，全落空 → 一律写 `'dsh-native'`。历史 `AUDIT.log` 里 439 条记在这个假名名下，
+    「谁干的」查不出来。
+  - **落点**：`sidOf(exec)` / `UNKNOWN_SESSION` / `sessionKey(session)` 三个出口，`dsh/sessionScope.mjs`
+    改为反向再导出。分层规则禁止适配层依赖宿主编缝，所以实现只能在适配层。
+  - `repeatGuard.mjs` 原手拼会话链（哨兵 `'-'`），一并收口。验收 `session-identity.test.mjs` 两例：
+    哨兵只在定义处与一处取值点出现；`src` 内不得再手拼 `header.id` 链。
+
+### 闸门挂到提交上（2026-11-26）
+
+- feat(check): 新增 `gate:fast`——十一条静态闸单独成链（约 5s），`check:inner` 改为
+  「测试类 + `gate:fast`」
+  - 动因：闸门要人「记得跑」就等于大部分时候没跑。清单只留一份，两个入口共用，不各抄一遍。
+- feat(hooks): `pre-commit` 从「只刷生成物」改为「刷生成物 + 跑 `gate:fast`，红即阻止提交」
+  - 分工：提交挡「本身就不成立」（lint / 文档 / 旧写法 / 结构 / 契约），推送挡「行为变了」
+    （测试 + 对抗评测）。前者改完当场就能改，后者代价高，放 pre-push。
+  - 实测全链路 5s（刷新 2 份台账 + 11 道闸）。
+- fix(tools): 〔开发期〕`legacy:audit` 的扫描面丢过 `.md` / `.json`
+  - 病根：`walkScope` 改为复用 `import-graph.mjs::walk` 后，`walk` 的扩展名是硬编码的 JS 系，
+    文档整个退出扫描面——而闸门照样报「旧写法 0 处」。**扫了个空也是绿。**
+  - 修法：`walk` 的扩展名改可选参数（默认不变，其余调用方零影响），`walkScope` 显式传 `TEXT_EXT`。
+    扫描面 266 → 441 个文件（md 43 / json 128）。
+  - 为什么测试没抓到：三个用例都是手工传文件清单，`walkScope` 从未进测程。补一例钉住扫描面本身。
 
 ## 3.5.2 · 2026-11-18
 

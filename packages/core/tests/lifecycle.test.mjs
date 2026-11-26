@@ -22,7 +22,7 @@ process.env.FG_AUDIT_FILE = AUDIT_TMP;
 const { sessionStartListener, systemPromptRulesListener } = await import("../src/dsh/seams.mjs");
 const { stopGuardListener } = await import("../src/dsh/stopGuard.mjs");
 const { statePath, loadState, saveState } = await import("../src/core/state.mjs");
-// 2026-10-22：focus-guard-cost 段此前零测试——它是 README 里 440 = 425 + 15 的右半边，
+// 2026-10-22：focus-guard-cost 段此前零测试——它是 DSH 侧注入 237 = 222 + 15 的右半边，
 // 却没人守。补上，否则注入链少了一段也没人知道。
 const { systemPromptListener } = await import("../src/dsh/pipeline.mjs");
 
@@ -76,7 +76,7 @@ describe("3.0.8 · start 缝（agent/created · 移植批 4）", () => {
     console.log("注入 section:", rules.sections.map((s) => s.name).join(" + "));
   });
 
-  test("成本提示注入：追加独立 section focus-guard-cost（440 = 425 + 15 的右半边）", async () => {
+  test("成本提示注入：追加独立 section focus-guard-cost（237 = 222 + 15 的右半边）", async () => {
     const out = await systemPromptListener({ warn: noop })(
       {},
       {},

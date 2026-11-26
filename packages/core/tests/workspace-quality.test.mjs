@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,4 +40,36 @@ test("质量筛选：表格 / 代码块 / 报错 / 子代理回执 / 超长 一�
 test("质量筛选：正常指令保留第一行并压平空白", () => {
   assert.equal(ws.pickDecisionText("把审批改成 GUI 卡片\n\n顺便跑一遍 check"), "把审批改成 GUI 卡片");
   assert.equal(ws.pickDecisionText("  做A 并 做B  "), "做A 并 做B");
+});
+
+// 下架验收（2026-11-26）：这条守的是「不写」，与 handoff-quick 的「不注入」互补。
+// 缺了它，下次有人把 pickDecisionText 接回落账路径，测试全绿而缺陷复发。
+test("下架：recordWorkspaceTurn 不再写 decisions，原文不落盘", () => {
+  const TMP = mkdtempSync(join(tmpdir(), "fg-turn-"));
+  const stateDir = join(TMP, "state");
+  const proj = join(TMP, "proj");
+  mkdirSync(stateDir, { recursive: true });
+  mkdirSync(proj, { recursive: true });
+  const saved = { state: process.env.FG_STATE_DIR, ws: process.env.FG_WORKSPACE_FILE };
+  process.env.FG_STATE_DIR = stateDir;
+  process.env.FG_WORKSPACE_FILE = join(TMP, "workspace.json");
+  try {
+    const sid = "sess-dec-off";
+    writeFileSync(
+      join(stateDir, `focus-guard-${sid}.json`),
+      JSON.stringify({ turnPrompt: "请把审批改成 GUI 卡片", rejectedCmds: { "npm publish": 1 }, turnCalls: 3, denyCount: 1 }),
+    );
+    const rec = ws.recordWorkspaceTurn({ session: { header: { cwd: proj, id: sid } } });
+    assert.ok(rec, "应返回写入后的记录");
+    assert.deepEqual(rec.decisions, [], "决策已下架：不得再写入人类指令原文");
+    assert.ok(!JSON.stringify(rec).includes("把审批改成 GUI 卡片"), "指令原文不得落盘");
+    assert.deepEqual(rec.constraints, ["npm publish"], "约束仍要写——下架的是决策，不是整块落账");
+    assert.equal(rec.snapshot.denies, 1, "快照仍要写");
+  } finally {
+    if (saved.state === undefined) delete process.env.FG_STATE_DIR;
+    else process.env.FG_STATE_DIR = saved.state;
+    if (saved.ws === undefined) delete process.env.FG_WORKSPACE_FILE;
+    else process.env.FG_WORKSPACE_FILE = saved.ws;
+    rmSync(TMP, { recursive: true, force: true });
+  }
 });

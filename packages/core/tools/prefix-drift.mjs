@@ -3,8 +3,12 @@
  * 前缀抖动探针（2026-10-29）
  *
  * 目的：回答"每步的前缀到底是不是同一段字节"。缓存命中要求**前缀逐字节相同**，
- * 而 FG 自己往系统提示里注入卷宗段（决策 / 约束）——若它每回合变一次，
- * 后面整段会话历史都要按未缓存价重付。
+ * 而 FG 自己往系统提示里注入卷宗段——若它每回合变一次，前缀就不再稳定。
+ *
+ * 2026-11-26 注记：卷宗段已于 11-21 改 pull（不再进 system），decisions 自动落账同月下架。
+ * 因此**当前生产路径已无每回合增长的注入源**；本工具的 `--ab` 仍保留，用途有两个：
+ * 一是对照历史（论证 pull 与下架为什么对），二是压测唯一还会增长的 constraints
+ * （人类连续否决命令）会不会传到前缀。别把它的旧曲线当成现状。
  *
  * 本探针只读会话落盘（`session.v4.jsonl.zstd`），按 step 切段，逐段比哈希：
  *   · 工具表 / system 段 / developer 段 / 首个 user 段，各自一个指纹
@@ -132,7 +136,6 @@ async function runAB() {
   const TURNS = 30
   // 预置上一场留下的卷宗（真实场景里会话开始前文件就在了）
   ws.mergeWorkspace(WORK, {
-    decisions: ['上一场留下的决策'],
     constraints: ['npm publish'],
     snapshot: { at: '2026-10-29T09:00:00.000Z', sid: 'sess-prev', toolCalls: 40, denies: 2, kpi: -9, delegateBudget: 12 },
   })
@@ -144,7 +147,9 @@ async function runAB() {
     seqA.push(String(ws.renderWorkspaceSection(rec, { sid: SID_A }) || ''))
     seqB.push(String(ws.renderWorkspaceSectionOnce(rec, { sid: SID_A }) || ''))
     ws.mergeWorkspace(WORK, {
-      decisions: [`第 ${t} 回合的人类指令`],
+      // 2026-11-26：decisions 已下架，改用 constraints 当增长源——它是现在唯一还会
+      // 随回合变长的卷宗字段（人类连续否决命令），也是真实场景里最可能压到前缀的一个。
+      constraints: [`第 ${t} 回合被否决的命令`],
       snapshot: { at: `2026-10-29T10:${String(t).padStart(2, '0')}:00.000Z`, sid: SID_A, toolCalls: t, denies: 0, kpi: 0, delegateBudget: 20 },
     })
     if (t % 3 === 0) {

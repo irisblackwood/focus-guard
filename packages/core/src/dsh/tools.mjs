@@ -177,13 +177,19 @@ function buildAppealTool() {
  * 为什么把卷宗从 system 前缀改成 pull：卷宗段（`[FG-WORKSPACE]`）每会话首步冻结后虽然稳定，
  * 但仍是**每步都付**的固定字节。改成按需拉取后系统前缀更短、缓存更容易命中；
  * 写入与冻结（`recordWorkspaceTurn` / `renderWorkspaceSectionOnce`）逻辑都不动。
+ *
+ * 2026-11-26：描述里加「未竣工，只作线索」。记忆机制在跑，但沉淀的是指令原文而非结论、
+ * 且无冲突检测/证据校验（`MEMORY-4.5-PLAN` §〇）。这句话的读者是模型——它不读那份文档。
  */
 export function buildWorkspaceTool() {
   return {
     name: 'fg_workspace',
     description:
       '读取本工作区的跨会话卷宗（上次会话快照 / 本轮人类指令 / 被否命令 / 其他约束）。' +
-      '系统提示里不再自动带这段，需要交接信息时调用本工具。',
+      '系统提示里不再自动带这段，需要交接信息时调用本工具。' +
+      // 2026-11-26（作者拍板）：记忆未竣工这件事必须让**模型**看见。卷宗里存的多是
+      // 指令原文而非结论，且没有冲突检测/证据校验——不写这一句，模型会把它当事实依据。
+      '注意：卷宗是未竣工的草稿，条目多为指令原文、可能过期，只作线索；据此行动前请对关键事实重新取证。',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
     output: TEXT_OUTPUT,
     execute(_args, exec) {

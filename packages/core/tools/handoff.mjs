@@ -48,7 +48,9 @@ const block = (label, items) => {
   }
   if (items.length > 5) console.log(`- …（共 ${items.length} 条，其余见 workspace.json）`)
 }
-block('决策（人类指令原文）', record.decisions)
+// 决策块已下架（2026-11-26）：它打印的是人类指令原文，不是决策。见
+// `src/memory/workspace.mjs` 文件头「下架声明」。新旧会话都不再展示，
+// 避免"简报里看着像结论、其实是问句"。
 block('约束（被人否决过的命令）', record.constraints)
 block('下一步', record.next_action)
 

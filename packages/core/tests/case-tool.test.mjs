@@ -60,9 +60,11 @@ test("隐藏语义：只有 done / note 不注入，goal 照常注入", () => {
 });
 
 test("注入：done 与 note 不出现，goal 剥掉标记后出现", () => {
+  // 2026-11-26：夹具从 decisions 换成 constraints——决策行已下架，
+  // 但标签语义（goal 注入 / done、note 隐藏 / 标记剥离）是 push() 的通用逻辑，仍须守住。
   const text = ws.renderWorkspaceSection(
     rec({
-      decisions: ["[goal] 本科→普通级→高级", "[done] 哦！遵循它", "[note] 临时记一笔", "普通决策"],
+      constraints: ["[goal] 本科→普通级→高级", "[done] 哦！遵循它", "[note] 临时记一笔", "普通决策"],
     }),
   );
   assert.match(text, /本科→普通级→高级/, "goal 必须注入");
@@ -96,9 +98,11 @@ test("上限淘汰：11 条时先丢最老的非 goal，goal 不被挤掉", () =
 
 test("超预算：不裁剪，全部保留（半句比不写危害大）", () => {
   // 8 条 × 190 字 ≈ 1520 字，超过旧阈值 1200
+  // 2026-11-26：夹具从 decisions 换成 constraints——决策行已下架不再渲染，
+  // 本条测的是「渲染不裁剪」，与哪个字段无关。
   const long = (i) => `第${i}条${"补".repeat(185)}`;
   const items = Array.from({ length: 8 }, (_, i) => long(i));
-  const text = ws.renderWorkspaceSection(rec({ decisions: items }));
+  const text = ws.renderWorkspaceSection(rec({ constraints: items }));
   // 2026-10-30 人类批示：超预算允许留着——不切半句，也不丢整条。
   assert.ok(text.length > 1200, `应允许超过旧阈值 1200，实际 ${text.length}`);
   for (const t of items) assert.ok(text.includes(t), "每条都必须完整出现，不许丢整条");

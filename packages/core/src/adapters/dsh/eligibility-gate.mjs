@@ -9,7 +9,8 @@
  * grants 是 FG 自己的状态（按 session 分表，内存版；第五步持久化到 FG 状态文件），不进 guard.mjs 的 state。
  * 审计默认写 .focus-guard/AUDIT.log；FG_AUDIT_FILE 可重定向——自检**只写 tmpdir()**，绝不碰真实工作区。
  */
-import { checkEligibility, HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
+import { HIGH_RISK_TOOLS, SYSTEM_PATH_RE, profileScope, IRREVERSIBLE_IDS } from '../../core/checkEligibility.mjs'
+import { decide } from '../../core/decisionEngine.mjs'
 import { redlineExempt, isMutatingBashCmd } from '../../core/redlines.mjs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
@@ -255,6 +256,7 @@ export async function applyEligibility(spec) {
         : `批量授权通过：${list.join(', ')}`,
       modelSignal: blocked ? blocked.modelSignal : null,
       trace: blocked ? blocked.trace : [{ layer: 6, decision: 'allow', reason: '批量授权（合并出示）' }],
+      skipped: blocked ? blocked.skipped ?? [] : [],
       tools: list,
     }
   }
@@ -282,7 +284,12 @@ async function applyOneEligibility({
   // 3.0.6 补口（HANDOFF §十 缺陷 1）：画像必须透传到母版，否则真实 fg_apply 路径 profile=null，
   // 画像对所有层失效——此前画像差异只在 decide() 那条路可达。
   const resolved = profile ?? (modelId ? loadProfile(modelId) : null)
-  const result = await checkEligibility({
+  // 3.5.x 接线（2026-11-26）：改走 decisionEngine.decide()，不再在这里手写「解析画像 + 调
+  // checkEligibility」的半个编排。收益是返回值统一带 skipped / profileId / profileSource，
+  // fg_apply 的结果因此能说清「哪几层被画像关掉了」。
+  // 传 resolved（可能是 null）而不是 modelId：null 必须保持「无画像」，
+  // 否则「不传画像 = 全层启用」的最严语义会被 default 画像替换（integration b4 锁着）。
+  const result = await decide({
     tool,
     command,
     purpose,
@@ -292,9 +299,21 @@ async function applyOneEligibility({
     state,
     redlines,
     model,
-    profile: resolved,
     grants,
+    profile: resolved,
     audit: (row) => auditEligibility({ session, ...row }),
+  })
+  // 三个分支返回的都是「闸自己下的结论」：形状一致（modelSignal 恒 null、layer 多为 '6'），
+  // 差别只在值。原先三处各写一遍对象字面量，加 skipped 后越过重复块阈值（smells 棘轮 9→12）。
+  // 统一构造，顺带保证「FGA 分支重写 trace」时 skipped 仍被带上——否则 fg_apply 的结果
+  // 说不清「为什么这次没查取证」。
+  const verdictOf = ({ decision, layer = '6', reason, trace }) => ({
+    decision,
+    layer,
+    reason,
+    modelSignal: null,
+    trace,
+    skipped: result.skipped,
   })
   // FGA-PTC 人工闸门（B 方案，默认开）：不可逆类别不得自证自批。
   const selfGateId = gatedReasonOf(tool, command) || ptcReasonOf(tool, command)
@@ -312,13 +331,11 @@ async function applyOneEligibility({
         decision: 'allow',
         evidence: consumed.id,
       })
-      return {
+      return verdictOf({
         decision: 'allow',
-        layer: '6',
         reason: `人工已批准（${consumed.id}），本次放行（ttl=${ttl}）`,
-        modelSignal: null,
         trace: [{ layer: 6, decision: 'allow', reason: `approval-consumed ${consumed.id}` }],
-      }
+      })
     }
     // 批准在，但已过期 / 属别的会话：都是"有批准却没放行"的反常，必须留痕，
     // 否则下次只看到一条重新申请，看不出为什么没生效。
@@ -363,13 +380,12 @@ async function applyOneEligibility({
       decision: 'needApproval',
       evidence: req.id,
     })
-    return {
+    return verdictOf({
       decision: 'needApproval',
       layer: 'gate',
       reason: `不可逆类别（${selfGateId}）必须人类批准，本次未授予任何授权。${approvalHint(req.id)}`,
-      modelSignal: null,
       trace: [{ layer: 6, decision: 'needApproval', reason: `ptc-irreversible ${selfGateId} request=${req.id}` }],
-    }
+    })
   }
   // FGA-PTC 静默秒批（主图 L3 FGA3）：**可逆类别**不必等人工，审核期内直接授予并留痕；
   // 不可逆类别（IRREVERSIBLE_IDS）仍走原有 needApproval 路径，绝不静默批准。
@@ -386,13 +402,11 @@ async function applyOneEligibility({
         decision: 'allow',
         evidence: gateId,
       })
-      return {
+      return verdictOf({
         decision: 'allow',
-        layer: '6',
         reason: `PTC 静默秒批：${gateId} 属可逆类别，已自动授权（ttl=${ttl}）`,
-        modelSignal: null,
         trace: [{ layer: 6, decision: 'allow', reason: `ptc-auto-grant ${gateId}` }],
-      }
+      })
     }
   }
   if (result.decision !== 'allow' && !preGranted) grants.revoke(tool)

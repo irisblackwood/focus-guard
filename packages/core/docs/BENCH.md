@@ -302,16 +302,16 @@ node packages/core/tools/bench-cost.mjs --json   # 机器读：report.fuseWaste
 ## 三、Token 基准
 
 `npm run bench` = 常驻开销（技能目录 + 工具 schema + 系统提示注入）。
-FG 当前注入 440 字符（`focus-guard-rules` 425 + `focus-guard-cost` 15）。改动注入正文后应重跑。
+FG 当前注入 237 字符（`focus-guard-rules` 222 + `focus-guard-cost` 15）。改动注入正文后应重跑。
 
 ### 四个「注入体量」数字，别混着用（2026-10-22 辨析）
 
 | 数字 | 含义 | 出处 |
 |---|---|---|
-| **425** | `SESSION_RULES` 静态文本（246 全角 + 179 半角，含 FUSE_PHRASE） | `constants.mjs` 的 `SESSION_RULES` |
-| **440** | DSH 侧实际注入 = 425 + `focus-guard-cost` 15 | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
-| **545** | `npm run bench` 读数 = guard.mjs 动态 ctx（425 + HANDOFF 巡视 45 + 版本核验告警约 89） | `token-bench.mjs` |
-| **3425** | 场景加权合计（另一维度，别与上面三个直接比） | `README.md` 表 |
+| **222** | `SESSION_RULES` 静态文本（149 全角 + 73 半角，含 FUSE_PHRASE） | `constants.mjs` 的 `SESSION_RULES` |
+| **237** | DSH 侧实际注入 = 222 + `focus-guard-cost` 15 | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
+| **300** | `npm run bench` 读数 = guard.mjs stdout（222 + JSON 信封 78；工作区有 `HANDOFF.md` 时 +46 = 346） | `token-bench.mjs` |
+| **3152** | 场景加权合计（另一维度，别与上面三个直接比） | `ARCHITECTURE.md` 的「常驻注入的体量」表 |
 
 > **2026-11-19 核对**：本表原先写的是行号（`constants.mjs:61` / `seams.mjs:269` / `pipeline.mjs:1068`）， <!-- legacy:ok -->
 > 四处**全部失效**——`pipeline.mjs` 已从千行缩到 131 行，`seams.mjs` 从 269 行缩到 141 行，
@@ -319,13 +319,12 @@ FG 当前注入 440 字符（`focus-guard-rules` 425 + `focus-guard-cost` 15）�
 > 重构一次就全错，且没有任何判据能发现（`docs:lint` 只查路径存不存在，不查第 N 行是不是那个符号）。
 > 故本表改为只写**文件 + 符号名**：符号名会改名，但不会像行号那样每次搬代码都骗人。
 
-注意 **545 目前是脏数**：其中约 89 字是版本核验假警报。`hooks/guard.mjs` 头部自述
-「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但 `guard.mjs` 的 `ENGINE_VERSION` 比对仍拿它比对
-（2026-11-19 定位在 159 行），故每次会话必报。`seams` 侧已于 10-18 用 `SEALED` 排除修掉，
-**ZCode 侧未修**。修好后读数应回落至约 470。
+注意 **545 那个脏数已清掉**（2026-11-26 实测）：89 字版本核验假警报已由 `guard.mjs` 的
+「读到副本带『已封存』标记就跳过」修掉，ZCode 注册表核验改为 `FG_ZCODE_DEPLOY_CHECK=1` 显式开启。
+现读数 300 = 222 规则 + 78 JSON 信封；工作区有 `HANDOFF.md` 时 346。
 
 注意 **折算口径**：旧文写「4 字符/token ≈ 110 tokens」是英文口径，用于中文会低估约 3 倍。
-中文按 `1 token ≈ 1.2~1.5 汉字`（`RULES.md` 口径）折算，425 字 ≈ 283~354 tokens。
+中文按 `1 token ≈ 1.2~1.5 汉字`（`RULES.md` 口径）折算，222 字 ≈ 148~185 tokens。
 
 ## 四、威胁评测
 

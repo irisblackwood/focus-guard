@@ -39,21 +39,15 @@ test("同会话（sid 相同）→ 不注入快照（避免重复噪音）", () 
   assert.doesNotMatch(String(section), /上次会话：/);
 });
 
-test("同会话内决策增长不再改变注入字节（前缀稳定，2026-10-29）", () => {
-  // 实测（tools/prefix-drift.mjs）：系统段每会话 2 个版本，分歧点恒定落在「决策：」这一行。
-  // 决策是**历史**，历史每回合都在长；而人类指令原文本来就在会话消息里，抄进系统提示既重复又抖。
-  ws.mergeWorkspace(WORK, {
-    decisions: ["稳定前缀之前的决策"],
-    snapshot: { at: "2026-10-22T22:00:00.000Z", sid: "session-stable", toolCalls: 12, denies: 3, kpi: -5, delegateBudget: 19 },
-  });
-  const before = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-stable" }));
-  assert.ok(before.length > 10, "夹具必须真的渲染出内容，否则「相等」等于什么都没验");
-  ws.mergeWorkspace(WORK, { decisions: ["同会话里又记了一条"] });
-  const after = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-stable" }));
-  assert.equal(after, before, "同会话内决策增长不得改变注入字节");
-  // 换会话才给决策——那是交接信息，不是每回合的噪音
-  const fresh = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-other" }));
-  assert.match(fresh, /决策：/, "新会话应看到上次会话的决策");
+test("决策已下架：历史条目也不再注入（2026-11-26）", () => {
+  // 缺陷：decisions 抄的是本轮人类指令首行，不是决策（实测本仓 10 条里 0 条是决策，
+  // 4 条是提问/质疑，最短一条 `?UI？`）。详见 src/memory/workspace.mjs 文件头「下架声明」。
+  // 关键点：**存量也不注入**——否则旧 workspace.json 会继续把问句喂给新会话。
+  ws.mergeWorkspace(WORK, { decisions: ["一条历史指令原文"] });
+  const section = String(ws.renderWorkspaceSection(ws.readWorkspace(WORK), { sid: "session-other" }));
+  assert.doesNotMatch(section, /决策：/, "决策行不得再出现");
+  assert.doesNotMatch(section, /一条历史指令原文/, "存量原文不得注入");
+  assert.match(section, /上次会话：/, "下架的是决策，不是整块交接——快照仍要给");
 });
 
 test("新会话渲染：含「上次会话」行与三类事实", () => {
@@ -62,7 +56,7 @@ test("新会话渲染：含「上次会话」行与三类事实", () => {
   assert.match(section, /上次会话：/);
   assert.match(section, /工具调用 12/);
   assert.match(section, /被拦 3/);
-  assert.match(section, /决策：/);
+  assert.doesNotMatch(section, /决策：/, "决策行已下架（2026-11-26）");
 });
 
 test("会话首步冻结：并发会话改写快照，本会话的注入字节不变（2026-10-29）", () => {

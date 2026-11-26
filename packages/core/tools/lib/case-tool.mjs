@@ -124,11 +124,17 @@ function saveCase(record, file) {
   renameSync(tmp, file)
 }
 
-/** 展平成带序号的行：决策 / 约束 / 下一步 各自编号，用前缀区分。 */
+/** 展平成带序号的行：指令残片 / 约束 / 下一步 各自编号，用前缀区分。
+ *
+ * `decisions` 的显示名 2026-11-26 改为「指令残片」：自动落账已下架
+ * （缺陷见 `src/memory/workspace.mjs` 文件头），字段里剩下的只是历史 prompt 片段。
+ * **字段名仍叫 decisions**——改 schema 要给存量文件做迁移，而它已经不再产生新数据，
+ * 不值得。序号前缀继续用 `decisions:N`，旧命令照旧可用。
+ */
 export function entriesOf(record) {
   const out = []
   for (const [field, label] of [
-    ['decisions', '决策'],
+    ['decisions', '指令残片'],
     ['constraints', '约束'],
     ['next_action', '下一步'],
   ]) {

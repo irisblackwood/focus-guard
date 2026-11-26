@@ -295,13 +295,13 @@ DSH 原生插件（`src/dsh/pipeline.mjs` 编排，各层实现在 `src/dsh/guar
 
 ### 常驻注入的体量
 
-常驻注入 `SESSION_RULES` 运行期实测 **425 字**（246 全角 + 179 半角，≤500 字立法上限；3.0.0 因果链提示 +14 字）。典型长会话的执法可见开销加权实测 **3425 字 ≈ 2283 tokens**（2026-10-22 复测，`npm run bench`；3.0 新增报文：推送闸 182 字级、哨兵拦截 175 字级、图书馆隔离 40 字级、KPI 结算 0 字——仅落档不打扰）：
+常驻注入 `SESSION_RULES` 运行期实测 **222 字**（149 全角 + 73 半角，≤500 字立法上限；2026-10-24 按需注入前为 425 字，3.0.0 因果链提示 +14 字已含在现值内）。典型长会话的执法可见开销加权实测 **3152 字 ≈ 2101 tokens**（2026-11-26 复测，`npm run bench`；较 2026-10-22 的 3425 降 273，全部来自下表三行：常驻注入 545→300、卷宗放行 145→144、触发③ 278→260，其余报文未变）：
 
 | 场景 | 引擎实测字符 | 会话内次数 | 加权 |
 |---|---|---|---|
-| SessionStart 常驻注入 | 545 注意 | ×1 | 545 |
-| 卷宗免重读放行（最高频） | 145 / 次 | ×10 | 1450 |
-| 触发③体积三闸（三连拦场景合计） | 278 | ×1 | 278 |
+| SessionStart 常驻注入 | 300（222 规则 + 78 JSON 信封） | ×1 | 300 |
+| 卷宗免重读放行（最高频） | 144 / 次 | ×10 | 1440 |
+| 触发③体积三闸（三连拦场景合计） | 260 | ×1 | 260 |
 | 熔断出口（拒绝 + 打回） | 268 | ×1 | 268 |
 | 动态预算续杯 | 73 / 次 | ×3 | 219 |
 | 推送闸拦截 | 182 | ×1 | 182 |
@@ -310,9 +310,9 @@ DSH 原生插件（`src/dsh/pipeline.mjs` 编排，各层实现在 `src/dsh/guar
 | 委派摘要超长拒收 | 107 | ×1 | 107 |
 | 上下文污染检出 | 93 | ×1 | 93 |
 | 盲写拦截 | 40 | ×1 | 40 |
-| **加权合计** | | | **3425 字 ≈ 2283 tokens**（1 token ≈ 1.5 中文字符，区间 1713–2854） |
+| **加权合计** | | | **3152 字 ≈ 2101 tokens**（1 token ≈ 1.5 中文字符，区间 1576–2627） |
 
-注意 **545 里约 89 字是假警报**：`hooks/guard.mjs` 头部自述「v3.0.4 已封存·版本独立，不随 FG 主版本更新」，但它仍拿它比对 `ENGINE_VERSION`（2026-11-19 定位在该文件 159 行；原文写 136 行，已随重构失效），故每次会话追加一条版本核验告警。`seams` 侧已于 10-18 用 `SEALED` 排除修掉，**ZCode 侧未修**。干净状态应为 425 + 45（HANDOFF 巡视）≈ **470 字**，加权合计约 **3336**。上表按实测原值记录，不掩盖。
+注意 **545 这个脏数已不成立**（2026-11-26 复核）：其中约 89 字是 42条 版本核验对「已封存」副本的假警报，现已由 `guard.mjs` 的 `head.includes('已封存')` 跳过修掉（实测 start 输出中已无该条），ZCode 注册表核验也已改为 `FG_ZCODE_DEPLOY_CHECK=1` 显式开启。现读数 **300 = 222（规则正文）+ 78（JSON 信封 `{"hookSpecificOutput":…}`）**；工作区存在 `HANDOFF.md` 时再加 46（实测 346）。上表按 `npm run bench` 实测原值记录。
 
 复测：`npm run bench`。v2.2.0 曾对报文做电报体压缩（当时相对更早版本 -31.6%，对比基线已失效，只作历史记录）；2.4.0 起审批单与委派报文变长，故当前总量高于那次优化后的数值。报文只保留"标签 + 动作指令"，规则细节由技能与法典承载。
 
@@ -397,7 +397,9 @@ npm run bench                                        # 报文体量基准
 npm run bench:decision                               # 判定基准：15 用例×10 轮 → 准确率/误伤率/p50-p95（基线锁定）
 npm run bench:tasks                                  # 任务测试：50 组真实任务串 → 组通过率/误伤/漏拦
 npm run bench:cost                                   # 成本基准：读台账【五】与 AUDIT.log → token/USD/拦截/误伤比
-npm run check                                        # 全链：测试 + eval + selftest + 文档/房规/结构闸（pre-push 跑的就是它）
+npm run check                                        # 全链：测试 + eval + selftest + 静态闸 + 真装（pre-push 跑的就是它）
+npm run gate:fast                                    # 只跑静态闸（约 5s，pre-commit 跑的就是它）
+npm run gate:slow                                    # 真装一遍（npm pack + dsh plugin add；发布前/check 才跑）
 npm run library                                      # 派生积木构建（默认 --src .ai/library --out .ai/output/library，幂等）
 npm run chain -- <AUDIT.log路径> [--mermaid]         # 执法档案因果树渲染
 npm run sentinel -- --check "<命令>"                  # 本地哨兵单条预判
@@ -419,8 +421,13 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 衍生纪律（详见 [packages/extended/bridges/README.md](../packages/extended/bridges/README.md)）：桥只依赖主分支**契约**（审计 JSONL 格式、哨兵外判协议、积木 INDEX 格式），禁止 import 主分支源码，禁止被主分支引用（验收用例锁定零反向依赖）；桥故障一律静默回退核心默认行为。新增外接 = 在 extended 包加一个自包含文件 + 一条桥测试。
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](../.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵。**CI 不是发布闸**——它只跑这个快速子集，整条 `npm run check`（eval:dsh / selftest / privacy / manifest / docs:lint / lint / smells / schema:verify）只在 `publish.yml` 跑；两边不是同一条命令，别拿 CI 绿当发布依据（2026-11-08 定）；
-- **本地质量闸（pre-push 钩子，GitHub Actions 不可用环境的主闸）**：`.githooks/pre-push` 在每次 `git push` 前强制 `npm run check`（验收 + 对抗评测），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。克隆后启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；
-- **生成物自动刷新（pre-commit 钩子）**：`.githooks/pre-commit` 在提交前重生成 `docs/STATUS.md` 与 `docs/MODULES.md` 并 `git add`。这两个文件含「距今天数 / 其后全仓提交」这类会随「现在」变的量，靠人记得跑必然落后；而落后的台账比没有台账更坏——它看着像真话。同一原因，`docs:lint` 对它们只比**结构指纹**（不逐字比），否则等于每天必须重生成、一天不生成就红；
+- **闸门挂在提交上，不挂在记性上（2026-11-26）**：闸门要人「记得跑」，等于大部分时候没跑。两个钩子分工，把「每次改动都跑一遍」变成不必记性的动作——
+  - **pre-commit（约 5s）**：先重生成 `docs/STATUS.md` / `docs/MODULES.md` 并 `git add`，再跑 `npm run gate:fast`（privacy / quality:audit / manifest / docs:lint / modules:audit / lint / legacy / smells / schema:verify / install:check / docs:drift 十一条静态闸），**不过即阻止提交**。挡的是「这段代码或这份文档本身就不成立」，改完当场就能改；
+  - **pre-push**：跑 `npm run check`（上面那套 + 测试 + 对抗评测 + `gate:slow`），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。挡的是「行为变了」，代价高，所以放推送。
+  - **真装不进 fast 闸**（2026-11-26）：`install:gate` 会 `npm pack` 并在 `~/.dsh/profiles` 里建一个真实 profile 再拆掉，且依赖 dsh / pnpm / 网络。本机热缓存实测 1.1s——**不是因为它慢才拆**，是因为提交闸在不同机器上做的事不同（无 dsh 直接跳过）、会写 $HOME、冷环境成本不受控。拆成 `gate:slow`，静态的 `install:check` 留在 fast 闸里挡根因（install 系脚本 / engines.dsh / bundles 字段）。
+  - 清单只有一份：`check:inner` = 测试类 + `gate:fast` + `gate:slow`，两个入口共用同一串静态闸，不各抄一份（抄两份必然分叉）。
+  - 生成物为什么自动刷：那两个文件含「距今天数 / 其后全仓提交」这类会随「现在」变的量，靠人记得跑必然落后；而落后的台账比没有台账更坏——它看着像真话。同一原因，`docs:lint` 对它们只比**结构指纹**（不逐字比），否则等于每天必须重生成、一天不生成就红。
+  - 启用一次：`git config core.hooksPath .githooks`；强行绕过（`--no-verify`）按法规须先批示——钩子留痕只在正常触发时写入，绕过即失察；
 - **覆盖范围**（用例数随版本增长，以 `npm run check` 实际输出为准）：动态预算与三池分池、进度检测与信用延期、触发①②③④⑤（含审计豁免）、梯度处罚与熔断只读放行、卷宗体系（环境检测 / 环境声明落卷 / 免重读含会话内限定 / SHA 防伪 / TTL 三级覆盖 / 台账落卷 / caseCache 裁剪）、跨平台命令拦截、盲写与抽查A、上下文污染与污染核实闸（含复合命令不误报）、授权识别（伪造引文 → L3 / 合规声明 → 特赦 / 待确认 → 暂停）、高危命令闸（特征库 / 审批单 / y-n 一次性 / 预授权隔离 / 脚本包装端到端 / 熔断期拒绝 / 超长命令）、子代理委派与委托池、极限场景（80KB 命令行、2MB 响应、损坏状态、奇异会话 ID、中文路径）、DSH 桥接自适应，以及工程自检（七处清单版本一致性 / 版本追赶 / 五处说明互不重复 / 文档-实现口径对齐 / RULES 注入逐字镜像 / hooks.json ↔ 引擎映射 / 部署漂移核验 / 61条陈旧清理）；
 - **对抗评测样本**按"同一危险动作的多种写法"组织（别名、长旗标、传参穿插）并配良性反例，避免用误报换检出。
 

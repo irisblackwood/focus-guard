@@ -35,12 +35,12 @@
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
 | [`packages/core/docs/HOOK-ORDERING.md`](../packages/core/docs/HOOK-ORDERING.md) | 参考 | 3.3.0 | 2026-10-29 | 28 | — |
 | [`packages/core/docs/LEGISLATION-LAW.md`](../packages/core/docs/LEGISLATION-LAW.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
-| [`packages/core/docs/MEMORY-4.5-PLAN.md`](../packages/core/docs/MEMORY-4.5-PLAN.md) | 参考 | 3.3.0 | 2026-11-01 | 25 | — |
 | [`packages/core/tests/fixtures/real-calls/README.md`](../packages/core/tests/fixtures/real-calls/README.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
 | [`packages/extended/bridges/README.md`](../packages/extended/bridges/README.md) | 参考 | 3.3.0 | 2026-10-28 | 29 | — |
 | [`docs/THEORY-BASIS.md`](../docs/THEORY-BASIS.md) | 参考 | 3.4.0 | 2026-11-11 | 15 | — |
 | [`packages/core/docs/BRAIN-VIZ.md`](../packages/core/docs/BRAIN-VIZ.md) | 参考 | 3.5.3 | 2026-11-19 | 7 | — |
-| [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-24 | 2 | — |
+| [`packages/core/docs/MEMORY-4.5-PLAN.md`](../packages/core/docs/MEMORY-4.5-PLAN.md) | 参考 | 3.5.3 | 2026-11-26 | 0 | — |
+| [`packages/core/docs/MEMORY-RECALL-EVAL.md`](../packages/core/docs/MEMORY-RECALL-EVAL.md) | 参考 | 3.5.3 | 2026-11-26 | 0 | — |
 | [`packages/core/README.md`](../packages/core/README.md) | 参考 | 3.5.3 | 2026-11-24 | 2 | — |
 | [`packages/core/README.zh-CN.md`](../packages/core/README.zh-CN.md) | 参考 | 3.5.3 | 2026-11-24 | 2 | — |
 | [`docs/GOVERNANCE-LAYERS.md`](../docs/GOVERNANCE-LAYERS.md) | 参考 | — | 2026-11-03 | 23 | — |
@@ -82,12 +82,12 @@ README.md|权威|3.5.3|2026-11-19
 CONTRIBUTING.md|参考|3.3.0|2026-10-28
 packages/core/docs/HOOK-ORDERING.md|参考|3.3.0|2026-10-29
 packages/core/docs/LEGISLATION-LAW.md|参考|3.3.0|2026-10-28
-packages/core/docs/MEMORY-4.5-PLAN.md|参考|3.3.0|2026-11-01
 packages/core/tests/fixtures/real-calls/README.md|参考|3.3.0|2026-10-28
 packages/extended/bridges/README.md|参考|3.3.0|2026-10-28
 docs/THEORY-BASIS.md|参考|3.4.0|2026-11-11
 packages/core/docs/BRAIN-VIZ.md|参考|3.5.3|2026-11-19
-packages/core/docs/MEMORY-RECALL-EVAL.md|参考|3.5.3|2026-11-24
+packages/core/docs/MEMORY-4.5-PLAN.md|参考|3.5.3|2026-11-26
+packages/core/docs/MEMORY-RECALL-EVAL.md|参考|3.5.3|2026-11-26
 packages/core/README.md|参考|3.5.3|2026-11-24
 packages/core/README.zh-CN.md|参考|3.5.3|2026-11-24
 docs/GOVERNANCE-LAYERS.md|参考|—|2026-11-03

@@ -215,6 +215,47 @@ describe("E2E · 模型画像 → 资格审核 → 授权 → pre-execute 闸", 
       resetGrants(s2);
       resetGrants(s3);
     });
+
+    test("b5. 接线：applyEligibility 走 decide() → 带 skipped，且与 decide 同源", async () => {
+      // 2026-11-26：applyOneEligibility 不再手写「解析画像 + checkEligibility」，改走 decide()。
+      // 这条守的是接线本身：返回值必须有 skipped，且与直接调 decide() 一致。
+      const s = freshSession("it-b5a");
+      const viaGate = await applyEligibility({
+        session: s,
+        ...WRITE_REQ,
+        ttl: "turn",
+        redlines: REDLINES,
+        model: null,
+        modelId: "gpt-astra",
+      });
+      const viaEngine = await decide({
+        modelId: "gpt-astra",
+        ...WRITE_REQ,
+        ttl: "turn",
+        redlines: REDLINES,
+        model: null,
+      });
+      console.log("[b5] 闸路径 skipped:", skipNames(viaGate), "| 引擎路径:", skipNames(viaEngine));
+      assert.ok(Array.isArray(viaGate.skipped), "适配层返回值必须带 skipped");
+      assert.equal(viaGate.profileId, "gpt-astra", "画像标识要透出来");
+      assert.deepEqual(viaGate.skipped, viaEngine.skipped, "skipped 与 decide 同源");
+
+      // 无画像路径：profile 必须保持 null，不得被 default 画像替换（最严语义）
+      const s2 = freshSession("it-b5b");
+      const noProfile = await applyEligibility({
+        session: s2,
+        ...WRITE_REQ,
+        ttl: "turn",
+        redlines: REDLINES,
+        model: null,
+      });
+      console.log("[b5] 无画像 profileId:", noProfile.profileId, "| decision:", noProfile.decision);
+      assert.equal(noProfile.profileId, null, "无 modelId / profile 时 profileId 必须是 null");
+      assert.equal(noProfile.decision, "deny");
+      assert.equal(noProfile.layer, "4");
+      resetGrants(s);
+      resetGrants(s2);
+    });
   });
 
   // ───────────────────────── c. 画像关掉审批层 ─────────────────────────

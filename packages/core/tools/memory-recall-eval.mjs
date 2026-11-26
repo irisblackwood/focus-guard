@@ -8,6 +8,14 @@
  *   - `.focus-guard/workspace.json` 的 decisions / constraints / next_action（每条一个 unit）
  *   - `.ai/CASE_FILE.md` 按 `##`/`###` 切段（每段一个 unit）
  *
+ * 语料口径（2026-11-26 收紧）：`decisions` 里**只收带标签的条目**（`[goal]` / `[done]` / `[note]`，
+ * 复用 `src/memory/tags.mjs` 的 `parseTag`/`stripTag`）。无标签的一律**排除并只计数**——
+ * 自动落账已于 2026-11-26 下架（`memory/workspace.mjs` 头部有下架声明），存量那些是
+ * 「本轮人类指令原文」，拿它们当语料等于用垃圾测垃圾：测出来的 100% 只能证明「全量注入包含全量」。
+ *
+ * 空语料不算通过：`units` 或可标注查询为 0 时**不打印召回率**，直接报「结论无效」并 exit 2。
+ * 理由同上——这张表会被断章取义成「检索方案已验证」。
+ *
  * 查询（queries）：本工作区历史会话里的用户消息（每条 ≥ 12 字、去重），来自 session.v4 日志。
  *
  * 相关性标注（qrels，判定与两种检索都独立）：
@@ -28,6 +36,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { decodeSession, walkSessionFiles } from './lib/sessionDump.mjs'
+import { parseTag, stripTag } from '../src/memory/tags.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..', '..', '..')
@@ -73,10 +82,17 @@ function addUnit(kind, text) {
   if (!body) return
   units.push({ id: `${kind}#${units.length}`, kind, text: body, terms: terms(body) })
 }
+// 下架前的存量：无标签的 decisions 一律不进语料，只计数（见文件头「语料口径」）。
+let legacyPrompts = 0
 const wsFile = process.env.FG_WORKSPACE_FILE || join(ROOT, '.focus-guard', 'workspace.json')
 if (existsSync(wsFile)) {
   const ws = JSON.parse(readFileSync(wsFile, 'utf8'))
-  for (const x of ws.decisions || []) addUnit('decision', x)
+  for (const x of ws.decisions || []) {
+    const s = String(x ?? '').trim()
+    if (!s) continue
+    if (parseTag(s)) addUnit('decision', stripTag(s))
+    else legacyPrompts += 1
+  }
   for (const x of ws.constraints || []) addUnit('constraint', x)
   for (const x of ws.next_action || []) addUnit('next_action', x)
 }
@@ -226,14 +242,27 @@ const hybrid = {
   pinned: pinned.map((u) => u.kind),
 }
 
+const byKind = {}
+for (const u of units) byKind[u.kind] = (byKind[u.kind] || 0) + 1
+// 结论无效的两种情形：语料空 / 标注空。都不打印召回率——空集上的 100% 是假象。
+const invalidReason =
+  units.length === 0
+    ? '语料为空（无带标签结论、无约束、无 CASE 段）'
+    : labelled.length === 0
+      ? `语料 ${units.length} 条，但没有一条与查询相关（标注 0 条）`
+      : null
+
 const report = {
   generatedAt: new Date().toISOString(),
   units: units.length,
+  byKind,
+  legacyPrompts,
   queries: queries.length,
   labelled: labelled.length,
   k: K,
   jaccardThreshold: JACCARD,
   note: '向量=TF-IDF 稀疏向量（离线），不是神经语义向量；qrels 为词项 Jaccard 启发式，结论只看相对差',
+  conclusionInvalid: invalidReason,
   methods: [structured, vector, hybrid],
 }
 
@@ -341,13 +370,28 @@ if (args.includes('--sessions')) {
 if (asJson) console.log(JSON.stringify(report, null, 2))
 else {
   console.log(`[memory:recall] units=${units.length} queries=${queries.length} labelled=${labelled.length} k=${K} jaccard=${JACCARD}`)
-  for (const m of report.methods) {
+  console.log(
+    `  语料构成：带标签结论 ${byKind.decision || 0} · 被否命令 ${byKind.constraint || 0} · ` +
+      `下一步 ${byKind.next_action || 0} · CASE 段 ${byKind.case || 0}`,
+  )
+  if (legacyPrompts) {
     console.log(
-      `  ${m.name.padEnd(14)} Recall@${K}=${m.recallAtK == null ? '-' : (m.recallAtK * 100).toFixed(1) + '%'}  ` +
-        `MRR=${m.mrr == null ? '-' : m.mrr.toFixed(3)}  tokens/query=${m.tokensPerQuery}  latency=${m.latencyMs}ms`,
+      `  已排除：无标签 decisions ${legacyPrompts} 条（自动落账已于 2026-11-26 下架，指令原文不再算语料）`,
     )
   }
-  console.log(`  注：${report.note}`)
+  if (invalidReason) {
+    console.log(`\n  ⚠ 结论无效：${invalidReason}。`)
+    console.log('    不打印召回率——空语料上的 100% 会被读成「检索已验证」。')
+    console.log('    要有可用语料，先等 `fg_memory_note` 写出带标签的结论（VERSION-PLAN §1.8 步 1）。')
+  } else {
+    for (const m of report.methods) {
+      console.log(
+        `  ${m.name.padEnd(14)} Recall@${K}=${m.recallAtK == null ? '-' : (m.recallAtK * 100).toFixed(1) + '%'}  ` +
+          `MRR=${m.mrr == null ? '-' : m.mrr.toFixed(3)}  tokens/query=${m.tokensPerQuery}  latency=${m.latencyMs}ms`,
+      )
+    }
+    console.log(`  注：${report.note}`)
+  }
   if (report.sessionCorpus) {
     const s = report.sessionCorpus
     console.log(
@@ -359,3 +403,6 @@ else {
     )
   }
 }
+
+// exit 2 专指「没测出东西」，与 1（脚本自身出错）区分开：方便外面一眼分辨是缺语料还是坏了。
+if (invalidReason) process.exitCode = 2

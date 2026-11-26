@@ -13,6 +13,27 @@
  *   · 不 cancel、不 reject、不写 surface —— 只读文件、只追加系统提示 section；
  *   · 不伪造 user 消息（DSH 0.2 的 UserMessage 走 runtime context 投影，硬塞会断）；
  *   · 写失败只 warn，绝不阻断回合。
+ *
+ * ⚠ 下架声明：decisions 自动落账与注入**已于 2026-11-26 下架**（功能有缺陷，非重构）。
+ *
+ *   缺陷：它写的不是决策。`recordWorkspaceTurn` 拿的是 `state.turnPrompt`，剥首行、
+ *   限 120 字就存成一条「决策」——存进去的是**问句和训话**，不是结论。
+ *   实测本仓 `.focus-guard/workspace.json` 的 10 条里，0 条是决策，4 条是提问/质疑，
+ *   最短一条是 `?UI？`（4 字符）。根因是 FG 只看得见 prompt，看不见「选 A 不选 B，因为 C」；
+ *   同一个病仓库自己已记过一次：`next_action` 恒为 0（MEMORY-4.5-PLAN §8.1）。
+ *
+ *   为什么是下架而不是就地修：正确形态需要「谁做决定谁来写结论」的显式入口 +
+ *   证据可校验（`[goal]` / `[note]` 标签体系已备好，见 `tags.mjs`），属 MEMORY-4.5 的 A4/C2，
+ *   不在 3.5.x 补丁位里。排期见 `VERSION-PLAN.md` §1.9「下架登记」。
+ *
+ *   下架后的行为：**不写**（`recordWorkspaceTurn` 不再产出 decisions）、
+ *   **不注入**（`renderWorkspaceSection` 不再输出「决策：」行）。
+ *   字段与 `fg case` 读取路径保留，只为存量清理与人工查看；存量原文需人工删
+ *   （`fg case rm` 或直接删 `.focus-guard/workspace.json`），不自动迁移——
+ *   它本来就不是决策，迁移只是给错的东西换个名字。
+ *
+ *   恢复条件（三条同时满足才可重新接入）：显式写入入口存在、条目带 `[goal]`/`[note]` 标签、
+ *   有「结论能否被后续证据推翻」的校验。缺一条就是在重演这次的坑。
  */
 
 import { createHash } from 'node:crypto'
@@ -107,6 +128,11 @@ function clean(list) {
  * 指令质量筛选（2026-10-22）：只留"像一条人类指令"的文本。
  * 剔掉：多行/表格/代码块粘贴、终端报错、超长转述、子代理回执。
  * 判据保守——宁可少记，也不要让卷宗变成垃圾桶。
+ *
+ * @deprecated 2026-11-26 起**无生产调用**（decisions 已下架，见文件头「下架声明」）。
+ * 保留原因：`workspace-quality.test.mjs` 仍锁它的行为，且 4.5 若恢复显式写入入口，
+ * 这套「什么算一条指令」的判据可复用。**但别把它当作可用的决策抽取器**——
+ * 它做的是过滤 prompt，不是从对话里提炼结论；七条规则再多也变不出「选 A 因为 C」。
  */
 export function pickDecisionText(raw) {
   const text = String(raw ?? '').replace(/\r/g, '').trim()
@@ -163,17 +189,11 @@ export function renderWorkspaceSection(record, opts = {}) {
   const snap = showSnapshot
     ? `上次会话：${s.sid ? String(s.sid).slice(0, 12) : '-'} · ${s.at || '-'} · 工具调用 ${s.toolCalls ?? '-'} · 被拦 ${s.denies ?? '-'} · KPI ${s.kpi ?? '-'} · 委托 ${s.delegateBudget ?? '-'}`
     : ''
-  // 决策行同理，且理由更硬（2026-10-29）：它是**历史**，而历史每回合都在长。
-  // 实测（tools/prefix-drift.mjs）系统段每会话 2 个版本，分歧点恒定落在这一行。
-  // 代价口径（2026-11-11 更正，与 docs/ARCHITECTURE.md「前缀稳定性」一节对齐）：
-  // 宿主是 `systemPromptUpdate: "in-history"`——系统段变了是往历史里**追加**一条，
-  // 不改写前缀，所以「后面整段历史按未缓存价重付」**不成立**（前缀照常命中）。
-  // 真实代价是每变一次多背一份完整系统提示（约 2.5k tok/次），并在历史里堆出多条 system 消息。
-  // 冻结它的理由不是省钱，是**稳定**：前缀逐字节相同是缓存命中的必要条件，抖一次就必然不命中。
-  // 判据是二值的（版本数 = 1、断点 = 0），不靠任何成本采样。成本只是副产品——
-  // 8 个真实会话实测额外 0.43% token，但分布 0.22%~11.83%（看分母），见 docs/ARCHITECTURE.md。
-  // 而指令原文本来就在会话消息里，再抄一份既重复又抖。
-  const showDecisions = opts.sid === undefined || shouldInjectHandoff(record, opts.sid)
+  // 「决策：」行已于 2026-11-26 下架（缺陷与恢复条件见文件头「下架声明」）。
+  // 这里保留一条历史注记，免得后人又从 `prefix-drift.mjs` 的旧曲线里把结论倒推回去：
+  // 它当初是系统段抖动的**唯一**来源（每回合长一条，实测每会话 2 个版本，分歧点恒在这一行），
+  // 处置方式曾是「冻结到换会话」——那是在给一个不该存在的数据打补丁。
+  // 真正的处置是让它不存在：指令原文本来就在会话消息里，再抄一份既重复又抖。
   const head = `[FG-WORKSPACE] 本工作区跨会话卷宗（hash=${record.workspace_hash}，仅当前路径可见）：`
   /** 组装可见条目：`[done]` / `[note]` 不注入，`[goal]` 剥掉标记。 */
   const parts = []
@@ -181,7 +201,7 @@ export function renderWorkspaceSection(record, opts = {}) {
     const shown = (items || []).filter((x) => !isHiddenTag(x)).map((x) => stripTag(x))
     if (shown.length) parts.push({ label, shown })
   }
-  if (showDecisions) push('决策', record.decisions)
+  // 注意：**不 push 决策**。存量 workspace.json 里的旧条目也不再注入（2026-11-26 下架）。
   // 约束（人类否决过的命令）保留实时：它是安全信息、只在真被否决时变，不是每回合的噪音。
   push('约束', record.constraints)
   push('下一步', record.next_action)
@@ -247,10 +267,12 @@ export function shouldInjectHandoff(record, sid) {
 }
 
 /**
- * 回合结束落账：只记 FG **亲眼看到**的三类事实，不推断、不编造。
- *   decisions  ← 本轮人类指令原文（≤200 字）
+ * 回合结束落账：只记 FG **亲眼数得出来**的事实，不推断、不转抄。
  *   constraints← 人类明确否决过的命令（state.rejectedCmds 的键）
  *   next_action← FG 不知道，留空（宁可空，不猜）
+ *   decisions  ← **已下架（2026-11-26），不再写入**。缺陷见文件头「下架声明」：
+ *               它抄的是本轮人类指令首行，而指令原文本来就在会话消息里；
+ *               抄出来的条目 0 条是决策、多为问句与训话。
  */
 export function recordWorkspaceTurn(agent) {
   const cwd = agent && agent.session && agent.session.header && agent.session.header.cwd
@@ -265,8 +287,6 @@ export function recordWorkspaceTurn(agent) {
   } catch {
     state = {}
   }
-  const prompt = String(state.turnPromptFull || state.turnPrompt || '').trim()
-  const decided = pickDecisionText(prompt)
   const rejected = Object.keys(state.rejectedCmds || {})
   // 快速交接快照（主图 L4）：只存 FG 亲自数得出来的量，不推断"做到哪了"。
   const snapshot = {
@@ -278,7 +298,6 @@ export function recordWorkspaceTurn(agent) {
     delegateBudget: Number.isFinite(state.delegateBudget) ? state.delegateBudget : null,
   }
   return mergeWorkspace(cwd, {
-    decisions: decided ? [decided] : [],
     constraints: rejected.slice(0, MAX_ITEMS),
     next_action: [],
     snapshot,
