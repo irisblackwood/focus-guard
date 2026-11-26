@@ -12,6 +12,7 @@
  */
 import { appendAudit } from '../audit.mjs'
 import { moduleSnapshot } from '../heartbeat.mjs'
+import { UNKNOWN_SESSION } from '../sessionScope.mjs'
 
 /** 日志字段截断：超长详情只留前 `max` 字。 */
 export function clampText(value, max = 300) {
@@ -89,7 +90,7 @@ export function announceWatchReady({ warn } = {}) {
     appendAudit({
       ts: new Date().toISOString(),
       // 进程级记录没有会话归属，用既有兜底口径 dsh-native，另以 scope 标明不是会话级留痕。
-      session: 'dsh-native',
+      session: UNKNOWN_SESSION,
       action,
       trigger: 'startup',
       level: null,

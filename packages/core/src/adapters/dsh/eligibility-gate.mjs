@@ -15,6 +15,7 @@ import { loadProfile } from '../../core/profileLoader.mjs'
 import { createGrantTable } from '../../core/grants.mjs'
 import { appendAudit, buildAuditRow } from '../../core/audit-writer.mjs'
 import { createApprovalRequest, consumeApproval } from '../../core/approvals.mjs'
+import { sidOf, UNKNOWN_SESSION } from './session.mjs'
 
 /** 需要人工批准的不可逆类别（默认只严抓 rm-rf；strictAll 时扩到全部）。 */
 function strictGateHit(gateId) {
@@ -144,7 +145,7 @@ const TABLES = new Map()
 
 /** 该会话的授权表（不存在则建）。 */
 export function grantsFor(session) {
-  const key = String(session || 'dsh-native')
+  const key = sessionKey(session)
   let table = TABLES.get(key)
   if (!table) {
     table = createGrantTable()
@@ -155,7 +156,7 @@ export function grantsFor(session) {
 
 /** 回收整张表（会话结束；ttl 未到期也不会留到下一个会话）。 */
 export function resetGrants(session) {
-  return TABLES.delete(String(session || 'dsh-native'))
+  return TABLES.delete(sessionKey(session))
 }
 
 /**
@@ -166,13 +167,13 @@ export function resetGrants(session) {
  * @returns {string[]} 被回收的工具名
  */
 export function sweepGrants(session, kind) {
-  const table = TABLES.get(String(session || 'dsh-native'))
+  const table = TABLES.get(sessionKey(session))
   if (!table) return []
   const removed = table.sweep(kind)
   if (removed.length > 0) {
     auditEligibility({
       ts: new Date().toISOString(),
-      session: String(session || 'dsh-native'),
+      session: sessionKey(session),
       action: 'grants-swept',
       trigger: `ttl:${kind}`,
       evidence: removed.join(','),
@@ -203,12 +204,12 @@ const PENDING_MAX = 20
 
 /** 该会话的待批队列（副本）。 */
 export function pendingOf(session) {
-  return (PENDING.get(String(session || 'dsh-native')) || []).slice()
+  return (PENDING.get(sessionKey(session)) || []).slice()
 }
 
 /** 记一条待批（同 tool+reason 去重，超上限丢最旧）。 */
 function notePending(session, tool, reason, command = '') {
-  const key = String(session || 'dsh-native')
+  const key = sessionKey(session)
   const list = PENDING.get(key) || []
   if (!list.some((x) => x.tool === tool && x.reason === reason)) {
     list.push({ tool, reason, at: Date.now(), brief: String(command || '').slice(0, 60) })
@@ -220,7 +221,7 @@ function notePending(session, tool, reason, command = '') {
 
 /** 清空该会话的待批队列（批量申请通过后调用）。 */
 export function clearPending(session) {
-  return PENDING.delete(String(session || 'dsh-native'))
+  return PENDING.delete(sessionKey(session))
 }
 
 /**
@@ -554,9 +555,14 @@ export const FG_APPLY_TOOL_SPEC = {
 /** 红线豁免凭据的授权键前缀：申辩获批后按 `redline:<名称>` 记账，供 pipeline 红线层查询。 */
 const REDLINE_GRANT_PREFIX = 'redline:'
 
-/** 取会话标识（与 audit.mjs 的 auditDeny 口径一致）。 */
+/** 取会话标识（与 audit / grant 口径一致，实现只在 adapters/dsh/session.mjs 一处）。 */
 function sessionOf(exec) {
-  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+  return sidOf(exec)
+}
+
+/** 按会话分表的键。拿不到真 id 时退化为哨兵——这类会话共用一个桶，是已知代价。 */
+function sessionKey(session) {
+  return String(session || UNKNOWN_SESSION)
 }
 
 /**

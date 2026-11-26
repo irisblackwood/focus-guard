@@ -59,6 +59,7 @@ import { statePath, loadState, saveState } from '../core/state.mjs'
 // 对外 API 不变：index.js 与测试仍从本模块取 announceWatchReady / _resetWatchAnnounce / WATCH_SEAMS。
 export { WATCH_SEAMS, announceWatchReady, _resetWatchAnnounce } from './compactionWatch/announce.mjs'
 import { clampText } from './compactionWatch/announce.mjs'
+import { UNKNOWN_SESSION } from './sessionScope.mjs'
 import { describeLoss, lossBegin, lossSummary } from './compactionWatch/anchors.mjs'
 import { gateThreshold } from './testRuntime.mjs'
 
@@ -82,7 +83,7 @@ function sessionIdOf(session) {
   } catch {
     /* header 是惰性 getter，取失败不致命 */
   }
-  return 'dsh-native'
+  return UNKNOWN_SESSION
 }
 
 function stateFor(session) {

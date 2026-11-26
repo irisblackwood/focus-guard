@@ -21,6 +21,7 @@
 import { statePath, loadState, saveState } from '../core/state.mjs'
 import { appendPatternStub } from '../core/patterns.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
+import { sidOf } from './sessionScope.mjs'
 import { needsDowngrade, needsAccount, needsAnchorCheck, needsCutShortNotice } from '../core/stopPolicy.mjs'
 import {
   AUTH_SEMANTICS_RE,
@@ -35,13 +36,7 @@ import {
   TASK_SCALE_RE,
 } from '../core/constants.mjs'
 
-/** 会话标识 / 工作目录：与 seams、audit 同口径（真实 id 在 agent.session.header.id）。 */
-function sidOf(agent) {
-  return (
-    (agent && ((agent.session && agent.session.header && agent.session.header.id) || agent.sessionId || agent.id)) ||
-    'dsh-native'
-  )
-}
+/** 工作目录：与 seams、audit 同口径（真实 id 在 agent.session.header.id，标识由 sessionScope 提供）。 */
 function projDirOf(agent) {
   return (agent && agent.session && agent.session.header && agent.session.header.cwd) || process.cwd()
 }

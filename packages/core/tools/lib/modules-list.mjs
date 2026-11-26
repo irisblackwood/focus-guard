@@ -215,6 +215,7 @@ export const MODULES = [
     name: '会话与诊断',
     note: '会话作用域、追踪元数据、搜索提示、hook 顺序、工具分类审计',
     paths: [
+      'packages/core/src/adapters/dsh/session.mjs',
       'packages/core/src/dsh/sessionScope.mjs',
       'packages/core/src/dsh/traceMeta.mjs',
       'packages/core/src/dsh/search-hints.mjs',

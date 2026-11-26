@@ -21,6 +21,7 @@ import { auditDeny } from './audit.mjs'
 // 适配层语义注册（工具名→类别、只读动作表）：与 preGuard 同口径；组装根依赖适配层是允许的。
 import '../adapters/dsh/tool-kinds.mjs'
 import { commandOf } from './guard/tooling.mjs'
+import { sidOf } from './sessionScope.mjs'
 import { rememberReads, evidenceStage } from './guard/evidence.mjs'
 import { redlineStage } from './guard/redline.mjs'
 import { writingGateStage } from './guard/writing-gate.mjs'
@@ -158,10 +159,7 @@ export function preExecuteListener({ warn, riskOf = riskOfSentinel, observe = OB
     // 2026-11-21（ARCH-MAP #12）：把"该工具已被 fg_apply 授权"这一事实带进 ctx，
     // riskStage 据此跳过第 2 层 ask——否则 L6 放行、L2 仍问，授权闭环断开。
     try {
-      const sid =
-        (exec && exec.sessionId) ||
-        (exec && exec.agent && (exec.agent.sessionId || exec.agent.id)) ||
-        'dsh-native'
+      const sid = sidOf(exec)
       ctx.granted = grantsFor(sid).has(String((exec && exec.name) || ''))
     } catch {
       ctx.granted = false

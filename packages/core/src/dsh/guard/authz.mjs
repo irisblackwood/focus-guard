@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs'
 import { loadProfile } from '../../core/profileLoader.mjs'
 import { statePath as guardStateFile, loadState, saveState } from '../../core/state.mjs'
 import { shouldGate, gateReason, promptDeclaresBenefit } from '../value-gate.mjs'
+import { sidOf } from '../sessionScope.mjs'
 import { auditDeny } from '../audit.mjs'
 import { modelIdOf, pathOfTool, resolveToolPath, sessionIdOf } from './tooling.mjs'
 import { gateSwitch } from '../testRuntime.mjs'
@@ -28,8 +29,7 @@ export async function eligibilityStage(ctx) {
   if (!cmd && !gateFilePath) return null
   try {
     const { gateToolCall } = await import('../../adapters/dsh/eligibility-gate.mjs')
-    const session =
-      (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+    const session = sidOf(exec)
     // 最后一公里：把 exec 里的模型标识翻成画像交闸，使画像在真实 pre-execute 生效
     //（此前 pipeline 不传 profile，画像只在 decide()/applyEligibility 那两条路可达）。
     // 取不到模型时为 null → 闸按最严 mutating，是安全默认而非缺陷。

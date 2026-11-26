@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveSid } from '../core/session.mjs'
 import { statePath, loadState } from '../core/state.mjs'
 
 /** 默认落点：仓库根 `.focus-guard/workspace.json`（该目录在本地 exclude 里，2026-10-30 起不再写进 .gitignore）。 */
@@ -254,10 +255,10 @@ export function shouldInjectHandoff(record, sid) {
 export function recordWorkspaceTurn(agent) {
   const cwd = agent && agent.session && agent.session.header && agent.session.header.cwd
   if (!cwd) return null
-  const sid =
-    (agent && agent.session && agent.session.header && agent.session.header.id) ||
-    (agent && (agent.sessionId || agent.id)) ||
-    'dsh-native'
+  // 哨兵用 `dsh-native` 而不是母版的中性值 `unknown`（`audit-writer` 用的是后者）：
+  // 这里要读的是宿主缝写下的 state 文件，键必须与写方一致，否则读不到。**这是取值不是代言。**
+  // 解析链仍走 `core/session.mjs::resolveSid`，不自己拼。
+  const sid = resolveSid(agent, 'dsh-native')
   let state = {}
   try {
     state = loadState(statePath(sid)) || {}

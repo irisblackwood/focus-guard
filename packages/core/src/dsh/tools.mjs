@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { applyEligibility, grantFromAppeal, FG_APPLY_TOOL_SPEC, FG_APPEAL_TOOL_SPEC } from '../adapters/dsh/eligibility-gate.mjs'
 import { ABSOLUTE_REDLINES } from '../core/redlines.mjs'
+import { sidOf } from './sessionScope.mjs'
 import { livenessBadge } from './heartbeat.mjs'
 import { readWorkspace, renderWorkspaceSection } from '../memory/workspace.mjs'
 
@@ -40,7 +41,7 @@ const TEXT_OUTPUT = {
 }
 
 function sessionOf(exec) {
-  return (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || 'dsh-native'
+  return sidOf(exec)
 }
 
 function renderApply(result, spec) {

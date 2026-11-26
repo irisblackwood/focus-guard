@@ -14,13 +14,16 @@
  */
 import { statePath, loadState } from '../../core/state.mjs'
 import { appendAudit, buildAuditRow } from '../audit.mjs'
+import { sidOf as sidOfAny } from '../sessionScope.mjs'
 
-/** 会话标识：与桥同源（agent.session.header.id）。取不到才退化为 dsh-native。 */
+/**
+ * 会话标识：与桥同源（agent.session.header.id）。取不到才退化为哨兵值。
+ *
+ * 2026-11-25：实现搬到 `sessionScope.mjs`。此前这里与另外 6 个模块各写一份
+ * `|| 'dsh-native'`，改缺省值时只改到两处——本函数保留名字与口径，逻辑只此一处。
+ */
 export function sidOf(agent) {
-  return (
-    (agent && ((agent.session && agent.session.header && agent.session.header.id) || agent.sessionId || agent.id)) ||
-    'dsh-native'
-  )
+  return sidOfAny(agent)
 }
 
 /**

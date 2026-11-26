@@ -7,6 +7,7 @@
 import { statSync } from 'node:fs'
 import { join, isAbsolute } from 'node:path'
 import { isReadOnlyCall } from '../../core/risk.mjs'
+import { sidOf as sidOfAny } from '../sessionScope.mjs'
 
 /** 提取命令类参数；非命令类工具（write/read 等）返回 null，不做检查 */
 export function commandOf(exec) {
@@ -80,15 +81,10 @@ export const pathOfTool = (args) => {
 /** 本会话身份：与 audit / grant 口径一致（真实 id 在 agent.session.header.id，见桥 lib/index.js:349）。 */
 export function sessionIdOf(exec) {
   // ⚠ 2026-10-10 实测修正：原实现只认 exec.sessionId / agent.sessionId / agent.id，三者皆空 →
-  // 全部退化成 'dsh-native'，导致**所有会话共用一份状态文件**（真实 AUDIT.log 里 439 条记在
-  // dsh-native 名下）。真实会话 id 形如 sess_<uuid>，位于 agent.session.header.id。
-  return (
-    (exec &&
-      ((exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.id) ||
-        exec.sessionId ||
-        (exec.agent && (exec.agent.sessionId || exec.agent.id)))) ||
-    'dsh-native'
-  )
+  // 全部退化成哨兵值，导致**所有会话共用一份状态文件**（真实 AUDIT.log 里 439 条记在它名下）。
+  // 真实会话 id 形如 sess_<uuid>，位于 agent.session.header.id。
+  // 2026-11-25：实现搬到 `sessionScope.mjs`，与另外 6 个模块共用一份。
+  return sidOfAny(exec)
 }
 
 const MUTATING_TOOL = /^(?:Write|Edit|MultiEdit|Delete|Move|Patch|ApplyPatch|NotebookEdit)$/i

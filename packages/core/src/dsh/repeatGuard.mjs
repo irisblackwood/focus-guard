@@ -12,6 +12,7 @@
 
 const MAX_TRACK = 200
 import { detectSearchBackends, retrievalHint } from './search-hints.mjs'
+import { sidOf as sidOfAny } from './sessionScope.mjs'
 const counts = new Map()
 // 会话级被拦总数：≥5 次时给**一次**"先停手"提示（实测被拦后越试越乱）。
 // 2026-10-28：原实现随每次 deny 重复追加，等于每拒一次多付一段提示；改为每会话只一次。
@@ -19,9 +20,9 @@ const sessionDenies = new Map()
 const sessionHinted = new Set()
 const SESSION_HINT_AT = 5
 
-function sidOf(exec) {
-  return String((exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || '-')
-}
+// 会话标识与 audit / grant 同口径：实现只在 sessionScope 一处（此前这里用 '-' 作哨兵，
+// 且漏读 header.id，于是所有会话共用一个桶）。
+const sidOf = (exec) => String(sidOfAny(exec))
 
 function keyOf(exec) {
   const tool = String((exec && exec.name) || '')
@@ -31,7 +32,7 @@ function keyOf(exec) {
   } catch {
     args = ''
   }
-  const sid = (exec && (exec.sessionId || (exec.agent && (exec.agent.sessionId || exec.agent.id)))) || '-'
+  const sid = sidOf(exec)
   return `${sid}::${tool}::${args.length > 500 ? args.slice(0, 500) : args}`
 }
 

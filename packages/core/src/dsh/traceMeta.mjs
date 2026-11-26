@@ -21,21 +21,15 @@
  * 落盘：回合结束时由 `recordFuseWaste()` 写一行 `action:"fuse-waste"`（**只在真熔断过的回合**写，不是每步一行）。
  */
 import { appendAudit, buildAuditRow, setTraceMetaProvider } from '../core/audit-writer.mjs'
+import { sidOf as sidOfAny, UNKNOWN_SESSION } from './sessionScope.mjs'
 
 /** sid → { turn, step, fuseTurn, fuseStep } */
 const sessions = new Map()
 
-/** 会话键：接受 agent 对象或 session id 字符串。 */
+/** 会话键：接受 agent 对象或 session id 字符串（口径统一走 `sessionScope.sidOf`）。 */
 function keyOf(agentOrSession) {
-  if (typeof agentOrSession === 'string') return agentOrSession || 'dsh-native'
-  const agent = agentOrSession
-  return (
-    (agent &&
-      ((agent.session && agent.session.header && agent.session.header.id) ||
-        agent.sessionId ||
-        agent.id)) ||
-    'dsh-native'
-  )
+  if (typeof agentOrSession === 'string') return agentOrSession || UNKNOWN_SESSION
+  return sidOfAny(agentOrSession)
 }
 
 /**
@@ -69,7 +63,7 @@ export function currentPosition(agentOrSession) {
  * 在写入器这一处识别比逐个改调用点更不容易漏。
  */
 function traceMetaOf(session, row) {
-  const key = String(session || 'dsh-native')
+  const key = String(session || UNKNOWN_SESSION)
   const pos = sessions.get(key)
   if (!pos) return null
   if (row && row.action === 'stall-fuse' && pos.fuseTurn === null) {

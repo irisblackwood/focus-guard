@@ -11,6 +11,7 @@
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { calcCost } from '../peak-cost.mjs'
+import { sidOf as sidOfAny } from './sessionScope.mjs'
 import { casePath, ensureCaseFile } from '../core/state.mjs'
 import {
   AUDIT_FILE,
@@ -37,15 +38,10 @@ export {
 function sessionOf(exec) {
   // ⚠ 取值口径必须与官方桥一致（lib/index.js:349-354）——真实会话 id 在 agent.session.header.id。
   // 2026-10-10 实测：只认 exec.sessionId / agent.sessionId / agent.id 会全部取空，
-  // 于是所有会话退化成同一个 'dsh-native'（真实 AUDIT.log 里 439 条记录都记在 dsh-native 名下，
+  // 于是所有会话退化成同一个哨兵值（真实 AUDIT.log 里 439 条记录都记在它名下，
   // 而取值正确的 seams 写的是 sess_<uuid>）——这会造成跨会话状态与审计互相污染。
-  return (
-    (exec &&
-      ((exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.id) ||
-        exec.sessionId ||
-        (exec.agent && (exec.agent.sessionId || exec.agent.id)))) ||
-    'dsh-native'
-  )
+  // 2026-11-25：实现搬到 `sessionScope.mjs`，与另外 6 个模块共用一份。
+  return sidOfAny(exec)
 }
 
 /**
