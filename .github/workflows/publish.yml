@@ -32,6 +32,9 @@ jobs:
     # 验收套件里有 4 条 Windows 专用断言（shell 检测的 win32 分支），仓库 CI 同样把 Linux 标为观察项。
     # 发布闸必须跑在必过平台上，否则会被这些用例挡住（2026-10-18 实测：ubuntu 上 Test suite 红）。
     runs-on: windows-latest
+    # 上限 15 分钟：正常路径应 ≤2 分钟（3.5.2 实测 4m36s，其中 3m04s 是旧的 Verify 轮询）。
+    # 卡住时别占着 runner 跑满默认 360 分钟——红灯要快，慢红等于没红。
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -43,11 +46,22 @@ jobs:
       # Trusted Publishing 需要 npm >= 11.5.1；Node 24 自带的 npm 可能刚好不够。
       # 2026-10-18：从 `npm@latest` 改为**锁大版本**——latest 每次可能带进新的 2FA/GAT 策略，
       # 发布日志会突然因为上游策略变化而红（本仓库已踩过两次）。锁 11 大版本，行为可预期。
-      - name: Ensure npm >= 11.5.1
+      #
+      # 2026-11-26 提速：原先无条件 `npm install -g npm@11`，实测 21s（占发布前耗时的 1/4）——
+      # 而 runner 自带的 npm 常常已经 >= 11.5.1。改成**先看版本，不够才装**：够就一个进程都不起。
+      - name: Ensure npm >= 11.5.1（够了就不装）
+        shell: pwsh
         run: |
-          npm install -g npm@11
-          npm --version
+          # 全程 pwsh：本文件其余步骤都是 pwsh，混进 bash 只为了省两行，会在
+          # Windows runner 的路径/引号差异上埋雷（GITHUB_OUTPUT 是 `D:\a\_temp\…`）。
+          $need = node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number);process.stdout.write(v[0]<11||(v[0]===11&&v[1]<5)?'1':'0')"
+          Write-Output "npm 当前 $(npm --version)，需要升级=$need"
+          if ($need -eq '1') {
+            npm install -g npm@11
+            if ($LASTEXITCODE -ne 0) { Write-Error 'npm 升级失败'; exit 1 }
+          }
           node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number);if(v[0]<11||(v[0]===11&&v[1]<5)){console.error('npm too old:',v.join('.'));process.exit(1)}"
+          if ($LASTEXITCODE -ne 0) { Write-Error 'npm 仍低于 11.5.1'; exit 1 }
 
       # 发布闸：跑**整条** `npm run check`（根目录），不是只跑测试。
       #
@@ -62,22 +76,27 @@ jobs:
       # 幂等守卫（2026-11-17）：本 workflow 也由 `release: published` 触发，而给历史版本
       # 补建 Release 是正当操作。没有这道守卫，补建一次就红一次（npm 拒绝覆盖已发版本）。
       # 判据是 registry 里**这个版本**在不在，不是 latest 指向哪。
+      #
+      # 2026-11-26：探测从 `npm view` 换成 `registry-check --once`——直接读**版本文档**，
+      # 不冷启动 npm、不吃 packument 的 CDN 缓存，1~2 秒出结论。
+      # 退出码要分开处理：0 有 / 1 没有 / 其它 = 查不了。**查不了就停下**，
+      # 带着「反正没发过」的假设去 publish，只会撞 npm 的 EEXISTS 红。
       - name: 版本已在 registry 则跳过发布
         id: guard
         shell: pwsh
         run: |
-          # 为什么最后要显式 exit 0：Actions 的 pwsh 包装会在脚本末尾 `exit $LASTEXITCODE`，
-          # 而 `npm view` 查不到版本时留下 1——脚本内容全对，步骤照样判失败。
-          # 2026-11-17 首跑就是这么红的（v3.5.1 没发出去）；当时误判为 $ErrorActionPreference，
-          # 改成 Continue 仍然红，才定位到这一行。「查不到」在本步是正常结果。
-          $v = node -p "require('./packages/core/package.json').version"
-          $existing = (npm view "focus-guard@$v" version 2>$null | Out-String).Trim()
-          if ($existing -eq $v) {
-            "skip=true"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Output "npm 已有 $v —— 本次只补 GitHub Release，不重发。"
-          } else {
+          node packages/core/tools/registry-check.mjs --once
+          $code = $LASTEXITCODE
+          if ($code -eq 0) {
+            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Output "registry 已有该版本——本次只补 GitHub Release，不重发。"
+          } elseif ($code -eq 1) {
             "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Error "registry 探测失败（exit $code）——查不了不等于没发过，停止发布"
+            exit 1
           }
+          # 包装脚本会在末尾 `exit $LASTEXITCODE`，而「查不到」在本步留下 1 是正常结果。
           exit 0
 
       - name: Publish
@@ -85,23 +104,15 @@ jobs:
         working-directory: packages/core
         run: npm publish --access public --provenance
 
-      # Verify 原来只 print 不断言，且只等 5 秒。2026-11-17 实测：npm 打印 `+ focus-guard@3.5.0`
-      # 之后 registry 还要过两三分钟处理流水线，那一步当时读到的是旧号 3.4.1，却照样算绿。
-      # 现在轮询到出现为止（最多 4 分钟），查的是**这个版本**而不是 latest。
-      - name: Verify
-        shell: pwsh
-        run: |
-          # 同上：轮询的第一圈必然读不到（registry 还没处理完），`npm view` 留下 $LASTEXITCODE=1；
-          # 成功分支必须自己 exit 0，失败分支自己 exit 1——别指望包装脚本替我们判。
-          # 窗口 12×20s=4min 在 3.5.1 那次差一秒放弃（10:19:19 放弃，registry 10:19:20 生效），
-          # 成功被记成失败。放宽到 20×20s≈6.7min，仍只认「这个版本」而不是 latest。
-          $ErrorActionPreference = 'Continue'
-          $v = node -p "require('./packages/core/package.json').version"
-          for ($i = 0; $i -lt 20; $i++) {
-            $got = (npm view "focus-guard@$v" version 2>$null | Out-String).Trim()
-            if ($got -eq $v) { Write-Output "registry 已有 focus-guard@$v"; exit 0 }
-            Write-Output "等待中：第 $i 次未读到 $v（读到 '$got'）"
-            Start-Sleep -Seconds 20
-          }
-          Write-Error "约 7 分钟内 registry 仍未出现 focus-guard@$v"
-          exit 1
+      # Verify：判据是**版本文档**在不在，不再轮询 `npm view`。
+      #
+      # 2026-11-26 实测（run 44238525074，v3.5.2 成功那次）：整个发布 4m36s，其中这一步 3m04s，
+      # 占 67%。原因不是 registry 慢，是判据选错了——`npm view` 读整份 packument（所有历史版本，
+      # 走 CDN 缓存），新版本要等缓存刷新才「看得见」；每轮还固定 sleep 20 秒，粗粒度到
+      # 3.5.1 那次「差一秒放弃」。
+      # 现在：版本文档 `/{name}/{version}` 秒级可读，前几圈按 1/2/3/5/8s 贴紧，到点即走。
+      # packument 视图只作观察项打印（`--strict` 才判红）：它的滞后是 CDN 的事，
+      # 把别人的缓存延迟记成自己的失败，就是一条永恒红的闸门。
+      - name: Verify（版本文档，秒级）
+        run: node packages/core/tools/registry-check.mjs --wait 120
+

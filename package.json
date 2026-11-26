@@ -78,7 +78,8 @@
     "legacy:audit": "node packages/core/tools/legacy-audit.mjs",
     "legacy:gate": "node packages/core/tools/legacy-audit.mjs --strict --brief",
     "release": "node packages/core/tools/release.mjs",
-    "release:sync": "node packages/core/tools/release.mjs --sync"
+    "release:sync": "node packages/core/tools/release.mjs --sync",
+    "release:status": "node packages/core/tools/release.mjs --status"
   },
   "license": "AGPL-3.0-only",
   "engines": {

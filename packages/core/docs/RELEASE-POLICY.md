@@ -212,8 +212,10 @@ CHANGELOG.md                                 最新条目（须等于上述版�
    **只跑 `workflow_dispatch` 会漏掉 Release 对象**——2026-11-17 的 3.5.0 就是这么漏的：
    npm 上有了、GitHub 上没有。反过来漏了也能补建，`publish.yml` 的守卫会在「registry 已有该版本」时跳过发布。
    `gh release create` 会把**最后创建的那个**标成 Latest，补建历史版本时会抢走标记，所以补完要重钉。
-   核验：`npm view focus-guard dist-tags`。npm 打印 `+ pkg@ver` 只是「已接收」，
-   registry 还要过两三分钟处理流水线；`publish.yml` 的 Verify 现在轮询到出现为止，读不到即红。
+   核验：`npm run release:status`（tag / Release / registry / 工作流四面一次打印，约 8 秒）。
+   npm 打印 `+ pkg@ver` 只代表「已接收」；**但确认不需要再等两三分钟**——`publish.yml` 的
+   Verify 读的是**版本文档**（`/{name}/{version}`，秒级可读），不再轮询 `npm view` 读的 packument 视图。
+   视图慢半拍只打印、不判红：把别人的 CDN 缓存延迟记成自己的失败，就是一条永恒红的闸门。
 8. **回填 npm 版本声明**（三处，闸门查不到）：根 `README.md` 的版本口径行、两份包 README 的版本表。
    `docs:lint` 不上网，这三处只能人工同步——2026-11-17 实测漏了一整轮，文档写 `3.3.3` 时 npm 已经是 `3.4.1`。
    `npm run release:sync` 会把它们列出来（含 `INSTALL.md` / `ARCH-MAP` / 本文件的事实基线），但不自动改写：
@@ -233,6 +235,7 @@ tag 仍停在 `v3.5.2`、Release 没有、npm 也停在 3.5.2，而 `PUBLISHED_M
 | 「发版三步靠人记」 | `tools/release.mjs` | `npm run release` 只读检查 7 项，全绿才允许 `--go`；默认 dry-run，因为发版不可撤销 |
 | 「`PUBLISHED_MAX` 发完不更新」 | `npm run release:sync` | 机械回写常量（只改那一行），其余旧号列成清单交给人 |
 | 「文档日期不诚实」 | `docs:lint` 新增 `stale-ack` | 权威文档的「最后核对」**不得早于该文件最后一次提交**；浅克隆 / 非 git 目录跳过并说明，不假红 |
+| 「发完要守着 Actions 等三四分钟」（2026-11-26） | `tools/registry-check.mjs` + `release:status` | Verify 改读**版本文档**（秒级），packument 视图只观察；`--go` 只交出 run 地址，结论随时用 `release:status` 问 |
 
 `stale-ack` 的第一天就抓出 16 份（`README` 写 11-19 而正文 11-26 改过、`ARCH-MAP` 写 11-18 且版本停在 3.5.2）。
 这类漂移的共同形态是：**状态头是自我声明，而没有任何东西去核对声明本身**。总表越整齐越像真的。

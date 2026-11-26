@@ -38,6 +38,26 @@
   - 判据：生成物的输入必须可复现——「本地绿」要等于「发得出去」
 - docs(policy): `RELEASE-POLICY` 第 7/8 步改为指向单一入口，新增「四·补」说明三个口子各由什么堵
 
+### 发布确认：从三四分钟等到八秒（2026-11-26）
+
+- perf(tools): 新增 `tools/registry-check.mjs`——发布确认的判据从 **packument 视图**换成**版本文档**
+  - 实测依据（run `44238525074`，v3.5.2 成功那次）：整体 4m36s，其中 Verify 一步 **3m04s**，占 67%
+  - 病根不是 registry 慢，是判据选错：`npm view` 读整份 packument（所有历史版本 + CDN 缓存），
+    新版本要等缓存刷新才「看得见」；而 `/{name}/{version}` 是几 KB 的独立文档，通常秒级可读
+  - 轮询节奏改为 1/2/3/5/8/10s（前几圈贴紧、之后封顶），到点即走；3.5.1 那次「差一秒放弃」正是被 20 秒粗粒度害的
+  - 退出码分三态：0 有 / 1 没有 / 2 查不了——发布守卫靠这个区别决定「跳发」还是「停下」
+- perf(release): `publish.yml` 三处收敛
+  - Verify 改用同一工具读版本文档（窗口 120s）；packument 视图只作观察项打印，`--strict` 才判红
+  - `npm install -g npm@11` 改成**先看版本、不够才装**：够就一个进程都不起（原固定耗 21s）
+  - job 加 `timeout-minutes: 15`：卡住时别占着 runner 跑满默认 6 小时
+- feat(tools): `npm run release:status`——tag / Release / registry / 工作流四面各一个独立真值，约 8 秒给结论
+  - 以前 `--go` 最后一句是「应已在跑：gh run list …」，等于把人晾在 Actions 页面上等
+  - 现在 `--go` 把 run 地址交出来就结束；结论随时问 `release:status`，不用守着页面、不用重跑前置检查
+  - 四面不齐会点名哪面不齐（tag 只在本地 / 远端与本地不同 / tag 不在 HEAD / Release 缺 / npm 未见）
+- test(tools): `registry-check` 9 条用例——用本地 http 假 registry 锁「探测三态」与「退出码契约」
+  - 用异步 `execFile` 而非 `spawnSync`：同步执行会堵死事件循环，本地服务连请求都收不到，
+    「服务端 500」那条用例会永远测不出来
+
 ### 记忆：工具不再替半成品背书（2026-11-26）
 
 - fix(tools): 〔开发期〕`memory:recall` 语料只收**带标签结论**（`[goal]`/`[done]`/`[note]`，复用 `tags.mjs`）
