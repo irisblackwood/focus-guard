@@ -468,8 +468,9 @@
     按 tag 名 `find` 拿到的是最早那条，于是 14:51 的 success 被 14:16 的 failure 盖住）；
     ②registry 不可达时结论说「查不了」，不再并进「未发布」——查不了不等于没发过。
 - docs: 版本面回写 3.5.3
-  - `README` / `README.zh-CN` / `INSTALL` / `ARCH-MAP` / `RELEASE-POLICY` 五处「当前 3.5.2」
-    与路线表里「3.5.3 树上未发」全部对齐；`PUBLISHED_MAX` 经 `release:sync` 回写为 3.5.3。
+  - `README` / `INSTALL` / `ARCH-MAP` / `RELEASE-POLICY` 的「当前 3.5.2」
+    与路线表「3.5.3 树上未发」全部对齐。
+  - `PUBLISHED_MAX` 经 `release:sync` 回写为 3.5.3。
 
 ## 3.5.2 · 2026-11-18
 
