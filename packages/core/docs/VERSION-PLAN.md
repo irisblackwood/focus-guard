@@ -1,6 +1,6 @@
 # 版本计划（3.5.3 收口 / 3.5.4–3.5.9 测试债务 / 4.0 Hook / 4.5 记忆）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-26（按 3.4 之后的实际交付重排）
+> **状态**：权威 · 适用版本 3.5.4 · 最后核对 2026-11-27（按 3.4 之后的实际交付重排）
 > 纪律：计划只在本文件维护；能力状态仍以 `ARCH-MAP.md` 为准，版本历史仍以 `CHANGELOG.md` 为准。
 > 改计划 = 改本文件 + `ARCH-MAP.md` 的「版本路线」行，两处必须一致。
 > **不排期日（2026-11-24 立）**：只规划**里程碑内容**，不写「几月几号做」。日期只允许出现在两种场合——
@@ -414,6 +414,98 @@ Windows 忽略 mode，无害。
 仓根依赖的模块基线必红（实测 30 条用例在副本里失败）。所以第一档必须先把尺子修好，
 否则后面每档都拿不到可信数字。
 
+**全模块抽样（2026-11-27，`npm run mutate:survey --jobs 8`）**
+
+> 放这里而不是 `docs/STATUS.md`：那份是**文档清单**，拼的是每份文档的状态头；
+> 计分板塞进去会破坏它的单一用途。而这六档的尺子本来就在本节，基线跟着尺子走。
+
+实测：**可测模块 72 个**（判据 ≥20，已达标），平均得分 **61.8%**；
+跳过 6 个——5 个是纯常量表（无可变异算子），1 个是 `core/approval.mjs`（零测试触达，见 3.5.5）。
+耗时 688 秒（jobs=8），**未达本节「≤5 分钟」的判据**，处置见下方注记。
+
+| 模块 | 变异体 | 杀掉 | 得分 |
+|---|---|---|---|
+| `peak-cost.mjs` | 3 | 0 | 0% |
+| `dsh/tools.mjs` | 3 | 0 | 0% |
+| `profiles/deepseek-flash.mjs` | 3 | 0 | 0% |
+| `profiles/deepseek-pro.mjs` | 3 | 0 | 0% |
+| `profiles/default.mjs` | 3 | 0 | 0% |
+| `profiles/glm.mjs` | 3 | 0 | 0% |
+| `dsh/audit.mjs` | 3 | 0 | 0% |
+| `dsh/seams/pre-step.mjs` | 3 | 0 | 0% |
+| `dsh/seams/prompt-rules.mjs` | 3 | 0 | 0% |
+| `core/patterns.mjs` | 3 | 0 | 0% |
+| `dsh/guard/risk.mjs` | 3 | 0 | 0% |
+| `dsh/index.js` | 3 | 0 | 0% |
+| `dsh/compactionWatch/announce.mjs` | 3 | 1 | 33.3% |
+| `dsh/guard/runtime.mjs` | 3 | 1 | 33.3% |
+| `core/staleCleanup.mjs` | 3 | 1 | 33.3% |
+| `dsh/postProgress.mjs` | 3 | 1 | 33.3% |
+| `dsh/guard/wholeFile.mjs` | 3 | 1 | 33.3% |
+| `dsh/guard/hardCheck.mjs` | 3 | 1 | 33.3% |
+| `dsh/repeatGuard.mjs` | 3 | 1 | 33.3% |
+| `core/audit-writer.mjs` | 3 | 1 | 33.3% |
+| `dsh/heartbeat.mjs` | 3 | 1 | 33.3% |
+| `profiles/gpt-astra.mjs` | 3 | 1 | 33.3% |
+| `dsh/seams/session-start.mjs` | 3 | 1 | 33.3% |
+| `dsh/toolName.mjs` | 2 | 1 | 50% |
+| `adapters/dsh/eligibility-gate.mjs` | 3 | 2 | 66.7% |
+| `core/prefixStability.mjs` | 3 | 2 | 66.7% |
+| `dsh/pipeline.mjs` | 3 | 2 | 66.7% |
+| `core/profileLoader.mjs` | 3 | 2 | 66.7% |
+| `dsh/guard/tooling.mjs` | 3 | 2 | 66.7% |
+| `dsh/seams.mjs` | 3 | 2 | 66.7% |
+| `core/state.mjs` | 3 | 2 | 66.7% |
+| `dsh/guard/authz.mjs` | 3 | 2 | 66.7% |
+| `dsh/search-hints.mjs` | 3 | 2 | 66.7% |
+| `dsh/traceMeta.mjs` | 3 | 2 | 66.7% |
+| `core/env.mjs` | 3 | 2 | 66.7% |
+| `core/redlines.mjs` | 3 | 2 | 66.7% |
+| `dsh/preGuard.mjs` | 3 | 2 | 66.7% |
+| `dsh/value-gate.mjs` | 3 | 2 | 66.7% |
+| `core/approvals.mjs` | 3 | 2 | 66.7% |
+| `dsh/guard/writing-gate.mjs` | 3 | 2 | 66.7% |
+| `core/schemaDrift.mjs` | 3 | 2 | 66.7% |
+| `dsh/guard/redline.mjs` | 3 | 2 | 66.7% |
+| `dsh/stopGuard.mjs` | 3 | 2 | 66.7% |
+| `core/session.mjs` | 3 | 2 | 66.7% |
+| `dsh/bridgeCheck.mjs` | 3 | 2 | 66.7% |
+| `dsh/guard/retryGuard.mjs` | 3 | 2 | 66.7% |
+| `core/backup.mjs` | 3 | 2 | 66.7% |
+| `core/checkEligibility.mjs` | 3 | 3 | 100% |
+| `core/stageGraph.mjs` | 3 | 3 | 100% |
+| `dsh/seams/shared.mjs` | 3 | 3 | 100% |
+| `dsh/compactionWatch.mjs` | 3 | 3 | 100% |
+| `dsh/policy-audit.mjs` | 3 | 3 | 100% |
+| `core/decisionEngine.mjs` | 3 | 3 | 100% |
+| `core/progressPolicy.mjs` | 3 | 3 | 100% |
+| `dsh/guard/volume.mjs` | 3 | 3 | 100% |
+| `core/stopPolicy.mjs` | 3 | 3 | 100% |
+| `dsh/guard/evidence.mjs` | 3 | 3 | 100% |
+| `dsh/sessionScope.mjs` | 3 | 3 | 100% |
+| `core/grants.mjs` | 3 | 3 | 100% |
+| `core/risk.mjs` | 3 | 3 | 100% |
+| `core/tempPath.mjs` | 1 | 1 | 100% |
+| `dsh/status.mjs` | 3 | 3 | 100% |
+| `core/kpi.mjs` | 3 | 3 | 100% |
+| `core/audit.mjs` | 3 | 3 | 100% |
+| `core/outputGate.mjs` | 3 | 3 | 100% |
+| `dsh/hookOrder.mjs` | 3 | 3 | 100% |
+| `dsh/testRuntime.mjs` | 3 | 3 | 100% |
+| `memory/tags.mjs` | 3 | 3 | 100% |
+| `core/sessionScratch.mjs` | 3 | 3 | 100% |
+| `dsh/compactionWatch/anchors.mjs` | 3 | 3 | 100% |
+| `dsh/toolKindAudit.mjs` | 3 | 3 | 100% |
+| `memory/workspace.mjs` | 3 | 3 | 100% |
+
+> **抽样口径**：每模块等距取 3 个变异体（不是前 3 个——取前 3 个拿到的是文件开头的 import 与常量表，
+> 实测会造出一批假的 0 分）。等距覆盖首中尾，分得出「有断言/没断言」，分不出 92% 与 95%。
+> 模块之间清 `.focus-guard` 再跑，否则前一个模块的测试状态会把后一个的基线弄红。
+
+> **耗时判据的处置（待批示）**：串行实测约 25 秒/模块（78 个 ≈ 30 分钟），
+> 卡在 `node --test` 启动与慢文件（`acceptance.test.mjs` 单文件 29 秒），与变异算法无关。
+> 加 `--jobs` 分片并行后降到 688 秒（8 路），仍超 5 分钟。两条路：继续加并行度，
+> 或把判据改成「≤15 分钟、发版前跑一次」。**改判据属于立法，须批示，这里不自行下调。**
 **定档**
 
 | 序 | 版本 | 主题 | 交付物 | 退出判据 | 实际 |
@@ -454,13 +546,13 @@ Windows 忽略 mode，无害。
 
 #### 3.5.4 · 先让尺子能用
 
-| # | 任务 | 落点 | 验收 |
-|---|---|---|---|
-| 1 | 修变异副本：`packages/` → 仓根必需项（`docs/`、`CHANGELOG.md`、`.git` 的最小只读副本） | `tools/mutate.mjs:299` | `risk.mjs` 基线不再红；30 条原失败用例在副本里转为通过或明确跳过 |
-| 2 | 副本策略从白名单改**黑名单**（复制除 `node_modules` / `.focus-guard` / `.ai` 外全部） | 同上 | 下次新增顶层目录不再静默漏；写一条用例钉住「新增目录自动进副本」 |
-| 3 | 新增脚本 `mutate:survey`（待登记进 `package.json`）：全模块抽样出分，输出「模块 / 变异体 / 杀掉 / 得分」表 | `tools/mutate.mjs` + `package.json` | 一条命令出全表，耗时 ≤5 分钟（`--max` 抽样） |
-| 4 | `mutate` 自己补测试：现有 **0 条**用例（它是尺子，却没人量它） | `tests/mutate.test.mjs` | 造一个「全通过但无断言」的假模块 → 必须报 0 分；造一个有断言的 → 必须 >0 |
-| 5 | survey 结果写进 `docs/STATUS.md`，作为后五档的对照基线 | 待建 `tools/docs-status.mjs` | STATUS 里有得分表；后续每档只许升不许降 |
+| # | 任务 | 落点 | 验收 | 实际（2026-11-27） |
+|---|---|---|---|---|
+| 1 | 修变异副本：`packages/` → 仓根必需项（`docs/`、`CHANGELOG.md`、`.git` 的最小只读副本） | `tools/mutate.mjs` | `risk.mjs` 基线不再红；30 条原失败用例在副本里转为通过或明确跳过 | **已完成**：`core/risk.mjs` 由「基线红、拒绝变异」转为 3/3 全杀（100%） |
+| 2 | 副本策略从白名单改**黑名单**（复制除 `node_modules` / `.focus-guard` / `.ai` 外全部） | 同上 | 下次新增顶层目录不再静默漏；写一条用例钉住「新增目录自动进副本」 | **已完成**：`copyRepo` 参数化并导出，用例「新增顶层目录自动进副本」已钉住 |
+| 3 | 新增脚本 `mutate:survey`：全模块抽样出分，输出「模块 / 变异体 / 杀掉 / 得分」表 | `tools/mutate.mjs` + `package.json` | 一条命令出全表，耗时 ≤5 分钟（`--max` 抽样） | **部分达标**：72 个可测模块出全表，耗时 688s 未达 5 分钟，处置待批示 |
+| 4 | `mutate` 自己补测试 | `tests/mutate.test.mjs` | 造一个「全通过但无断言」的假模块 → 必须报 0 分；造一个有断言的 → 必须 >0 | **原记「0 条」是旧口径**：该文件已有 13 条用例且含此断言；本轮增至 14 条 |
+| 5 | survey 结果作为后五档的对照基线 | 本节「全模块抽样」小节 | 有得分表；后续每档只许升不许降 | **已完成**：基线表落在本节（`STATUS.md` 是文档清单，不兼计分板） |
 
 #### 3.5.5 · 补零覆盖与最薄处
 

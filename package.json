@@ -55,6 +55,7 @@
     "install:check": "node packages/core/tools/install-check.mjs --strict",
     "install:gate": "node packages/core/tools/install-check.mjs --strict --install",
     "mutate:smoke": "node packages/core/tools/mutate.mjs dsh/toolName.mjs",
+    "mutate:survey": "node packages/core/tools/mutate.mjs --survey",
     "mutate": "node packages/core/tools/mutate.mjs",
     "smells": "node packages/core/tools/smells.mjs",
     "smells:brief": "node packages/core/tools/smells.mjs --brief",

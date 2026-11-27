@@ -10,16 +10,27 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { generateMutants, applyMutant } from "../tools/mutate.mjs";
+import { generateMutants, applyMutant, copyRepo } from "../tools/mutate.mjs";
 import { buildImportGraph, resolveSpec } from "../tools/lib/import-graph.mjs";
 
 const TOOLS = join(dirname(fileURLToPath(import.meta.url)), "../tools");
+
+/** 夹具助手：建临时目录并返回写文件的 `w`。两处夹具原先各抄一份，被重复块检测抓了。 */
+function fixtureDir(prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const w = (rel, content) => {
+    const p = join(dir, rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, content);
+  };
+  return { dir, w };
+}
 
 const opsOf = (src) => generateMutants(src).map((m) => `${m.op}:${m.token}->${m.replacement}@${m.line}`);
 
@@ -100,12 +111,7 @@ test("mutate CLI 端到端：有断言则杀死，无断言则存活（受控夹
   // 这是整个工具的核心承诺，必须被锁住。**用夹具而不是真实仓库**：
   // 真实测试有偶发失败（`preGuard.test.mjs` 已知），跑在上面得分时高时低，
   // 断言就变成在测上游的稳定性，不是在测这个工具。
-  const dir = mkdtempSync(join(tmpdir(), "fg-mutate-e2e-"));
-  const w = (rel, content) => {
-    const p = join(dir, rel);
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, content);
-  };
+  const { dir, w } = fixtureDir("fg-mutate-e2e-");
   // `both` 被断言 → 两个 && 变异体都该被杀；`unused` 没人调 → 变异体存活。
   w(
     "packages/core/src/core/guard.mjs",
@@ -136,12 +142,7 @@ test("mutate CLI 端到端：有断言则杀死，无断言则存活（受控夹
 });
 
 test("buildImportGraph：三种引用形态都要认（含 new URL 拼路径）", () => {
-  const dir = mkdtempSync(join(tmpdir(), "fg-graph-"));
-  const w = (rel, content) => {
-    const p = join(dir, rel);
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, content);
-  };
+  const { dir, w } = fixtureDir("fg-graph-");
   w("packages/core/src/core/a.mjs", `export const a = 1\n`);
   w("packages/core/src/core/b.mjs", `export const b = 1\n`);
   w("packages/core/src/core/c.mjs", `export const c = 1\n`);
@@ -182,4 +183,35 @@ test("mutate CLI 冒烟：真实仓库上跑 toolName，两种结果都必须如
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /触达测试 [1-9]\d* 个/, "必须真的选到了测试文件，不能是 0 个");
   assert.match(r.stdout, /变异得分 \d+(\.\d+)?%|跳过：/, "要么给分数，要么写明为什么跳过");
+});
+
+test("copyRepo：新增顶层目录自动进副本，本机状态目录不进（3.5.4）", () => {
+  // 3.5.4 的病根：副本原先是白名单（只复制 `packages/` + `package.json`），
+  // 于是每新增一个顶层目录就静默漏一次，测试一引用仓根文件基线就红。
+  // 这条用例钉的是**策略本身**：黑名单之外的顶层目录必须自动进来。
+  const src = mkdtempSync(join(tmpdir(), "fg-copy-src-"));
+  const dest = mkdtempSync(join(tmpdir(), "fg-copy-dst-"));
+  try {
+    writeFileSync(join(src, "package.json"), "{}\n");
+    mkdirSync(join(src, "docs"));
+    writeFileSync(join(src, "docs", "RULES.md"), "# 规则\n");
+    // 「以后新增的顶层目录」：不出现在任何清单里，也必须被复制
+    mkdirSync(join(src, "newdir"));
+    writeFileSync(join(src, "newdir", "a.mjs"), "export const a = 1\n");
+    for (const skip of ["node_modules", ".focus-guard", ".ai"]) {
+      mkdirSync(join(src, skip));
+      writeFileSync(join(src, skip, "x.txt"), "本机状态\n");
+    }
+
+    copyRepo(src, dest);
+
+    assert.ok(existsSync(join(dest, "docs", "RULES.md")), "docs/ 必须进副本");
+    assert.ok(existsSync(join(dest, "newdir", "a.mjs")), "新增顶层目录必须自动进副本，不许再回来改白名单");
+    for (const skip of ["node_modules", ".focus-guard", ".ai"]) {
+      assert.equal(existsSync(join(dest, skip)), false, `${skip} 是本机状态，不该进副本`);
+    }
+  } finally {
+    rmSync(src, { recursive: true, force: true });
+    rmSync(dest, { recursive: true, force: true });
+  }
 });

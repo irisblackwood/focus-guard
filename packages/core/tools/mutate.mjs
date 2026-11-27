@@ -43,12 +43,16 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync, cpSync, rmSync, mkdtempSync } from 'node:fs'
-import { join, dirname, resolve, basename } from 'node:path'
+import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
+import { join, dirname, resolve, basename, relative, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { stripLiterals } from './lib/source-text.mjs'
 import { buildImportGraph } from './lib/import-graph.mjs'
+import { generateMutants, applyMutant } from './lib/mutation-ops.mjs'
+import { copyRepo } from './lib/repo-copy.mjs'
+import { surveyParallel, reportSurvey } from './lib/survey-report.mjs'
+// 副本与抽样汇总搬去 lib/，仍从这里再导出：测试与外部只认 tools/mutate.mjs 这个入口。
+export { copyRepo }
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // 仓库根可覆盖：端到端测试要跑**受控夹具**，不能跑在真实仓库的测试上——
@@ -60,79 +64,54 @@ const argv = process.argv.slice(2)
 const AS_JSON = argv.includes('--json')
 const LIST_ONLY = argv.includes('--list')
 const STRICT = argv.includes('--strict')
+/** 全模块抽样（3.5.4）。与单模块模式互斥：走 survey 时不看 targets。 */
+const SURVEY = argv.includes('--survey')
 const numArg = (flag, dflt) => {
   const i = argv.indexOf(flag)
   return i >= 0 && argv[i + 1] ? Number(argv[i + 1]) : dflt
 }
-const MAX = numArg('--max', Infinity)
-const MAX_SURVIVE = numArg('--max-survive', 40)
-const PER_MUTANT_TIMEOUT = numArg('--timeout', 60000)
-
 /**
- * 变异算子。每个算子：正则 + 替换规则。
+ * 并行度与分片（2026-11-27）。
  *
- * 全部作用在 `stripLiterals` 之后的文本上——否则 `'== 分布 =='` 这种字符串里的运算符
- * 会被当成代码变异，跑出来的"存活"全是假的。去字面量保留长度与换行，
- * 所以 `plain` 里的下标可以直接映射回原文件（下面有长度断言兜底）。
+ * 串行实测 **约 25 秒/模块**（78 个模块 ≈ 30 分钟）——卡在 `node --test` 的启动与
+ * 慢文件（`acceptance.test.mjs` 单文件 29 秒），与变异算法无关。计划里的判据是
+ * 「一条命令 ≤5 分钟」，串行永远达不到，所以必须并行。
+ *
+ * 分片而不是线程：每个分片是一个子进程，各建各的临时副本。模块之间只读共享源码、
+ * 只写自己那一个文件，进程隔离后连「测试互相污染状态」都不用担心。
  */
-const OPERATORS = [
-  { id: 'comparison', re: /(?<![<>=!])(<=|>=|<|>)(?![=<>])/g, flip: { '<': '<=', '<=': '<', '>': '>=', '>=': '>' } },
-  { id: 'equality', re: /(?<![=!<>])(===|!==)(?!=)/g, flip: { '===': '!==', '!==': '===' } },
-  { id: 'boolean', re: /(?<![\w$.])(&&|\|\|)(?![\w$])/g, flip: { '&&': '||', '||': '&&' } },
-  { id: 'literal-bool', re: /(?<![\w$.])(true|false)(?![\w$])/g, flip: { true: 'false', false: 'true' } },
-  { id: 'nullish', re: /(?<![\w$.])\?\?(?![\w$])/g, flip: { '??': '||' } },
-  // 去掉一个 `!`：`if (!reason)` → `if (reason)`。闸门类代码里这条最能暴露"没人断言"。
-  // 捕获组不能省：`m[1]` 取的是 token，没有捕获组时是 undefined，整条算子会**静默失效**
-  // （这个 bug 是 `mutate.test.mjs` 抓出来的——自己写的算子也会犯"看起来跑了"的错）。
-  { id: 'negation', re: /(?<![!=<>])(!)(?!=)/g, flip: { '!': '' } },
-]
+const JOBS = numArg('--jobs', 4)
+const SHARD = (() => {
+  const i = argv.indexOf('--shard')
+  if (i < 0) return null
+  const [a, b] = String(argv[i + 1] || '').split('/').map(Number)
+  return a >= 0 && b > 0 ? { index: a, of: b } : null
+})()
+// survey 默认每模块抽 3 个：不设上限就是「全量跑全模块」，一轮几小时，没人会跑第二次。
+const MAX = numArg('--max', SURVEY ? 3 : Infinity)
+const MAX_SURVIVE = numArg('--max-survive', 40)
+// survey 的单次超时给到 180 秒：10 路并行时机器被占满，`core/` 那批含 acceptance 的
+// 测试集平时 26 秒，负载下会顶到 60 秒以上。超时被算成「基线未通过」会把人指去查断言。
+const PER_MUTANT_TIMEOUT = numArg('--timeout', SURVEY ? 180000 : 60000)
 
-/** 生成变异体：{ op, index, token, replacement, line } */
-export function generateMutants(src) {
-  const plain = stripLiterals(src)
-  if (plain.length !== src.length) {
-    throw new Error(`stripLiterals 改变了长度（${src.length} → ${plain.length}），下标无法映射，拒绝变异`)
-  }
-  const lineStarts = [0]
-  for (let i = 0; i < src.length; i += 1) if (src[i] === '\n') lineStarts.push(i + 1)
-  const lineOf = (idx) => {
-    let lo = 0
-    let hi = lineStarts.length - 1
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1
-      if (lineStarts[mid] <= idx) lo = mid
-      else hi = mid - 1
-    }
-    return lo + 1
-  }
-
-  const out = []
-  for (const op of OPERATORS) {
-    for (const m of plain.matchAll(op.re)) {
-      const token = m[1]
-      const replacement = op.flip[token]
-      if (replacement === undefined) continue
-      out.push({ op: op.id, index: m.index, token, replacement, line: lineOf(m.index) })
-    }
-  }
-  return out.sort((a, b) => a.index - b.index)
-}
-
-/** 把第 i 个变异体应用到源码上，返回新源码。 */
-export function applyMutant(src, mutant) {
-  return src.slice(0, mutant.index) + mutant.replacement + src.slice(mutant.index + mutant.token.length)
-}
+// 算子与生成/应用搬去 lib/mutation-ops.mjs（3.5.4）：纯函数，与编排无关。
+// 仍从这里再导出——测试与外部只认 tools/mutate.mjs 这个入口。
+export { generateMutants, applyMutant }
 
 function runTests(cwd, testFiles) {
   const env = {
     ...process.env,
     // 隔离：子进程不许继承宿主的工作区根，否则变异跑出来的审计会写脏真实 AUDIT.log
-    // （`npm run eval` 上踩过：单跑一次写脏 62 行）。
+    // （`npm run eval` 上踩过：单跑一次写脏 62 行）。**清空这三个就够了**——
+    // 剩下没清空的路径都由 `process.cwd()` 推出来，而 cwd 是临时副本，写脏也只在副本里。
     ZCODE_PROJECT_DIR: '',
     CLAUDE_PROJECT_DIR: '',
     FG_PROJECT_DIR: '',
     FG_SHELL: '',
-    FG_AUDIT_FILE: join(cwd, '.focus-guard', 'mutate-audit.log'),
+    // 2026-11-27（3.5.4）：**不要设 `FG_AUDIT_FILE`**。原先设成副本里的
+    // `.focus-guard/mutate-audit.log`，本意是「别写真实流水」，实际把 26 条用例弄红了——
+    // 那些用例断言的是默认审计路径上的内容，改了文件名就等于让它们断言一个空文件。
+    // 实测：只设这一个变量 → 435 过 / 26 红；只清空三个 PROJECT_DIR → 461 全过。
   }
   // **必须删掉 NODE_TEST_CONTEXT（2026-10-27 实测）。**
   // 这个变量在 `node --test` 里会被设成 `child-v8`，子进程继承后 `node --test` 会**恒 exit 0**，
@@ -161,9 +140,8 @@ function runTests(cwd, testFiles) {
 // 直接撞上阈值 80，把结构维从 28 条推到 29 条。棘轮的规矩是只许降不许升，
 // 所以拆代码，不是调上限。
 
-/** 解析目标模块，算变异计划。 */
-function planTargets(targets) {
-  const g = buildImportGraph(REPO)
+/** 解析目标模块，算变异计划。`g` 可复用：survey 一次建图跑全模块，不重复建。 */
+function planTargets(targets, g = buildImportGraph(REPO)) {
   const plans = targets.map((t) => {
     const abs = resolve(g.srcDir, t)
     try {
@@ -174,8 +152,16 @@ function planTargets(targets) {
     }
     const src = readFileSync(abs, 'utf8')
     const all = generateMutants(src)
-    const selected = Number.isFinite(MAX) ? all.slice(0, MAX) : all
-    return { abs, name: basename(abs), src, all, mutants: selected, tests: g.reachingTests(abs) }
+    // 抽样必须**等距**，不能取前 N 个（2026-11-27 实测）。
+    // 取前 3 个拿到的是文件最开头那几个变异体——那里通常是 import 与常量表，
+    // 改了对行为没影响（等价变异体）或压根没断言。结果：一批模块齐刷刷 0 分，
+    // 与单模块全量跑出来的 50%~100% 完全对不上。等距至少覆盖文件首中尾。
+    const selected =
+      Number.isFinite(MAX) && all.length > MAX
+        ? Array.from({ length: MAX }, (_, k) => all[Math.floor((k * all.length) / MAX)])
+        : all
+    // `rel` 与 `name` 都要：单模块模式看 `name` 够，survey 里两个 `index.mjs` 只能靠路径分开。
+    return { abs, name: basename(abs), rel: t, src, all, mutants: selected, tests: g.reachingTests(abs) }
   })
   return { g, plans }
 }
@@ -201,7 +187,7 @@ function listPlans(plans) {
 function runModule(work, g, p) {
   const targetInCopy = join(work, 'packages/core/src', p.abs.slice(g.srcDir.length + 1))
   const testsInCopy = p.tests.map((t) => join(work, t.slice(REPO.length + 1)))
-  const base = { name: p.name, total: p.mutants.length, generated: p.all.length, tests: p.tests.length }
+  const base = { name: p.name, rel: p.rel, total: p.mutants.length, generated: p.all.length, tests: p.tests.length }
 
   if (!p.mutants.length) return { ...base, skipped: '该模块没有可变异算子（纯常量表或纯声明）' }
   if (!p.tests.length) {
@@ -217,9 +203,17 @@ function runModule(work, g, p) {
   const b2 = b1.ok ? b1 : runTests(work, testsInCopy)
   if (!b1.ok || !b2.ok) {
     const flaky = b1.ok !== b2.ok
+    // 超时与「测试真的红了」必须分开报（2026-11-27）。并行抽样时机器被占满，
+    // 一个平时 26 秒的测试集可能顶到 60 秒超时；报成「基线未通过」会让人去查断言，
+    // 而实际要调的是 `--timeout`。**报错指错方向，比不报还费时间。**
+    const why = b1.timedOut || b2.timedOut
+      ? '基线超时（单次测试跑不完，多半是并行负载下超时，调大 --timeout）'
+      : flaky
+        ? '基线不稳定（一次红一次绿）'
+        : '基线测试未通过'
     return {
       ...base,
-      skipped: `${flaky ? '基线不稳定（一次红一次绿）' : '基线测试未通过'}，拒绝变异。偶发失败会被算成"杀死"，变异得分不可信：${b2.out.slice(-300)}`,
+      skipped: `${why}，拒绝变异。偶发失败会被算成"杀死"，变异得分不可信：${b2.out.slice(-300)}`,
     }
   }
 
@@ -278,12 +272,69 @@ function report(results) {
   return STRICT && ran > 0 && (alive / ran) * 100 > MAX_SURVIVE ? 1 : 0
 }
 
+
+
+/**
+ * `--survey`：全模块抽样出分（2026-11-27，3.5.4）。
+ *
+ * 为什么要它：单模块模式回答「这个模块的断言密不密」，但排期需要的是
+ * 「**75 个模块里哪些最薄**」——没有全表，就只能凭印象挑，挑完再跑一轮，一轮几十分钟。
+ *
+ * 抽样而不是全量：`--max` 默认 3。全量跑全模块是一轮几小时的事，没人会跑第二次，
+ * 而**没人会跑第二次的尺子等于没有**。3 个变异体足以区分「有断言」与「没断言」，
+ * 分不出 92% 与 95%——那也不需要在这里分。
+ *
+ * 基线红的模块会自己标「跳过」并说明原因，不混进平均分：把「测不了」算成「0 分」
+ * 会让平均分变成「副本能不能跑」的函数，而不是「断言密不密」的函数。
+ */
+function runSurvey() {
+  const g = buildImportGraph(REPO)
+  let targets = g.srcFiles.map((f) => relative(g.srcDir, f).split(sep).join('/'))
+  // 分片按取模切：源码顺序稳定，同输入同分片，结果可复现。
+  if (SHARD) targets = targets.filter((_, k) => k % SHARD.of === SHARD.index)
+  const { plans } = planTargets(targets, g)
+  const work = mkdtempSync(join(tmpdir(), 'fg-mutate-'))
+  copyRepo(REPO, work)
+  const rows = []
+  try {
+    for (const [i, p] of plans.entries()) {
+      // 模块之间必须清运行时状态（2026-11-27 实测）。
+      // 串行跑同一副本时，前一个模块的测试会把 `.focus-guard/` 写脏；后一个模块的基线
+      // 读到脏状态就红，于是被标成「基线测试未通过」。实测 `core/risk.mjs` 单跑 100%，
+      // 在 survey 里却报基线红——**同一份源码两种结论，只能是状态污染**。
+      rmSync(join(work, '.focus-guard'), { recursive: true, force: true })
+      process.stderr.write(`[${i + 1}/${plans.length}] ${p.rel} … `)
+      const r = runModule(work, g, p)
+      rows.push(r)
+      process.stderr.write(r.skipped ? '跳过\n' : `${r.score}%\n`)
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+  if (SHARD) {
+    // 子进程只交数据，排版交给父进程——两边各排一份必然分叉。
+    console.log(`__ROWS__${JSON.stringify(rows)}`)
+    return 0
+  }
+  reportSurvey(rows)
+  return 0
+}
+
+
+
 function main() {
+  if (SURVEY) {
+    // 分片进程与单进程都走 runSurvey；只有「父进程 + jobs>1」才并行派发。
+    if (SHARD || JOBS <= 1) process.exit(runSurvey())
+    surveyParallel({ jobs: JOBS, self: fileURLToPath(import.meta.url), repo: REPO }).then(() => process.exit(0))
+    return
+  }
   const targets = argv.filter(
     (a, i) => !a.startsWith('--') && !/^\d+$/.test(a) && !['--max', '--max-survive', '--timeout'].includes(argv[i - 1]),
   )
   if (!targets.length) {
     console.error('用法：node packages/core/tools/mutate.mjs <src 相对路径...> [--list] [--max n] [--json] [--strict]')
+    console.error('      node packages/core/tools/mutate.mjs --survey [--max n]    # 全模块抽样出分')
     console.error('  例：node packages/core/tools/mutate.mjs dsh/toolName.mjs')
     process.exit(2)
   }
@@ -296,12 +347,7 @@ function main() {
 
   // 复制到临时目录：真实源码永不被改
   const work = mkdtempSync(join(tmpdir(), 'fg-mutate-'))
-  cpSync(join(REPO, 'packages'), join(work, 'packages'), { recursive: true })
-  try {
-    cpSync(join(REPO, 'package.json'), join(work, 'package.json'))
-  } catch {
-    /* package.json 不是必需 */
-  }
+  copyRepo(REPO, work)
 
   const results = []
   try {
