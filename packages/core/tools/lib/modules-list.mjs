@@ -320,10 +320,12 @@ export const MODULES = [
     paths: [
       'packages/core/tools/docs-lint.mjs',
       'packages/core/tools/docs-drift.mjs',
+      'packages/core/tools/docs-refs.mjs',
       'packages/core/tools/legacy-audit.mjs',
       'packages/core/tools/lib/legacy-core.mjs',
       'packages/core/tools/docs-book.mjs',
       'packages/core/tools/lib/docs-core.mjs',
+      'packages/core/tools/lib/docs-scope.mjs',
       'packages/core/tools/lib/docs-files.mjs',
       'packages/core/tools/lib/docs-status.mjs',
       'packages/core/tools/lib/docs-version.mjs',

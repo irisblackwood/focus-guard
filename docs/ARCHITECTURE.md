@@ -422,7 +422,7 @@ npm run test:bridges                                 # 扩展包桥测试（单�
 
 - **CI**：每次推送/PR 自动跑验收 + 对抗评测（[.github/workflows/ci.yml](../.github/workflows/ci.yml)）。Windows 必过；Linux/macOS 为观察项（验收里仍有数处 Windows shell 检测用例未平台化），Node 18.20 / 20 / 22 矩阵。**CI 不是发布闸**——它只跑这个快速子集，整条 `npm run check`（eval:dsh / selftest / privacy / manifest / docs:lint / lint / smells / schema:verify）只在 `publish.yml` 跑；两边不是同一条命令，别拿 CI 绿当发布依据（2026-11-08 定）；
 - **闸门挂在提交上，不挂在记性上（2026-11-26）**：闸门要人「记得跑」，等于大部分时候没跑。两个钩子分工，把「每次改动都跑一遍」变成不必记性的动作——
-  - **pre-commit（约 5s）**：先重生成 `docs/STATUS.md` / `docs/MODULES.md` 并 `git add`，再跑 `npm run gate:fast`（privacy / quality:audit / manifest / docs:lint / modules:audit / lint / legacy / smells / schema:verify / install:check / docs:drift 十一条静态闸），**不过即阻止提交**。挡的是「这段代码或这份文档本身就不成立」，改完当场就能改；
+  - **pre-commit（约 5s）**：先重生成 `docs/STATUS.md` / `docs/MODULES.md` 并 `git add`，再跑 `npm run gate:fast`（privacy / quality:audit / manifest / docs:lint / modules:audit / lint / legacy / smells / schema:verify / install:check / docs:drift / docs:refs 十二条静态闸），**不过即阻止提交**。挡的是「这段代码或这份文档本身就不成立」，改完当场就能改；
   - **pre-push**：跑 `npm run check`（上面那套 + 测试 + 对抗评测 + `gate:slow`），不过即阻止推送，结果留痕 AUDIT.log（`ci-pre-push` 事件）。挡的是「行为变了」，代价高，所以放推送。
   - **真装不进 fast 闸**（2026-11-26）：`install:gate` 会 `npm pack` 并在 `~/.dsh/profiles` 里建一个真实 profile 再拆掉，且依赖 dsh / pnpm / 网络。本机热缓存实测 1.1s——**不是因为它慢才拆**，是因为提交闸在不同机器上做的事不同（无 dsh 直接跳过）、会写 $HOME、冷环境成本不受控。拆成 `gate:slow`，静态的 `install:check` 留在 fast 闸里挡根因（install 系脚本 / engines.dsh / bundles 字段）。
   - 清单只有一份：`check:inner` = 测试类 + `gate:fast` + `gate:slow`，两个入口共用同一串静态闸，不各抄一份（抄两份必然分叉）。

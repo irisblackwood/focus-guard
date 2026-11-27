@@ -17,40 +17,15 @@
  */
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(HERE, '..', '..', '..')
+import { ROOT, docScope } from './lib/docs-scope.mjs'
 
 const args = process.argv.slice(2)
 const asJson = args.includes('--json')
 const strict = args.includes('--strict')
 
-/** 扫描范围：docs 树 + 入口文档；归档与 vault 笔记不扫（历史材料，改了也不该被当前事实约束）。 */
-function walkDocs(dir, out = []) {
-  let entries
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    if (e.name === 'archive' || e.name === 'vault-notes' || e.name === 'node_modules') continue
-    const p = join(dir, e.name)
-    if (e.isDirectory()) walkDocs(p, out)
-    else if (e.name.endsWith('.md')) out.push(p)
-  }
-  return out
-}
-
-const FILES = [
-  ...walkDocs(join(ROOT, 'docs')),
-  ...walkDocs(join(ROOT, 'packages/core/docs')),
-  join(ROOT, 'README.md'),
-  join(ROOT, 'INSTALL.md'),
-  join(ROOT, 'packages/core/README.md'),
-  join(ROOT, 'packages/core/README.zh-CN.md'),
-].filter((f) => existsSync(f) && !/HANDOFF-/.test(f))
+// 扫描范围与 docs:refs 共用一份清单，别在这里另抄——抄两份必然分叉（`lib/docs-scope.mjs`）。
+const FILES = docScope()
 
 const scripts = Object.keys(JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts || {})
 
