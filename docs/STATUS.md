@@ -15,11 +15,11 @@
 | [`CHANGELOG.md`](../CHANGELOG.md) | 权威 | 3.5.4 | 2026-11-27 | 0 | 0 |
 | [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
 | [`docs/DESIGN-CONSTRAINTS.md`](../docs/DESIGN-CONSTRAINTS.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
-| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
+| [`docs/INDEX.md`](../docs/INDEX.md) | 权威 | 3.5.4 | 2026-11-27 | 0 | 0 |
 | [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.3 | 2026-11-27 | 0 | 0 |
-| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
+| [`docs/README.md`](../docs/README.md) | 权威 | 3.5.4 | 2026-11-27 | 0 | 0 |
 | [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
-| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
+| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.4 | 2026-11-27 | 0 | 0 |
 | [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-26 | 1 | 0 |
 | [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 3 | 0 |
 | [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 3 | 0 |
@@ -55,11 +55,11 @@
 CHANGELOG.md|权威|3.5.4|2026-11-27
 docs/ARCHITECTURE.md|权威|3.5.3|2026-11-26
 docs/DESIGN-CONSTRAINTS.md|权威|3.5.3|2026-11-26
-docs/INDEX.md|权威|3.5.3|2026-11-26
+docs/INDEX.md|权威|3.5.4|2026-11-27
 docs/MODULES.md|权威|3.5.3|2026-11-27
-docs/README.md|权威|3.5.3|2026-11-26
+docs/README.md|权威|3.5.4|2026-11-27
 INSTALL.md|权威|3.5.3|2026-11-26
-packages/core/docs/ARCH-MAP.md|权威|3.5.3|2026-11-26
+packages/core/docs/ARCH-MAP.md|权威|3.5.4|2026-11-27
 packages/core/docs/BENCH.md|权威|3.5.3|2026-11-26
 packages/core/docs/MEMORY-HYBRID.md|权威|3.5.3|2026-11-24
 packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-24

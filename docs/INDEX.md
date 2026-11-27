@@ -1,6 +1,6 @@
 # 文档索引（docs/INDEX.md）
 
-> **状态**：权威 · 适用版本 3.5.3 · 最后核对 2026-11-26
+> **状态**：权威 · 适用版本 3.5.4 · 最后核对 2026-11-27
 
 > 3.3 D2：新会话按本页在 **10 分钟**内定位到该读的那份文档。
 > 状态口径：**权威** = 与实现同步、可据此裁决；**参考** = 有价值但可能滞后；**台账** = 过程记录，读取前先看日期；**归档** = 已过期，仅作历史。
@@ -48,7 +48,7 @@
 | [INSTALL.md](../INSTALL.md) | 唯一安装源 |
 | [CHANGELOG.md](../CHANGELOG.md) | 发布记录（变了什么） |
 | [RULES.md](../packages/core/docs/RULES.md) | 法条与未机械化清单 |
-| [ARCH-MAP.md](../packages/core/docs/ARCH-MAP.md) | 能力状态 + 代码锚点 + 缺口 |
+| [ARCH-MAP.md](../packages/core/docs/ARCH-MAP.md) | 能力状态 + 代码锚点 + 缺口 + **待裁决** |
 | [VERSION-PLAN.md](../packages/core/docs/VERSION-PLAN.md) | **计划唯一载体**：3.3→4.0 排期与完成态语义，含 §1.7 测试债务六档（3.5.4→3.5.9）与退出判据 |
 | [RELEASE-POLICY.md](../packages/core/docs/RELEASE-POLICY.md) | 计数 / 受众口径 / 版本面 |
 | [WRITING-STYLE.md](../packages/core/docs/WRITING-STYLE.md) | 文档排版判据 |
