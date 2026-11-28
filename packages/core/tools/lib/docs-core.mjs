@@ -161,17 +161,29 @@ export function checkVersionFace(root) {
  *
  * 为什么不靠自觉：PATTERNS.md 建库 27 天零条就是"只有规矩没有闸门"的下场。
  *
- * 范围只含**活跃对外文档**：`README` / `CHANGELOG` / `docs/`（排除 `archive` 与 `vault-notes`）。
- * 这两处 2026-11-05 已按要求清过一次，但**不纳入闸门**：归档是历史证据，闸门管到它
- * 等于逼后人改历史；`vault-notes` 是外部资料摘录，会被重新生成覆盖。
+ * 范围只含**活跃对外文档**：`README` / `CHANGELOG` / `docs/` / `packages/core/docs/`（排除 `archive`）。
+ * 归档是历史证据，闸门管到它等于逼后人改历史；`vault-notes` 是外部资料摘录，会被重新生成覆盖。
+ *
+ * 2026-11-28 修两处漏：
+ *   ① **词表只列了三种搭配**（批示/原话/报告）。于是「人类提议」「人类建议」「人类要求」
+ *      「人类定的原话」一路放行——CHANGELOG 与三份包内文档里各躺着一处，闸门全绿。
+ *      枚举搭配本身就是在赌"下次会换个说法"，改成「人类」后最多 6 字再接**引述主张**的动词/名词。
+ *      只收引述类：`确认`/`拍板`/`裁定` 是权限动作（「待人类拍板」「需人类确认」是流程术语），
+ *      收进来会把「谁有权批」的描述一起判成违规——第一次扩表就误伤了 4 处。
+ *      `批示` 更特殊：它在本仓 129 处，绝大多数是**术语定义**（「人类新指令即批示」「人类指令=批示」）。
+ *      所以只在它**后面紧跟中文引号**（真的在引原话）时才算违规。直引号不算——术语本身
+ *      也可能被引号括起来（ARCHITECTURE.md「人类新指令即"批示"」就是这种）。
+ *   ② **范围只认根目录 `docs/`**。`packages/core/docs/` 下 60 多处一条没扫过，而那里正是
+ *      RULES / ARCH-MAP / THREAT-MODEL 这些权威文档的所在地——规则写在离闸门最远的地方。
  */
-const CITATION_RE = /人类批示|人类原话|人类报告/
+const CITATION_RE = /人类[^，。；\n]{0,6}(?:原话|报告|建议|提议|要求|提出|意图|批示\s*[「『])/
 export function checkCitationStyle(root) {
   const findings = []
   const targets = ['README.md', 'CHANGELOG.md']
   for (const abs of listMarkdownFiles(root)) {
     const rel = relative(root, abs).split('\\').join('/')
-    if (!rel.startsWith('docs/')) continue
+    const inScope = rel.startsWith('docs/') || rel.startsWith('packages/core/docs/')
+    if (!inScope) continue
     if (rel.startsWith('docs/archive/') || rel.startsWith('docs/vault-notes/')) continue
     targets.push(rel)
   }
