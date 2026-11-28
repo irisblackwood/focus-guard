@@ -92,6 +92,25 @@ function isReadRecorded(state, sid, absKey, exec) {
 }
 
 /**
+ * 只记内存 Set、不落盘（2026-11-28）。
+ *
+ * 为什么需要它：内存读账有**两个写者**——`rememberReads`（guard 路径，双写内存 + 状态文件）
+ * 与 `postProgress.trackReadSet`（原生路径，**只写状态文件**），而且 key 各算一套。
+ * 后果：状态文件读不出来时（`loadState` 失败退回默认结构），内存里没有原生 Read 的记录，
+ * 「明明读过」会被判「未取证」——正是 3.0.8 想消灭的那个现象，当时只修了一半。
+ * 键一律走 `evidenceKeyOf`，与查证侧同口径；自带 try 是因为记账失败不该阻断真实调用。
+ */
+export function noteNativeRead(exec, p) {
+  try {
+    const key = evidenceKeyOf(p, exec) || String(p || '')
+    if (!key) return
+    nativeReadSet.of(sessionIdOf(exec)).add(key)
+  } catch {
+    /* 内存记账失败不阻断调用 */
+  }
+}
+
+/**
  * 记录本会话内已读过的文件（第 3 层取证判定的原生侧证据）。
  *
  * 3.0.8（孤儿机制审计）：除内存 Set 外**同时落盘**到本会话状态文件。

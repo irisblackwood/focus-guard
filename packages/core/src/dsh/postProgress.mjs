@@ -34,6 +34,7 @@ import { zcodeToolName } from './toolName.mjs'
 import { isDangerousCmd, SCRIPT_FILE_RE } from '../core/redlines.mjs'
 import { appendAudit, buildAuditRow } from './audit.mjs'
 import { normalizePath as normalize, projDirOf, sidOf } from './sessionScope.mjs'
+import { noteNativeRead } from './guard/evidence.mjs'
 import { gateSwitch } from './testRuntime.mjs'
 import { budgetVerdict, stallVerdict, invPoolOverLimit, judgeProgress, poolOf } from '../core/progressPolicy.mjs'
 import {
@@ -102,6 +103,11 @@ function trackReadSet(ctx) {
   if (isFail) return
   state.readSet = state.readSet || {}
   if (ti.file_path && (RE_READ.test(tool) || RE_WRITE.test(tool))) state.readSet[normalize(ti.file_path)] = 1
+  // 2026-11-28：**同时**记进内存 Set。此前只写状态文件，而查证侧（`isReadRecorded`）
+  // 先查内存、再查状态；状态读不出来时「读过」就凭空消失。两处 key 一律由 evidenceKeyOf 算。
+  if (ti.file_path && (RE_READ.test(tool) || RE_WRITE.test(tool) || RE_GREP.test(tool))) {
+    noteNativeRead(exec, ti.file_path)
+  }
   if (RE_WRITE.test(tool) && ti.file_path && SCRIPT_FILE_RE.test(String(ti.file_path))) {
     state.scriptFiles = state.scriptFiles || {}
     const body = String(ti.content ?? '') + String(ti.old_string ?? '') + String(ti.new_string ?? '')

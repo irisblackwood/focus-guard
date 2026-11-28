@@ -413,7 +413,7 @@
 因此不并入 `SESSION_RULES`——那段对所有平台都成立，塞进平台专用文本会让非 Windows 用户白付字。
 
 ```text
-【执行体】bash 工具跑 bash：Select-Object / Get-ChildItem 等 PowerShell cmdlet 不存在，改用 cat / grep / sed / tee；PowerShell 工具禁 &&（用 ; 分隔）与 bash 管道。拦下≠环境故障。
+【执行体】bash 工具跑 bash：Select-Object / Get-ChildItem 等 PowerShell cmdlet 不存在，改用 cat / grep / sed / tee；PowerShell：pwsh7 可用 &&，5.1 禁 &&；两者都禁 bash 管道工具。拦下≠环境故障。
 ```
 
 **为什么加**：`platform-deny` 拦得对，但只拦不前置。实测 19 天审计日志——bash 里敲
@@ -423,7 +423,7 @@
 **为什么按本机 shell 生成、不按会话**：`shellIdForTool` 已确立「执行体按工具判」，同一会话
 bash 与 PowerShell 可并存。这段描述的是**闸门会怎么判**，不是「你这个会话是什么」。
 
-**成本**：Windows 上 142 字（含标识与尾句）；非 Windows 空串，零注入。合计 379 = 222 + 15 + 142。
+**成本**：Windows 上 154 字（含标识与尾句）；非 Windows 空串，零注入。合计 391 = 222 + 15 + 154。
 
 ---
 

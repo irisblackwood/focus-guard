@@ -303,7 +303,7 @@ node packages/core/tools/bench-cost.mjs --json   # 机器读：report.fuseWaste
 
 `npm run bench` = 常驻开销（技能目录 + 工具 schema + 系统提示注入）。
 FG 当前注入：非 Windows **237** 字符（`focus-guard-rules` 222 + `focus-guard-cost` 15）；
-Windows **379**（再加 `focus-guard-env` 142）。改动注入正文后应重跑。
+Windows **391**（再加 `focus-guard-env` 154）。改动注入正文后应重跑。
 
 ### 四个「注入体量」数字，别混着用（2026-10-22 辨析）
 
@@ -311,7 +311,7 @@ Windows **379**（再加 `focus-guard-env` 142）。改动注入正文后应重�
 |---|---|---|
 | **222** | `SESSION_RULES` 静态文本（149 全角 + 73 半角，含 FUSE_PHRASE） | `constants.mjs` 的 `SESSION_RULES` |
 | **237** | DSH 侧实际注入 = 222 + `focus-guard-cost` 15（**不含**执行体段） | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
-| **379** | Windows 上实际注入 = 237 + `focus-guard-env` 142（2026-11-28 起） | `src/dsh/seams/prompt-rules.mjs`（`focus-guard-env` 段） |
+| **391** | Windows 上实际注入 = 237 + `focus-guard-env` 154（2026-11-28 起） | `src/dsh/seams/prompt-rules.mjs`（`focus-guard-env` 段） |
 | **300** | `npm run bench` 读数 = guard.mjs stdout（222 + JSON 信封 78；工作区有 `HANDOFF.md` 时 +46 = 346） | `token-bench.mjs` |
 | **3152** | 场景加权合计（另一维度，别与上面三个直接比） | `ARCHITECTURE.md` 的「常驻注入的体量」表 |
 

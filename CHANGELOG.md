@@ -159,6 +159,33 @@
   - **钉住**：`tests/memory-distill.test.mjs` 3 例（action 再多也不沉淀 / tool 仍沉淀 /
     次数与跨天判据不被放宽）；旧实现 **2 红 1 绿**，新实现 3 绿。
 
+### 执行体判据按版本拆：pwsh7 的 `&&` 不再被拦（2026-11-28）
+
+- fix(core): 〔开发期〕`shellIdForTool` 把 `pwsh`/`pwsh7` 与 `powershell`（5.1）分开返回
+  - **病根**：两者压成同一个 id，丢掉了版本。而 `&&` 是 PowerShell **7** 才有的管线链运算符，
+    5.1 会报 "The token '&&' is not a valid statement separator"——闸门一律禁，等于拿 5.1 的
+    限制套到 7 上，教模型写更啰嗦的命令。
+  - **实测**：本机 `pwsh` = 7.7.0-preview.5（PSEdition Core），DSH 的 PowerShell 工具也是它，
+    `$true && "x"` 正常；而 `powershell.exe` = 5.1.26100。日志里 8 次 `&&` 被拦有一部分是合法写法。
+  - **判据**：工具名指向 7 **且**本机真的探测到 `pwsh7` 才放行——两个条件同时成立。
+    只满足工具名就放行会误伤「工具名叫 pwsh、实际调 5.1」的宿主，宁可多拦一次。
+  - 其余 PowerShell 规则对 7 照旧：`| head` 在 7 里同样不存在。
+  - **成本**：注入 142 → **154** 字，Windows 合计 379 → **391**；`BENCH.md` 与 `RULES.md`
+    的逐字镜像同步。多出的 12 字换的是「别把合法的 `&&` 判成错」。
+  - **钉住**：`tests/shell-and-retry.test.mjs` 增 1 例四条断言（pwsh7 放行 / 未探测到 pwsh7 拦 /
+    5.1 拦 / 7 仍禁 `| head`）；原「pwsh → powershell」的断言按其真实意图改成「pwsh → pwsh7」。
+
+- fix(adapters): 〔开发期〕原生 `Read` 同时记进内存读账，键统一走 `evidenceKeyOf`
+  - **病根**：内存读账只有 `rememberReads`（guard 路径）一个写者，而原生路径的
+    `postProgress.trackReadSet` **只写状态文件**，key 还各算一套。
+  - **触发条件的更正**：不是「状态文件丢失」——那种情况层 3 直接 fail-open 放行
+    （`evidence.mjs:205`），比误拦更宽松。真正会误拦的是「文件在、但 `readSet` 里没有这条」，
+    而回合重置把 `readSet` 清空时正好如此（同日另一条已修）。
+  - **改法**：`evidence.mjs` 导出 `noteNativeRead(exec, p)`，只记内存、不落盘；键与查证侧同口径。
+  - **钉住**：`tests/native-read-twin.test.mjs` 2 例（清空磁盘 readSet 后仍放行 / 没读过照拦）；
+    旧实现 **1 红**。首版用例是删掉状态文件，旧实现同样绿——因为 fail-open 掩盖了差异，
+    这个错法本身也记在文件头注释里。
+
 
 ## 3.5.3 · 2026-11-26
 

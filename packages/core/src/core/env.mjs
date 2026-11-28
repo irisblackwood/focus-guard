@@ -201,17 +201,28 @@ const PS_CMDLET =
  *
  * 病根：`expectedShellId()` 只要 PATH 里能解析到 bash 就认 bash（`session-start.mjs:126`），
  * 完全不管这次调用实际走的是哪个工具。本机装了 Git Bash → 恒判 bash；
- * 而 DSH NEXT 的命令走 `pwsh` 工具（Windows PowerShell 5.1）→ 合法的 `Select-Object`
+ * 而 DSH NEXT 的命令走 `pwsh` 工具 → 合法的 `Select-Object`
  * 被 1.5 层按 bash 规则拒绝，工具返回 exit 1，模型以为是环境故障又重试。
  *
  * 执行体是**按工具**决定的，不是按会话决定的：同一会话里 bash 与 pwsh 可以并存。
+ *
+ * 2026-11-28：`pwsh`/`pwsh7` 与 `powershell` **分开**返回（原先把两者都压成 `powershell`）。
+ * 压成一个 id 的代价是丢掉版本：PowerShell **7 起支持 `&&`**，5.1 不支持，而闸门一律禁，
+ * 实测本机 8 次 `&&` 被拦里有一部分是合法写法（当前 PowerShell 工具实测就是 7.7 Core）。
+ * 上游断言只关心「不是 bash」，所以拆开不违背那次修复的意图。
  */
 export function shellIdForTool(tool) {
   const t = String(tool || "").trim().toLowerCase();
   if (!t) return null;
-  if (/^(?:pwsh|pwsh7|powershell)$/.test(t)) return "powershell";
+  if (/^(?:pwsh|pwsh7)$/.test(t)) return "pwsh7";
+  if (/^powershell$/.test(t)) return "powershell";
   if (/^(?:bash|sh|shell|terminal|runcommand|run_command|cmd)$/.test(t)) return "bash";
   return null;
+}
+
+/** 本机是否**真的**探测到 PowerShell 7——不探测到就不建议它，与上方 cmdlet 文案同一判据。 */
+export function hasPwsh7(env) {
+  return !!(env && Array.isArray(env.shells) && env.shells.some((s) => s && s.id === "pwsh7"));
 }
 
 export function platformBashViolation(env, cmd) {
@@ -235,8 +246,14 @@ export function platformBashViolation(env, cmd) {
       );
     }
   }
-  if (env.os === "win32" && env.shellIdKey === "powershell") {
-    if (/&&/.test(c)) return "Windows PowerShell 会话禁 &&：用 ; 分隔或分开执行";
+  if (env.os === "win32" && (env.shellIdKey === "powershell" || env.shellIdKey === "pwsh7")) {
+    // `&&` 是 PowerShell **7** 才有的管线链运算符（5.1 会报 "The token '&&' is not a valid
+    // statement separator"）。2026-11-28 实测：本机 `pwsh` 与 DSH 的 PowerShell 工具都是
+    // 7.7.0 Core，`$true && "x"` 正常；而 `powershell.exe` 是 5.1.26100。
+    // 判据用**两个条件同时成立**：① 工具名指向 7（pwsh/pwsh7）；② 本机确实探测到 pwsh7。
+    // 只满足①就放行会误伤「工具名叫 pwsh、实际调 5.1」的宿主——宁可多拦一次。
+    const ps7 = env.shellIdKey === "pwsh7" && hasPwsh7(env);
+    if (/&&/.test(c) && !ps7) return "Windows PowerShell 5.1 禁 &&：用 ; 分隔，或改用 pwsh（7+ 支持 &&）";
     if (/\|\s*(head|grep|wc|sed|awk)\b/.test(c)) return "PowerShell 禁 bash 管道工具：用 Select-String / Measure-Object / Select-Object -First";
     if (/(^|[;&|]\s*)(cat|type|Get-Content)\s/i.test(c) && !/\|\s*Select-/.test(c) && !/-(TotalCount|First|Tail)\b/.test(c))
       return "禁裸 cat/type/Get-Content 刷屏：用 Get-Content -TotalCount N -Encoding UTF8";

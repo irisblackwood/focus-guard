@@ -61,7 +61,13 @@ function execNotice() {
       parts.push('bash 工具跑 bash：Select-Object / Get-ChildItem 等 PowerShell cmdlet 不存在，改用 cat / grep / sed / tee')
     }
     if (shells.includes('powershell') || shells.includes('pwsh7')) {
-      parts.push('PowerShell 工具禁 &&（用 ; 分隔）与 bash 管道')
+      // 2026-11-28：原先一律写「PowerShell 工具禁 &&」。实测本机 pwsh 与 DSH 的 PowerShell
+      // 工具都是 7.7 Core，`&&` 合法——把 5.1 的限制套到 7 上，等于教模型写更啰嗦的命令。
+      parts.push(
+        shells.includes('pwsh7')
+          ? 'PowerShell：pwsh7 可用 &&，5.1 禁 &&；两者都禁 bash 管道工具'
+          : 'Windows PowerShell 5.1 禁 &&（用 ;）与 bash 管道工具',
+      )
     }
     if (parts.length) execNoticeCache = `【执行体】${parts.join('；')}。拦下≠环境故障。`
   } catch {
