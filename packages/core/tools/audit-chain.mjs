@@ -65,13 +65,38 @@ function textTree(recs, chainFilter) {
   return out.join("\n");
 }
 
+/**
+ * 索引**一次**，之后全部 O(1) 取。
+ *
+ * 2026-11-28 改：原实现在两个循环里各调一次 `recs.find(...)`（按 seq 取节点、
+ * 按 chain 取链首事件），复杂度 O(n²)。实测 2 万行 532ms → 6 万行 3042ms（行数 3 倍、耗时 5.7 倍）。
+ * AUDIT.log 体积轮转上限 5MB ≈ 2 万条，正好落在曲线上翘的那一段。
+ *
+ * 同文件的 `textTree` 早就建了 `bySeq`，只有 mermaid 这条路径没建——同一个文件里两份口径。
+ *
+ * 语义必须与原 `find` 一致：**同 seq 重复时取首条**（`find` 的语义），
+ * 而 `new Map(recs.map(...))` 是后者覆盖前者。本仓真实日志出现过 17 组 seq 撞号
+ * （见 `core/audit-writer.mjs` 的 nextSeq 注释），所以这里显式 `if (!has) set`。
+ */
+function indexRecords(recs) {
+  const bySeq = new Map();
+  const firstOfChain = new Map();
+  for (const r of recs) {
+    if (!bySeq.has(r.seq)) bySeq.set(r.seq, r);
+    const c = r.chain || "(无链)";
+    if (!firstOfChain.has(c)) firstOfChain.set(c, r);
+  }
+  return { bySeq, firstOfChain };
+}
+
 function mermaid(recs, chainFilter) {
+  const { bySeq, firstOfChain } = indexRecords(recs);
   const ids = new Map();
   let n = 0;
   for (const r of recs) if (!chainFilter || r.chain === chainFilter) ids.set(r.seq, `E${++n}`);
   const lines = ["graph TD"];
   for (const [seq, id] of ids) {
-    const r = recs.find((x) => x.seq === seq);
+    const r = bySeq.get(seq);
     lines.push(`  ${id}["${short(label(r), 46).replace(/"/g, "'")}"]`);
   }
   for (const r of recs) {
@@ -81,12 +106,12 @@ function mermaid(recs, chainFilter) {
     }
   }
   // 链间的父子关系：子代理链首事件 ref 指向父链派单事件
-  const chains = new Set(recs.filter((r) => !chainFilter).map((r) => r.chain || "(无链)"));
+  const chains = new Set((chainFilter ? [] : recs).map((r) => r.chain || "(无链)"));
   for (const c of chains) {
     const m = String(c).match(/^(.+)\/d\d+$/);
     if (m && chains.has(m[1])) {
-      const childFirst = recs.find((r) => r.chain === c);
-      const parentFirst = recs.find((r) => r.chain === m[1]);
+      const childFirst = firstOfChain.get(c);
+      const parentFirst = firstOfChain.get(m[1]);
       if (childFirst && parentFirst && ids.has(childFirst.seq) && ids.has(parentFirst.seq)) {
         lines.push(`  ${ids.get(parentFirst.seq)} -.-> ${ids.get(childFirst.seq)}`);
       }

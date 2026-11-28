@@ -162,6 +162,11 @@ function main() {
   const rows = []; // {id,file,title,sha,src,status}
   const today = new Date().toISOString();
   const normSep = (s) => String(s).replace(/\\/g, "/"); // 幂等配对与平台无关（分隔符归一）
+  // 按内容指纹建索引一次（2026-11-28）：原实现每块都在 `index.rows.find(...)` 里线性扫一遍，
+  // 块数 × 存量行数是 O(n²)。同 sha 取首条——与 `find` 语义一致，且 `index.rows` 在本次
+  // 构建过程中不变（新块进的是 `rows`），所以一次性建表与原逐块查找完全等价。
+  const bySha = new Map();
+  for (const v of index.rows) if (!bySha.has(v.sha)) bySha.set(v.sha, v);
   for (const f of sources) {
     let text;
     try { text = readFileSync(f, "utf8"); } catch { continue; }
@@ -171,7 +176,7 @@ function main() {
     for (const b of pieces) {
       const fp = sha(b.title + "\n" + b.body);
       // 幂等：同内容指纹的积木已存在 → 复用旧 id 与文件（重建不换号；按内容配对，与源路径写法无关）
-      const dup = index.rows.find((v) => v.sha === fp);
+      const dup = bySha.get(fp);
       if (dup) {
         kept++;
         rows.push({ id: dup.id, file: dup.file, title: b.title, sha: fp, src: rel, status: "保留" });
@@ -220,10 +225,17 @@ function buildTable(rows) {
     "|---|---|---|---|---|---|",
   ].join("\n");
   const groups = [];
+  // 组名 → 组（2026-11-28）：原实现每行 `groups.find(...)` 线性找组，O(行×组)。
+  // Map 保留插入序，与原「首次出现即定序」一致；随后的 sort 仍按 themeOrder 定终序。
+  const byName = new Map();
   for (const r of rows) {
     const name = themeOf(r.title, r.src);
-    let g = groups.find((x) => x.name === name);
-    if (!g) groups.push((g = { name, rows: [] }));
+    let g = byName.get(name);
+    if (!g) {
+      g = { name, rows: [] };
+      byName.set(name, g);
+      groups.push(g);
+    }
     g.rows.push(r);
   }
   const themeOrder = [...SRC_THEMES.map(([n]) => n), ...THEMES.map(([n]) => n), UNGROUPED];
