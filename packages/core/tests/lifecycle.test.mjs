@@ -69,11 +69,42 @@ describe("3.0.8 · start 缝（agent/created · 移植批 4）", () => {
       {},
       () => ({ sections: [{ name: "base", text: "BASE" }], tools: [], variables: {} }),
     );
-    assert.equal(rules.sections.length, 2, "应在既有 section 之后追加一条");
     assert.equal(rules.sections[0].name, "base", "原有 section 必须原样保留");
-    assert.equal(rules.sections[1].name, "focus-guard-rules");
+    assert.equal(rules.sections[0].text, "BASE", "原有 section 文本不得被改写");
+    assert.equal(rules.sections[1].name, "focus-guard-rules", "常驻规则紧跟其后");
     assert.ok(rules.sections[1].text.length > 50, "规则文本应非空");
     console.log("注入 section:", rules.sections.map((s) => s.name).join(" + "));
+  });
+
+  // 2026-11-28：执行体约束段。以前 `platform-deny` 只拦不前置，同一条命令跨 8 个回合
+  // 被拦 11 次——拦下只改当次调用，改不了下一回合的默认写法。这段把「闸门怎么判」
+  // 提前写进系统提示。非 Windows 机器上它必须是**空串**（零注入成本），这条同样要守。
+  test("执行体约束段：Windows 有 bash 时必须点名 cmdlet，已存在则字节恒定", async () => {
+    const build = () =>
+      systemPromptRulesListener({ warn: noop })({}, {}, () => ({ sections: [{ name: "base", text: "BASE" }], tools: [] }));
+    const a = await build();
+    const env = a.sections.find((s) => s.name === "focus-guard-env");
+
+    if (process.platform !== "win32") {
+      assert.equal(env, undefined, "非 Windows 不该注入执行体约束");
+      assert.equal(a.sections.length, 2, "非 Windows 仍只有 base + 规则 两段");
+      return;
+    }
+
+    assert.ok(env, "Windows 上应注入 focus-guard-env 段");
+    assert.match(env.text, /【执行体】/, "段首标识缺失");
+    assert.match(env.text, /bash/, "应说明 bash 工具的执行体");
+    assert.match(env.text, /Select-Object/, "应点名 PowerShell cmdlet（实测被拦最多的那条）");
+    assert.ok(env.text.length < 300, `执行体约束应短（实际 ${env.text.length} 字），避免每步固定开销`);
+
+    // 前缀稳定：同一进程内两次装配必须字节一致，否则宿主会追加一条新 system 消息
+    const b = await build();
+    assert.equal(
+      JSON.stringify(b.sections.map((s) => s.text)),
+      JSON.stringify(a.sections.map((s) => s.text)),
+      "两次装配的注入文本必须逐字一致",
+    );
+    console.log("执行体段:", JSON.stringify(env.text));
   });
 
   test("成本提示注入：追加独立 section focus-guard-cost（237 = 222 + 15 的右半边）", async () => {

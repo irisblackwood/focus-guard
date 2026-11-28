@@ -81,7 +81,7 @@ L6 处置结果与伪 RLHF 反馈闭环
 | **L3** | FGA · 静默秒批 / 合并出示 | 已 | 合并出示：原生待批队列 `pendingOf/notePending` + 批量 `tool="Bash,Write"`；秒批：`FG_PTC_AUTO_GRANT=1`（可逆类别自动批，不可逆仍人工）|
 | **L3** | FGA · 人工闸门（文件审批） | 已 **默认开** | `rm-rf` 默认不自证自批：拦截即写 `.focus-guard/approvals/pending_request.json`（id = sha256(工具+命令) 前 12 位），理由带 `node packages/core/tools/focusguard.mjs approve <id>`；人类批准后下一轮消费放行**一次**（`core/approvals.mjs` / `tools/focusguard.mjs`）。逃生口 `FG_PTC_ALLOW_RM_RF=1`，扩展 `FG_PTC_STRICT_ALL=1` |
 | **L3** | FGA · TTL 临时权限令牌 | 已 | `sweepGrants` + `TTL_MAX_MS`（turn 30min / task 4h / persist 24h）|
-| **L3/L5** | 执行体按工具判（环境规则） | 已 | `core/env.mjs::shellIdForTool` + `preGuard.mjs::withToolShell`：`pwsh` 工具按 PowerShell 规则、`bash` 工具按 bash 规则；只覆盖本次判定，不污染会话指纹。验收 `tests/shell-and-retry.test.mjs` |
+| **L3/L5** | 执行体按工具判（环境规则） | 已 | `core/env.mjs::shellIdForTool` + `preGuard.mjs::withToolShell`：`pwsh` 工具按 PowerShell 规则、`bash` 工具按 bash 规则；只覆盖本次判定，不污染会话指纹。验收 `tests/shell-and-retry.test.mjs`。**2026-11-28 补前置**：`seams/prompt-rules.mjs::execNotice` 把「闸门怎么判」写成 `focus-guard-env` 段注入（仅 win32，142 字），因为只拦不前置时同一条命令跨 8 个回合被拦 11 次 |
 | **L4** | DSH 原生压缩栈 | 已 | 宿主 preset `compaction-basic`（窗口按宿主；web profile 阈值 **0.5**，desktop 用默认 **0.8**——2026-11-22 从 0.3 上调，0.3 太频繁压缩会把缓存反复打掉），FG 只监察 |
 | **L4** | 卷宗哈希路由 + 按需拉取 | 已 | `workspace.mjs` 回合落账；hash 不符零注入。**2026-11-22 起不再自动进 system**：模型调 `fg_workspace` 时按 `sid` 渲染（交接快照仍只在换会话时出现） |
 | **L4** | **记忆质量**（沉淀结论 / 冲突检测 / 引用计数 / 证据可校验） | **未竣工** | 机制在跑、内容不成器：`decisions` 自动落账**已于 2026-11-26 下架**（缺陷：抄的是人类指令首行，不是决策——实测 10 条 0 条是决策，多为问句/训话；现不写也不注入）、`next_action` 恒空；无冲突检测（后写覆盖前写且不留痕）、无引用计数、无证据校验；检索**明确不做**（§8.2 三条反证）。**卷宗只作线索，不作事实依据**——此口径已写进 `fg_workspace` 工具描述。缺口、下架登记与恢复条件见 [`MEMORY-4.5-PLAN.md`](MEMORY-4.5-PLAN.md) §〇/§八；挂里程碑，**无独立版本号** |

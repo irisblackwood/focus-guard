@@ -302,16 +302,22 @@ node packages/core/tools/bench-cost.mjs --json   # 机器读：report.fuseWaste
 ## 三、Token 基准
 
 `npm run bench` = 常驻开销（技能目录 + 工具 schema + 系统提示注入）。
-FG 当前注入 237 字符（`focus-guard-rules` 222 + `focus-guard-cost` 15）。改动注入正文后应重跑。
+FG 当前注入：非 Windows **237** 字符（`focus-guard-rules` 222 + `focus-guard-cost` 15）；
+Windows **379**（再加 `focus-guard-env` 142）。改动注入正文后应重跑。
 
 ### 四个「注入体量」数字，别混着用（2026-10-22 辨析）
 
 | 数字 | 含义 | 出处 |
 |---|---|---|
 | **222** | `SESSION_RULES` 静态文本（149 全角 + 73 半角，含 FUSE_PHRASE） | `constants.mjs` 的 `SESSION_RULES` |
-| **237** | DSH 侧实际注入 = 222 + `focus-guard-cost` 15 | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
+| **237** | DSH 侧实际注入 = 222 + `focus-guard-cost` 15（**不含**执行体段） | `src/dsh/guard/runtime.mjs`（`focus-guard-cost` 段） |
+| **379** | Windows 上实际注入 = 237 + `focus-guard-env` 142（2026-11-28 起） | `src/dsh/seams/prompt-rules.mjs`（`focus-guard-env` 段） |
 | **300** | `npm run bench` 读数 = guard.mjs stdout（222 + JSON 信封 78；工作区有 `HANDOFF.md` 时 +46 = 346） | `token-bench.mjs` |
 | **3152** | 场景加权合计（另一维度，别与上面三个直接比） | `ARCHITECTURE.md` 的「常驻注入的体量」表 |
+
+> **2026-11-28 补 `focus-guard-env`**：只在 Windows 且本机探测到对应 shell 时才注入——
+> 非 Windows 是**空串**，一个字节都不占；这正是它不并进 `SESSION_RULES` 的原因
+> （那段对所有平台都成立，且被逐字镜像锁着 222）。
 
 > **2026-11-19 核对**：本表原先写的是行号（`constants.mjs:61` / `seams.mjs:269` / `pipeline.mjs:1068`）， <!-- legacy:ok -->
 > 四处**全部失效**——`pipeline.mjs` 已从千行缩到 131 行，`seams.mjs` 从 269 行缩到 141 行，
