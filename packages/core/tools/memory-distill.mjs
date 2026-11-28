@@ -50,7 +50,20 @@ const FILE_OF_REGION = {
   left: { file: "lessons.md", kind: "lesson", region: "left" },
 };
 
-const PROMOTE_TYPES = new Set(["tool", "action"]);
+/* 只沉淀 `tool`，**不沉淀 `action`**（2026-11-28 改）。
+ *
+ * 原先是 `Set(["tool", "action"])`。判据错在把"审计里出现得多"当成"人在反复做"：
+ * 审计的 `action` **全部由 FG 自己写**——每回合重置、每步残留核验、KPI 结算、拦截、
+ * 心跳。把它们沉淀成「方法」，等于让系统把自己的心跳当成本事。
+ *
+ * 实测代价（`self-improvement/memory/methods.md`，10 行里 8 行是这种条目）：
+ * 「反复做 residue-check 7356 次」「random-audit 485 次」「rules-registered 230 次」——
+ * 没有一条是人的程序性知识。而这 7356 里绝大多数是**每 step 重复记账**的假象
+ * （同批已改为回合级留痕，真实回合数约 63）——假日志喂假记忆，记忆再指导判断。
+ *
+ * 为什么不写"排除名单"：action 名会随版本增删，名单一定会漂；而"action 由 FG 自己写"
+ * 是结构性事实，不随版本变。 */
+const PROMOTE_TYPES = new Set(["tool"]);
 
 const HEADERS = {
   "methods.md": "# 方法（程序性记忆 · 小脑）\n\n由 `memory-distill` 从审计日志自动沉淀；也可以手写。\n" +
