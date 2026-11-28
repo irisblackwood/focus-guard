@@ -62,8 +62,13 @@ export function preStepListener({ warn } = {}) {
       // 单独算、不动 `saveResetState` 的 `isNewTurn`——那里同时控制
       // fused/effectiveCalls/invCalls 的归零，改它等于改执法行为，风险不对等。
       const prevTurn = state.lastTurn
-      const isTurnStart = Number.isInteger(turn) ? turn !== prevTurn : Boolean(short)
-      const flags = detectDirectives({ sid, state, promptText, short })
+      // 无 turn 的宿主（老版本/测试直调）退回「prompt 文本变了才算换回合」——
+      // 比原来的 `Boolean(short)` 更严：只要有文本就算换回合，会让同一回合的每一步
+      // 重新执行一遍批示识别（budget-extend 重复加额度就是这么来的）。
+      const isTurnStart = Number.isInteger(turn)
+        ? turn !== prevTurn
+        : Boolean(short) && promptText.slice(0, 4000) !== state.turnPromptFull
+      const flags = detectDirectives({ sid, state, promptText, short, isTurnStart })
       auditResidues(sid, state, flags.stopOrdered, isTurnStart)
       // 额度核定
       const kw = KEY50_RE.test(promptText) ? 50 : KEY15_RE.test(promptText) ? 15 : BUDGET_DEFAULT
@@ -89,8 +94,17 @@ export function preStepListener({ warn } = {}) {
 /**
  * 批示识别（特赦 / 目标预授权 / 信用延期 / 停止令 / 追加额度）。
  * 顺序与原实现一致：每条的审计行必须在自己的状态变更之后落。
+ *
+ * 只在**换回合**时识别（2026-11-28）：同一回合内 `messages` 不变，每步重判等于把同一句批示
+ * 记多次。实测 goal-preauth 6 行同属 1 个回合、budget-extend 7 行只分 3 组——
+ * 后者不只是多记，是**真的多加了额度**（同一句「追加额度」加 3 次 REFILL）。
+ * 不换回合时沿用上一轮已认定的 mercy / goalPush，否则 saveResetState 会把它们覆写成 false，
+ * 特赦在回合中途失效。
  */
-function detectDirectives({ sid, state, promptText, short }) {
+function detectDirectives({ sid, state, promptText, short, isTurnStart }) {
+  if (!isTurnStart) {
+    return { mercy: !!state.mercy, goalPush: !!state.goalPush, creditGranted: false, stopOrdered: false }
+  }
   // 特赦识别
   const grant = promptText.match(MERCY_RE)
   const mercy = !!(grant && short.length <= MERCY_SHORT)
@@ -174,34 +188,47 @@ function auditResidues(sid, state, stopOrdered, isTurnStart) {
  * 实测 turn 128：step 19 硬上限熔断，step 20 起 eff 仍 200→206、inv 787→793，白走 16 步。
  * 设计意图本就是"回合级状态"（下方 residue-check 已把 fused 列为待清残留）。
  * 改为：只在**换回合**（turn 变化）时重置 fused；同一回合内保留熔断。
- * 注意：只动 fused。其余字段（turnCount/readSet/lastSig…）保持每步重置的现状不动——
- * 尤其 lastSig/lastInput 每步清空意味着"无效调用"只在单步内判定，改成跨步会放大停滞误判。
+ *
+ * 2026-11-28（同日补）：当时注释写着「只动 fused，其余字段保持每步重置的现状不动」——
+ * 那是在不知道代价时的最小改动。实测（session-c00d686c，2107 行日志）发现其余字段的语义
+ * 同样都是「本回合 / 本任务」，每步重置等于**把执法骨架逐条关掉**：
+ *   violations          → `penalize` 的三级递进（≥2 强制调查 / ≥3 熔断 / ≥5 察看）每步归零，永不成立
+ *   turnCount           → `stopPolicy` 的「本回合调用 ≥N 步」与 stopGuard 的「≥5 步」同样永不成立
+ *   readSet             → Read 记的账下一步就没了 → 日志里 24 条 deny **全部**落在「未取证」
+ *   editedFiles         → blast-radius 阈值 6 从未触发（2107 行 0 条），批量场景（≥5 文件）同病
+ *   kpiScolded          → 同一回合反复扣分（turn 100 的 step 3 与 step 12 各 -5，全日志 78 次）
+ *   delegated           → 「已委派过」每步丢失，是上一条扣分的放大器
+ *   kpiDelegatedAwarded → +5 可反复给
+ *   probation / forcedInvestigate / stopBlocked / randomFusePending → 状态活不过一步
+ * 故一并改为回合级。**只有 lastSig/lastInput 仍按步重置**——「无效调用」判定依赖单步比较，
+ * 跨步共享会放大停滞误判。
  */
 function saveResetState({ file, state, turn, promptText, chain, flags }) {
   const isNewTurn = Number.isInteger(turn) ? turn !== state.lastTurn : true
   saveState(file, {
     ...state, // envCache/caseCache（侦查缓存）随 spread 保留；kpi/delegateUsed 跨回合保留
     lastTurn: Number.isInteger(turn) ? turn : state.lastTurn,
-    turnCount: 0,
+    // ── 以下 11 项均为回合级：同一回合内保留，换回合才清 ──
+    turnCount: isNewTurn ? 0 : state.turnCount || 0,
+    stopBlocked: isNewTurn ? false : !!state.stopBlocked,
+    randomFusePending: isNewTurn ? false : !!state.randomFusePending,
+    violations: isNewTurn ? (flags.stopOrdered ? Math.max(state.violations || 0, 3) : 0) : state.violations || 0,
+    forcedInvestigate: isNewTurn ? false : !!state.forcedInvestigate,
+    probation: isNewTurn ? false : !!state.probation,
+    readSet: isNewTurn ? {} : state.readSet || {},
+    delegated: isNewTurn ? false : !!state.delegated,
+    editedFiles: isNewTurn ? {} : state.editedFiles || {},
+    kpiScolded: isNewTurn ? {} : state.kpiScolded || {},
+    kpiDelegatedAwarded: isNewTurn ? false : !!state.kpiDelegatedAwarded,
     fused: isNewTurn ? flags.stopOrdered : state.fused,
-    stopBlocked: false,
     // 2026-10-28 修（熔断太容易）：`effectiveCalls`/`invCalls` 是**回合级**计数
     // （预算与硬上限都按"本回合有效调用"判），原实现跨回合累计且从不归零——
     // 一旦会话累计到 BUDGET_CAP，之后每个有效调用都重新置 fused，换回合也解不开。
     effectiveCalls: isNewTurn ? 0 : state.effectiveCalls,
     invCalls: isNewTurn ? 0 : state.invCalls,
     invWarned: isNewTurn ? false : state.invWarned,
-    randomFusePending: false, // 反规避抽查B：检查点属回合内状态，换回合作废（写操作计数 fuseOps 保留）
     mercy: flags.mercy,
     goalPush: flags.goalPush,
-    violations: flags.stopOrdered ? Math.max(state.violations || 0, 3) : 0,
-    forcedInvestigate: false,
-    probation: false,
-    readSet: {},
-    delegated: false,
-    editedFiles: {},
-    kpiScolded: {},
-    kpiDelegatedAwarded: false,
     turnPrompt: promptText.slice(0, 500),
     turnPromptFull: promptText.slice(0, 4000),
     taskBudget: state.taskBudget,

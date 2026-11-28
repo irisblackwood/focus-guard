@@ -117,6 +117,33 @@
   - **为什么 `residue-check` 也该是回合级**：43条 原文是「上一回合残留，本回合核验清理」。
     776 行里 `fused`/`forcedInvestigate`/`stopBlocked` **一条都没有**——从没记下过执法状态的清理。
 
+### 回合级状态被按步重置：执法骨架逐条失效（2026-11-28）
+
+- fix(adapters): 〔开发期〕`pre-step` 的 11 个回合级字段改为**跨 step 存活**，换回合才清
+  - **病根**：`agent/pre-step` 每个 step 都触发，`saveResetState` 把语义为「本回合 / 本任务」的
+    字段一并按步清空。2026-10-27 只修了 `fused`（熔断只活一步），当时注释写着「其余字段保持
+    每步重置的现状不动」——那是在不知道代价时的最小改动，代价是**执法骨架逐条关掉**：
+    | 字段 | 按步重置的后果 | 日志实证（2107 行） |
+    |---|---|---|
+    | `readSet` | `Read` 记的账下一步就没了 | 24 条 `deny` **全部**是「未取证」 |
+    | `editedFiles` | 改动面统计只剩最后一步 | `blast-radius` 阈值 6 从未触发（0 条） |
+    | `kpiScolded` | 同一回合反复扣分 | turn 100 的 step 3 与 step 12 各 `-5`，全日志 78 次 |
+    | `delegated` | 「已委派过」每步丢失 | 上一条的放大器：委派完下一步又判未委派 |
+    | `violations` | `penalize` 三级递进每步归零 | ≥2 强制调查 / ≥3 熔断 / ≥5 察看**永不成立** |
+    | `turnCount` | 「本回合调用次数」恒 0 | `stopPolicy` 的「≥N 步」与 stopGuard「≥5 步」永不成立 |
+    | `probation` / `forcedInvestigate` / `stopBlocked` / `randomFusePending` | 状态活不过一步 | 反规避抽查B 的检查点下一步即作废 |
+  - **改法**：11 项统一改 `isNewTurn ? 默认值 : 原值`；`lastSig`/`lastInput` 仍按步重置——
+    「无效调用」判定依赖单步比较，跨步共享会放大停滞误判。
+  - **同源问题一并收**：`detectDirectives` 改为只在换回合时识别。同一回合内 `messages` 不变，
+    每步重判不只是多记——`budget-extend` 实测会把同一句「追加额度」加 3 次 `REFILL`。
+    实测 `goal-preauth` 6 行同属 1 个回合、`budget-extend` 7 行只分 3 组。
+  - **对「过度保护」的补充**：此前结论是「闸门偏严」。这 24 条 deny 说明另一面——
+    **闸门把该放行的也拦了，因为账没记住**。同一份日志里「拦得对」与「拦错」是混在一起的，
+    不先把回合级状态修对，任何关于严松的判断都建立在错误的分母上。
+  - **钉住**：`tests/turn-scoped-state.test.mjs` 6 例（11 字段同回合存活、换回合清空、
+    `readSet` 跨步、`budget-extend` 只加一次、`goal-preauth` 只记一行、特赦不被覆写）；
+    在旧实现上跑 **4 红 2 绿**，新实现 6 绿——证明这组断言真的锁住了行为。
+
 
 ## 3.5.3 · 2026-11-26
 
