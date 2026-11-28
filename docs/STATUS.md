@@ -19,12 +19,12 @@
 | [`docs/MODULES.md`](../docs/MODULES.md) | 权威 | 3.5.4 | 2026-11-28 | 0 | 0 |
 | [`docs/README.md`](../docs/README.md) | 权威 | 3.5.4 | 2026-11-27 | 1 | 0 |
 | [`INSTALL.md`](../INSTALL.md) | 权威 | 3.5.3 | 2026-11-26 | 2 | 0 |
-| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.4 | 2026-11-27 | 1 | 0 |
-| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-26 | 2 | 0 |
+| [`packages/core/docs/ARCH-MAP.md`](../packages/core/docs/ARCH-MAP.md) | 权威 | 3.5.4 | 2026-11-28 | 0 | 0 |
+| [`packages/core/docs/BENCH.md`](../packages/core/docs/BENCH.md) | 权威 | 3.5.3 | 2026-11-28 | 0 | 0 |
 | [`packages/core/docs/MEMORY-HYBRID.md`](../packages/core/docs/MEMORY-HYBRID.md) | 权威 | 3.5.3 | 2026-11-24 | 4 | 0 |
 | [`packages/core/docs/PROFILE-TUNING.md`](../packages/core/docs/PROFILE-TUNING.md) | 权威 | 3.5.3 | 2026-11-24 | 4 | 0 |
 | [`packages/core/docs/RELEASE-POLICY.md`](../packages/core/docs/RELEASE-POLICY.md) | 权威 | 3.5.3 | 2026-11-26 | 2 | 0 |
-| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-27 | 1 | 0 |
+| [`packages/core/docs/RULES.md`](../packages/core/docs/RULES.md) | 权威 | 3.5.3 | 2026-11-28 | 0 | 0 |
 | [`packages/core/docs/THREAT-MODEL.md`](../packages/core/docs/THREAT-MODEL.md) | 权威 | 3.5.3 | 2026-11-26 | 2 | 0 |
 | [`packages/core/docs/VERSION-PLAN.md`](../packages/core/docs/VERSION-PLAN.md) | 权威 | 3.5.4 | 2026-11-27 | 1 | 0 |
 | [`packages/core/docs/WRITING-STYLE.md`](../packages/core/docs/WRITING-STYLE.md) | 权威 | 3.5.3 | 2026-11-26 | 2 | 0 |
@@ -59,12 +59,12 @@ docs/INDEX.md|权威|3.5.4|2026-11-27
 docs/MODULES.md|权威|3.5.4|2026-11-28
 docs/README.md|权威|3.5.4|2026-11-27
 INSTALL.md|权威|3.5.3|2026-11-26
-packages/core/docs/ARCH-MAP.md|权威|3.5.4|2026-11-27
-packages/core/docs/BENCH.md|权威|3.5.3|2026-11-26
+packages/core/docs/ARCH-MAP.md|权威|3.5.4|2026-11-28
+packages/core/docs/BENCH.md|权威|3.5.3|2026-11-28
 packages/core/docs/MEMORY-HYBRID.md|权威|3.5.3|2026-11-24
 packages/core/docs/PROFILE-TUNING.md|权威|3.5.3|2026-11-24
 packages/core/docs/RELEASE-POLICY.md|权威|3.5.3|2026-11-26
-packages/core/docs/RULES.md|权威|3.5.3|2026-11-27
+packages/core/docs/RULES.md|权威|3.5.3|2026-11-28
 packages/core/docs/THREAT-MODEL.md|权威|3.5.3|2026-11-26
 packages/core/docs/VERSION-PLAN.md|权威|3.5.4|2026-11-27
 packages/core/docs/WRITING-STYLE.md|权威|3.5.3|2026-11-26
