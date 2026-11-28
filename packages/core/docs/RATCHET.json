@@ -83,6 +83,14 @@
       "smells": 8,
       "duplicates": 9,
       "note": "还债 2 条：`dead-export` 与 `module-audit` 各抄一份 `walk()`（与 `lib/import-graph.mjs` 的 `walk` 逐字同形，都按 `.mjs|js` 过滤），改为直接复用——两处 ROOTS 不同，但遍历器本身一模一样，之前 `import-graph` 那次「17 行 + SKIP_DIRS 收成参数」的收口漏了这两个调用方。重复块 11→9。结构异味 8 条不变。本段主线是文档落后审查（见 CHANGELOG 3.5.3），还债是顺手：用户问「mjs 是不是重复很多」，实测源文件 11 条重复块里只有这一对是跨工具成对的，其余是 profiles 的同构配置与 hooks/ 封存层的旧副本。"
+    },
+    {
+      "version": "3.5.4",
+      "date": "2026-11-28",
+      "commit": "ae35342",
+      "smells": 8,
+      "duplicates": 7,
+      "note": "还债 1 条：`eligibility-gate` 里「人工批准」与「PTC 静默秒批」两处 `grants.grant` + `auditEligibility` 逐字同形（8 行），抽成 `grantAndAudit`——抄两份的代价不是多 8 行，是改字段时容易只改一边，而这两条路径写的是同一张授权表的同一件事。重复块 9→7，结构异味 8 条不变（本文件 745 行本就在 file-length 名单里，加 20 行不新增条目）。本版主线是测量工具（变异副本 / 抽样 / 交叉引用闸 / 拦截指纹），只改尺子不改判定逻辑，所以两项数字本不该动——记账的意义是证明它没动，还债是顺手。commit 记的是本批入库前的 tip：这一行与版本面同批提交，自身哈希无法自指。"
     }
   ]
 }

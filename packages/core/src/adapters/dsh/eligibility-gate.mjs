@@ -263,6 +263,26 @@ export async function applyEligibility(spec) {
   return applyOneEligibility({ ...spec, tool: list[0] ?? rawTool })
 }
 
+/**
+ * 授予授权 + 留痕一次（人工批准 / PTC 静默秒批两处共用）。
+ *
+ * 两处的四行 `grants.grant(...)` + `auditEligibility({...})` 逐字同形，只有 action / evidence /
+ * reason 不同。抄两份的代价不是多 8 行，是**改字段时容易只改一边**——
+ * 而这两条路径写的是同一张授权表的同一件事，口径分叉后审计就再也对不上账。
+ */
+function grantAndAudit({ grants, session, tool, command, ttl, action, evidence, reason }) {
+  grants.grant(tool, { ttl, reason, layer: '6' })
+  auditEligibility({
+    session,
+    action,
+    tool,
+    command: String(command ?? '').slice(0, 120),
+    layer: 'gate',
+    decision: 'allow',
+    evidence,
+  })
+}
+
 /** 单工具申请（applyEligibility 的内部实现；外部请走 applyEligibility）。 */
 async function applyOneEligibility({
   session,
@@ -321,15 +341,15 @@ async function applyOneEligibility({
     // 人类已在终端批准过这条（同命令哈希 + 同会话 + 未过期）？消费后直接放行一次。
     const consumed = consumeApproval(tool, command, session)
     if (consumed.consumed) {
-      grants.grant(tool, { ttl, reason: `人工批准（approvals ${consumed.id}）`, layer: '6' })
-      auditEligibility({
+      grantAndAudit({
+        grants,
         session,
-        action: 'approval-consumed',
         tool,
-        command: String(command ?? '').slice(0, 120),
-        layer: 'gate',
-        decision: 'allow',
+        command,
+        ttl,
+        action: 'approval-consumed',
         evidence: consumed.id,
+        reason: `人工批准（approvals ${consumed.id}）`,
       })
       return verdictOf({
         decision: 'allow',
@@ -392,15 +412,15 @@ async function applyOneEligibility({
   if (PTC.autoGrant && result.decision === 'needApproval') {
     const gateId = selfGateId
     if (gateId && !IRREVERSIBLE_IDS.includes(gateId)) {
-      grants.grant(tool, { ttl, reason: `PTC 静默秒批（${gateId}）`, layer: '6' })
-      auditEligibility({
+      grantAndAudit({
+        grants,
         session,
-        action: 'ptc-auto-grant',
         tool,
-        command: String(command ?? '').slice(0, 120),
-        layer: 'gate',
-        decision: 'allow',
+        command,
+        ttl,
+        action: 'ptc-auto-grant',
         evidence: gateId,
+        reason: `PTC 静默秒批（${gateId}）`,
       })
       return verdictOf({
         decision: 'allow',

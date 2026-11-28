@@ -12,6 +12,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { calcCost } from '../peak-cost.mjs'
 import { sidOf as sidOfAny } from './sessionScope.mjs'
+import { commandOf } from './guard/tooling.mjs'
 import { casePath, ensureCaseFile } from '../core/state.mjs'
 import {
   AUDIT_FILE,
@@ -72,12 +73,26 @@ export function auditAsk(exec, cmd, detail = {}) {
  * @param {{ trigger?: string, level?: number|null }} [detail]
  */
 export function auditDeny(exec, cmd, detail = {}) {
+  // 2026-11-28：拦截行补 `tool` + `command` 指纹。
+  //
+  // 原状只有 `evidence`（人写的理由）+ `turn`/`step`，**拦的是哪个工具、哪条命令一概不留**。
+  // 后果是「拦下之后发生了什么」无从对账：既没法把拦截与后一次调用配对，也分不出
+  // 「同一条命令原样重试」和「换了写法」。实测 2104 行日志里 48 条拦截，全部没有指纹——
+  // 收益侧无数据，一半缺口在这里，不在统计方法上。
+  //
+  // 口径与 `eligibility-gate` 已有的 `tool`/`command` 一致，不另起名字。
+  // 命令取 `commandOf`（write/read 类工具没有命令文本，记 null，不编造）。
+  const raw = commandOf(exec)
   return appendAudit(
     buildAuditRow(sessionOf(exec), 'deny', {
       trigger: detail.trigger || 'unspecified',
       level: detail.level ?? 3,
       evidence: cmd,
       evidenceLimit: 120,
+      extra: {
+        tool: String((exec && exec.name) || 'unknown'),
+        command: raw === null ? null : String(raw).slice(0, 120),
+      },
     }),
   )
 }
