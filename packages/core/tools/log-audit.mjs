@@ -118,14 +118,34 @@ if (Object.keys(shapes).length > 1) {
 // 别把这一节读成"拦截有效"。它只说明「浪费了几次」，说不出「救了几次」。
 const BLOCK_RE = /^(deny|platform-deny|deny-|violation-|reject-|inv-pool-exceeded|ctx-pollution|library-write-deny)/
 const CLOSURE_RE = /^(approval-|grants-|grant$|appeal|fg-apply|apply-)/
+// 「拦了本来也会失败」：命令语义层面就注定报错，拦与不拦结果相同。
+// 这类重复是纯成本，且顺带证明「拦」没有学习效果——同一条命令能被拦 9 次。
+const FUTILE_TRIGGER_RE = /platform-deny/
+
 const blocks = ok.filter((r) => BLOCK_RE.test(r.action || ''))
 const closures = ok.filter((r) => CLOSURE_RE.test(r.action || ''))
+
+/** 按 key 分组，只留出现 ≥2 次的组。 */
+function groupsOf(rows, keyOf) {
+  const m = new Map()
+  for (const r of rows) {
+    const k = keyOf(r)
+    if (!m.has(k)) m.set(k, [])
+    m.get(k).push(r)
+  }
+  return [...m.entries()].filter(([, g]) => g.length > 1)
+}
+const extraOf = (groups) => groups.reduce((a, [, g]) => a + (g.length - 1), 0)
+
+// 口径一：字段指纹（2026-11-28 起的新行才有 tool/command）。
 const withPrint = blocks.filter((r) => r.tool && r.command !== undefined)
-const printKey = (r) => `${r.session}|${r.tool}|${r.command}`
-const printCount = new Map()
-for (const r of withPrint) printCount.set(printKey(r), (printCount.get(printKey(r)) || 0) + 1)
-const repeated = [...printCount.values()].filter((n) => n > 1)
-const wasted = repeated.reduce((a, n) => a + (n - 1), 0)
+const byField = groupsOf(withPrint, (r) => `${r.session}|${r.tool}|${r.command}`)
+
+// 口径二：文本指纹，回溯历史。trigger + evidence 前 80 字。
+// 不解析命令是刻意的：两行 evidence 逐字相同就意味着同一件事，不会把一件事拆成两组。
+// 代价是「同一理由、不同命令」会被并成一组，所以它只作**下界**，不当精确值。
+const byText = groupsOf(blocks, (r) => `${r.trigger || ''}|${String(r.evidence || '').slice(0, 80)}`)
+const futile = byText.filter(([, g]) => FUTILE_TRIGGER_RE.test(g[0].trigger || g[0].action || ''))
 
 console.log('\n== 拦截闭环 ==')
 console.log(
@@ -134,13 +154,30 @@ console.log(
 )
 console.log(
   `  带 tool+command 指纹 ${withPrint.length}/${blocks.length} 行` +
-    (withPrint.length < blocks.length ? '（2026-11-28 之前的行没有指纹，本节从本轮起才准）' : ''),
+    (withPrint.length < blocks.length ? '（2026-11-28 之前的行没有指纹，字段口径从本轮起才准）' : ''),
 )
-console.log(
-  repeated.length
-    ? `  同指纹重复拦截 ${repeated.length} 组，多拦 ${wasted} 次 ← **纯成本下界**（成功重试不会留下第二条 deny）`
-    : '  同指纹重复拦截：0 组（无数据时不要读成"零浪费"）',
-)
+if (byField.length) {
+  console.log(`  字段口径重复 ${byField.length} 组，多拦 ${extraOf(byField)} 次`)
+}
+console.log('  ── 回溯口径（trigger + evidence 前 80 字，历史行也算得出）──')
+if (!byText.length) {
+  console.log('  同文本指纹重复：0 组（无数据时不要读成"零浪费"）')
+} else {
+  console.log(
+    `  同文本指纹重复 ${byText.length} 组，多拦 ${extraOf(byText)} 次 ← **纯成本下界**（成功重试不会留下第二条 deny）`,
+  )
+  if (futile.length) {
+    console.log(
+      `    其中「拦了本来也会失败」${futile.length} 组、多拦 ${extraOf(futile)} 次` +
+        ' ← 这类应改成「教一次」，拦没有学习效果',
+    )
+    for (const [, g] of futile.slice(0, 2)) {
+      console.log(`      ×${g.length} ${String(g[0].evidence || '').slice(0, 72)}`)
+    }
+  }
+  const useful = extraOf(byText) - extraOf(futile)
+  console.log(`    其余 ${useful} 次 ← 可能是必要成本（真防住了），但也说明模型健忘`)
+}
 console.log(
   `  闭环行（申请/批准/申诉）${closures.length} 条` +
     (closures.length === 0 ? ' ← 通道建好了没人走，收益侧仍然无数据' : ''),

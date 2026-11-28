@@ -51,8 +51,20 @@ export function preStepListener({ warn } = {}) {
       }
       const promptText = humanTextOf(messages)
       const short = promptText.trim()
+      // 换回合判定**提前**算：残留核验与 reset-fired 都只在换回合时留痕。
+      //
+      // `agent/pre-step` 每个 step 都触发，而原实现两处都无条件落账 → 实测
+      // （2026-11-28，session-c00d686c）：63 个真实回合记出 831 行 reset-fired
+      // （avg 13、max 56）与 776 行 residue-check（avg 13.4）。整份日志 2104 行里
+      // 有 1607 行是这两项，等于 76% 在记"同一个回合内的第 N 步照例又跑了一遍"。
+      //
+      // 「回合重置」按其语义就是回合级的：同一回合内的后续 step 不该再报一次"重置了"。
+      // 单独算、不动 `saveResetState` 的 `isNewTurn`——那里同时控制
+      // fused/effectiveCalls/invCalls 的归零，改它等于改执法行为，风险不对等。
+      const prevTurn = state.lastTurn
+      const isTurnStart = Number.isInteger(turn) ? turn !== prevTurn : Boolean(short)
       const flags = detectDirectives({ sid, state, promptText, short })
-      auditResidues(sid, state, flags.stopOrdered)
+      auditResidues(sid, state, flags.stopOrdered, isTurnStart)
       // 额度核定
       const kw = KEY50_RE.test(promptText) ? 50 : KEY15_RE.test(promptText) ? 15 : BUDGET_DEFAULT
       state.taskBudget = Math.max(kw, state.declaredBudget || 0, state.taskBudget || BUDGET_DEFAULT)
@@ -60,11 +72,13 @@ export function preStepListener({ warn } = {}) {
       state.ineffCalls = 0
       const chain = 'T' + Date.now().toString(36)
       saveResetState({ file, state, turn, promptText, chain, flags })
-      auditRow(
-        sid,
-        'reset-fired',
-        `prompt:${promptText ? '有' : '无'}(${promptText.length}字) kw=${kw} budget=${state.taskBudget} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} stall=${state.stalledStreak || 0}${flags.creditGranted ? ' 信用延期' : ''}${flags.mercy ? ' 特赦' : ''}`,
-      )
+      if (isTurnStart) {
+        auditRow(
+          sid,
+          'reset-fired',
+          `prompt:${promptText ? '有' : '无'}(${promptText.length}字) kw=${kw} budget=${state.taskBudget} eff=${state.effectiveCalls || 0} inv=${state.invCalls || 0} stall=${state.stalledStreak || 0}${flags.creditGranted ? ' 信用延期' : ''}${flags.mercy ? ' 特赦' : ''}`,
+        )
+      }
     } catch (error) {
       if (typeof warn === 'function') warn('回合重置缝异常（不阻塞）:', (error && error.message) || error)
     }
@@ -131,7 +145,7 @@ function applyBudgetExtend({ sid, state, short }) {
 }
 
 /** 43条 状态重置核验：上一回合残留 → 记档后清理。 */
-function auditResidues(sid, state, stopOrdered) {
+function auditResidues(sid, state, stopOrdered, isTurnStart) {
   const residues = []
   if ((state.turnCount || 0) > 0) residues.push(`turnCount=${state.turnCount}`)
   if ((state.stalledStreak || 0) > 0) residues.push(`stall=${state.stalledStreak}`)
@@ -139,7 +153,17 @@ function auditResidues(sid, state, stopOrdered) {
   if (state.forcedInvestigate) residues.push('forcedInvestigate')
   if (state.stopBlocked) residues.push('stopBlocked')
   if (state.readSet && Object.keys(state.readSet).length) residues.push(`readSet=${Object.keys(state.readSet).length}`)
-  if (residues.length) auditRow(sid, 'residue-check', `43条 残留(已清理): ${residues.join(' ')}`)
+  // 有残留、**且确实在换回合**才记。
+  //
+  // 43条 的原意是「上一回合的残留，本回合核验后清理」——它天生是回合级的。
+  // 原实现只判 `residues.length`，于是同一回合内的每一步都在报"又清理了一次"：
+  // 实测 776 行里 turnCount 773 / readSet 352 / stall 48，而 fused /
+  // forcedInvestigate / stopBlocked **一条都没有**——从没记下过一次执法状态的清理。
+  // 这些行分不出「回合开始清上一回合的账」和「本回合第 7 步例行归零」，
+  // 混在一起就被读成「残留一直在产生」。
+  if (isTurnStart && residues.length) {
+    auditRow(sid, 'residue-check', `43条 残留(已清理): ${residues.join(' ')}`)
+  }
 }
 
 /**
